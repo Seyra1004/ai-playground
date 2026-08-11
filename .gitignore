@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# SUPER NEWS — secrets, runtime state, generated data
+super-news/.venv/
+super-news/.env
+super-news/data/
+super-news/logs/
+
+# Node
+node_modules/
+
+# Editor/OS
+.DS_Store
+Thumbs.db
+
+# Playwright MCP scratch output
+.playwright-mcp/

@@ -1,0 +1,12 @@
+requests==2.33.0
+python-dotenv==1.1.1
+pytest==8.4.2
+
+# Phase 2A ingestion foundation:
+# - PyYAML: stdlib has no YAML parser; sources.yaml is declarative config.
+# - feedparser: mature, battle-tested RSS/Atom parser — safer than hand-rolled
+#   XML parsing against arbitrary external feeds (malformed markup, encoding
+#   quirks, RSS-vs-Atom differences).
+pyyaml==6.0.3
+feedparser==6.0.14
+feedparser-sgmllib==2.1.0

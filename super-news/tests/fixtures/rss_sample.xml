@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Test Feed</title>
+    <link>https://example.com/</link>
+    <description>Test feed for SUPER NEWS ingestion tests</description>
+    <item>
+      <title>Article With GUID</title>
+      <link>https://example.com/articles/1</link>
+      <guid isPermaLink="false">urn:example:article-1</guid>
+      <description>Summary of article one.</description>
+      <pubDate>Mon, 10 Aug 2026 09:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <title>Article Without GUID</title>
+      <link>https://example.com/articles/2?utm_source=twitter&amp;id=2</link>
+      <description>Summary of article two.</description>
+      <pubDate>Tue, 11 Aug 2026 10:30:00 GMT</pubDate>
+    </item>
+    <item>
+      <title>Article Without PubDate</title>
+      <link>https://example.com/articles/3</link>
+      <description>Summary of article three.</description>
+    </item>
+  </channel>
+</rss>

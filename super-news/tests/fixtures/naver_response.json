@@ -1,0 +1,22 @@
+{
+  "lastBuildDate": "Mon, 11 Aug 2026 12:00:00 +0900",
+  "total": 2,
+  "start": 1,
+  "display": 2,
+  "items": [
+    {
+      "title": "AI &quot;<b>인공지능</b>&quot; 기술 발전",
+      "originallink": "https://press.example.com/articles/100",
+      "link": "https://news.naver.com/main/read.naver?oid=1&aid=100",
+      "description": "<b>인공지능</b> 관련 &amp; 최신 소식.",
+      "pubDate": "Mon, 11 Aug 2026 10:00:00 +0900"
+    },
+    {
+      "title": "Second article without originallink",
+      "originallink": "",
+      "link": "https://news.naver.com/main/read.naver?oid=1&aid=101",
+      "description": "Second description.",
+      "pubDate": "Mon, 11 Aug 2026 11:00:00 +0900"
+    }
+  ]
+}
