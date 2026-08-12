@@ -45,7 +45,7 @@ sources:
     source_type: naver_news_api
     category: SOCIETY_NEWS
     region: KR
-    endpoint: https://openapi.naver.com/v1/search/news.json
+    endpoint: https://naverapihub.apigw.ntruss.com/search/v1/news
     timeout_seconds: 10
     retry:
       max_attempts: 3

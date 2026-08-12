@@ -99,8 +99,8 @@ def fetch_source(source_config, sleep=None):
     logging_setup.register_secret(client_secret)
 
     headers = {
-        "X-Naver-Client-Id": client_id,
-        "X-Naver-Client-Secret": client_secret,
+        "X-NCP-APIGW-API-KEY-ID": client_id,
+        "X-NCP-APIGW-API-KEY": client_secret,
     }
     params = {
         "query": source_config.params.get("query", ""),
