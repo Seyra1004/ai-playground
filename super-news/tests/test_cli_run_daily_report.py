@@ -4,6 +4,7 @@ network/API call."""
 
 import sqlite3
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -11,6 +12,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 import run_daily_report as cli  # noqa: E402
 
 from report.llm_interface import LLMResponse, StructuredLLM
+
+# Matches ingestion/orchestrator.py's _KST: fixed +09:00, stdlib-only.
+_KST = timezone(timedelta(hours=9))
 
 
 class FakeLLM(StructuredLLM):
@@ -96,17 +100,26 @@ def test_thin_integration_writes_real_rows_and_calls_llm(tmp_path):
     db_path = tmp_path / "test.db"
     from db.database import connect, init_db
 
+    # Computed at run time (not hardcoded) so this always falls inside
+    # "today's" KST candidate-selection window regardless of which real
+    # calendar date the test suite happens to run on -- candidate_selection
+    # matches an EXACT KST day, unlike music's on-or-before snapshot lookup,
+    # so a fixed past date here would go stale the moment the real date
+    # rolled over (this is what broke previously).
+    collected_at = datetime.now(_KST).astimezone(timezone.utc).isoformat()
+
     init_db(db_path=db_path)
     conn = connect(db_path=db_path)
     conn.execute(
         """INSERT INTO raw_items (source_name, source_item_key, source_type, source_url, title, collected_at)
-           VALUES ('s', 'k1', 'rss', 'https://x', 'AI news', '2026-08-12T00:00:00+00:00')"""
+           VALUES ('s', 'k1', 'rss', 'https://x', 'AI news', ?)""",
+        (collected_at,),
     )
     raw_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
     conn.execute(
         """INSERT INTO normalized_items (raw_item_id, category, event_key, normalized_title, created_at)
-           VALUES (?, 'AI_NEWS', 'ev-1', 'AI news', '2026-08-12T00:00:00+00:00')""",
-        (raw_id,),
+           VALUES (?, 'AI_NEWS', 'ev-1', 'AI news', ?)""",
+        (raw_id, collected_at),
     )
     conn.commit()
     conn.close()
