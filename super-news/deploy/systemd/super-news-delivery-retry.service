@@ -1,0 +1,13 @@
+[Unit]
+Description=SUPER NEWS Kakao delivery retry (idempotent no-op if already sent)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/opt/super-news
+ExecStart=/opt/super-news/scripts/deliver_retry.sh
+TimeoutStartSec=5min
+StandardOutput=journal
+StandardError=journal

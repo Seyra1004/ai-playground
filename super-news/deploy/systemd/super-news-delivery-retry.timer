@@ -1,0 +1,11 @@
+[Unit]
+Description=Retry SUPER NEWS Kakao delivery at 3 bounded slots after the main pipeline (08:05, 08:20, 08:50 KST)
+
+[Timer]
+OnCalendar=*-*-* 08:05:00 Asia/Seoul
+OnCalendar=*-*-* 08:20:00 Asia/Seoul
+OnCalendar=*-*-* 08:50:00 Asia/Seoul
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

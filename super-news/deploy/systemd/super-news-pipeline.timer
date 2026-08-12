@@ -1,0 +1,10 @@
+[Unit]
+Description=Run SUPER NEWS daily pipeline at 07:50 KST
+
+[Timer]
+OnCalendar=*-*-* 07:50:00 Asia/Seoul
+Persistent=true
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

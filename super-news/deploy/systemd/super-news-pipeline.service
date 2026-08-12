@@ -1,0 +1,13 @@
+[Unit]
+Description=SUPER NEWS daily pipeline (collect -> report -> deliver)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/opt/super-news
+ExecStart=/opt/super-news/scripts/run_daily_pipeline.sh
+TimeoutStartSec=25min
+StandardOutput=journal
+StandardError=journal
