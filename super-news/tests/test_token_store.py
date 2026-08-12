@@ -134,3 +134,83 @@ def test_is_expired_or_unknown_respects_margin():
     soon = (datetime.now(timezone.utc) + timedelta(seconds=60)).isoformat()
     assert token_store.is_expired_or_unknown(soon, margin_seconds=300) is True
     assert token_store.is_expired_or_unknown(soon, margin_seconds=10) is False
+
+
+# ---- POSIX (Linux/VPS) lock-down path ---------------------------------------
+#
+# The dev/test machine is Windows, so these force _IS_WINDOWS=False and mock
+# os.chmod/os.stat/os.getuid (the last doesn't even exist on Windows) rather
+# than relying on real POSIX filesystem semantics, which aren't available
+# here. This verifies the dispatch logic and accept/reject rules, not actual
+# chmod behavior -- that's exercised for real on the VPS at deploy time.
+
+
+def _force_posix(monkeypatch):
+    monkeypatch.setattr(token_store, "_IS_WINDOWS", False)
+
+
+def test_posix_dir_lock_down_calls_chmod_700(tmp_path, monkeypatch):
+    _force_posix(monkeypatch)
+    calls = []
+    monkeypatch.setattr(token_store.os, "chmod", lambda path, mode: calls.append((path, mode)))
+
+    token_store._apply_dir_lock_down(tmp_path)
+
+    assert calls == [(tmp_path, 0o700)]
+
+
+def test_posix_dir_lock_down_raises_on_chmod_failure(tmp_path, monkeypatch):
+    _force_posix(monkeypatch)
+
+    def boom(path, mode):
+        raise OSError("simulated chmod failure")
+
+    monkeypatch.setattr(token_store.os, "chmod", boom)
+
+    with pytest.raises(token_store.TokenStoreInsecureError):
+        token_store._apply_dir_lock_down(tmp_path)
+
+
+def _fake_stat(uid, mode):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(st_uid=uid, st_mode=mode)
+
+
+def test_posix_verify_accepts_owned_private_file(tmp_path, monkeypatch):
+    _force_posix(monkeypatch)
+    monkeypatch.setattr(token_store.os, "getuid", lambda: 1000, raising=False)
+    monkeypatch.setattr(token_store.os, "stat", lambda p: _fake_stat(1000, 0o600))
+
+    token_store._verify_acl_or_raise(tmp_path / "token.json")  # must not raise
+
+
+def test_posix_verify_rejects_wrong_owner(tmp_path, monkeypatch):
+    _force_posix(monkeypatch)
+    monkeypatch.setattr(token_store.os, "getuid", lambda: 1000, raising=False)
+    monkeypatch.setattr(token_store.os, "stat", lambda p: _fake_stat(2000, 0o600))
+
+    with pytest.raises(token_store.TokenStoreInsecureError):
+        token_store._verify_acl_or_raise(tmp_path / "token.json")
+
+
+def test_posix_verify_rejects_group_or_other_permission(tmp_path, monkeypatch):
+    _force_posix(monkeypatch)
+    monkeypatch.setattr(token_store.os, "getuid", lambda: 1000, raising=False)
+    monkeypatch.setattr(token_store.os, "stat", lambda p: _fake_stat(1000, 0o644))  # world-readable
+
+    with pytest.raises(token_store.TokenStoreInsecureError):
+        token_store._verify_acl_or_raise(tmp_path / "token.json")
+
+
+def test_posix_verify_raises_on_stat_failure(tmp_path, monkeypatch):
+    _force_posix(monkeypatch)
+    monkeypatch.setattr(token_store.os, "getuid", lambda: 1000, raising=False)
+
+    def boom(p):
+        raise OSError("simulated stat failure")
+
+    monkeypatch.setattr(token_store.os, "stat", boom)
+
+    with pytest.raises(token_store.TokenStoreInsecureError):
+        token_store._verify_acl_or_raise(tmp_path / "token.json")

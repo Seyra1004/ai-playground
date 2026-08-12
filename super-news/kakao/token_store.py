@@ -74,6 +74,16 @@ _SYSTEM_SID = "S-1-5-18"
 _ADMINISTRATORS_SID = "S-1-5-32-544"
 _OWNER_RIGHTS_SID = "S-1-3-4"
 
+# Production runs on Linux (the VPS); the dev machine that wrote the ACL
+# logic above is Windows. `icacls`/PowerShell/SID lookups don't exist on
+# Linux at all -- calling them there doesn't "fail safe", it raises
+# immediately (FileNotFoundError from subprocess), which would make every
+# token save/load on the VPS hard-fail. This is a genuine platform gap, not
+# a style preference: the Windows ACL functions are untouched below and
+# only used when _IS_WINDOWS is True; a parallel POSIX implementation using
+# mode bits (chmod) is dispatched to otherwise.
+_IS_WINDOWS = os.name == "nt"
+
 
 class TokenStoreError(RuntimeError):
     """Base class for all token store errors. Subclasses never include raw
@@ -134,6 +144,34 @@ def _get_current_user_sid():
 
 
 def _apply_dir_lock_down(dir_path):
+    """Dispatches to the Windows (ACL/icacls) or POSIX (chmod) lock-down —
+    see _IS_WINDOWS above."""
+    if not _IS_WINDOWS:
+        _apply_dir_lock_down_posix(dir_path)
+        return
+    _apply_dir_lock_down_windows(dir_path)
+
+
+def _apply_dir_lock_down_posix(dir_path):
+    """chmod 700 (owner rwx only) on the directory -- the POSIX equivalent
+    of the Windows icacls lock-down; there is no ACL/SID concept to apply,
+    mode bits are the whole story. tempfile.mkstemp() already creates files
+    with mode 0600 on POSIX regardless of the parent directory's mode (it
+    passes O_CREAT|O_EXCL explicitly, not by inheriting from the directory
+    the way NTFS ACL inheritance works) -- so no separate per-file chmod is
+    needed here or in save(); locking down the directory is what stops an
+    unrelated process from e.g. listing or replacing the file out from
+    under us."""
+    try:
+        os.chmod(dir_path, 0o700)
+    except OSError as exc:
+        raise TokenStoreInsecureError(
+            f"chmod lock-down on {dir_path.name} failed to apply "
+            "— treat the token store as exposed."
+        ) from exc
+
+
+def _apply_dir_lock_down_windows(dir_path):
     """SID-based ACL apply, directory-only. Grants Full Control, with
     object-inherit/container-inherit flags, to ONLY the current user's SID and
     SYSTEM's SID — no display names involved anywhere in this call. Any file
@@ -190,6 +228,39 @@ def _get_owner_sid(path):
 
 
 def _verify_acl_or_raise(path):
+    """Dispatches to the Windows (ACL/SID) or POSIX (mode bits) verification
+    — see _IS_WINDOWS above. Both are read-only: never mutate permissions,
+    so a failure here always means "stop and investigate," never something
+    silently auto-corrected."""
+    if not _IS_WINDOWS:
+        _verify_acl_or_raise_posix(path)
+        return
+    _verify_acl_or_raise_windows(path)
+
+
+def _verify_acl_or_raise_posix(path):
+    """Owner must be the current process's user (a file this process didn't
+    create/doesn't own is not trustworthy regardless of its mode bits), and
+    the mode must grant zero permissions to group/other (mode & 0o077 == 0)
+    — the POSIX equivalent of the Windows SID allow-list check. Works on
+    both a file and a directory. Read-only."""
+    try:
+        st = os.stat(path)
+    except OSError as exc:
+        raise TokenStoreInsecureError(
+            f"Permissions on {path.name} could not be verified — treat it as exposed."
+        ) from exc
+    if st.st_uid != os.getuid():
+        raise TokenStoreInsecureError(
+            f"{path.name} is not owned by the current user — treat it as exposed."
+        )
+    if st.st_mode & 0o077:
+        raise TokenStoreInsecureError(
+            f"{path.name} grants permissions to group/other — treat it as exposed."
+        )
+
+
+def _verify_acl_or_raise_windows(path):
     """SID-based allow-list check, works on a file or a directory: every ACE
     must resolve to the current user's SID, SYSTEM, BUILTIN\\Administrators,
     or (only when this path's Owner is confirmed to be the current user)
