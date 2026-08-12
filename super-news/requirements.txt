@@ -10,3 +10,7 @@ pytest==8.4.2
 pyyaml==6.0.3
 feedparser==6.0.14
 feedparser-sgmllib==2.1.0
+
+# Report V1: news synthesis via the Anthropic API (report/llm_anthropic.py
+# is the only module that imports this).
+anthropic==0.121.0
