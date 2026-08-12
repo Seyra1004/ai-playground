@@ -8,9 +8,15 @@ adapters}.py, reused as-is.
 
 runs.status has no CHECK constraint (free TEXT) — this module fixes its
 own minimal vocabulary: 'running' (set at start), 'completed' (all/degraded
-sources finished — detailed per-source truth lives in run_source_status,
-never inferred from this), 'failed' (every enabled source failed). No new
-status value is invented beyond this.
+sources finished AND normalization completed — detailed per-source truth
+lives in run_source_status, never inferred from this), 'failed' (every
+enabled source failed, OR the required normalization stage itself raised).
+No new status value is invented beyond this.
+
+RAW ingestion alone is not sufficient for 'completed': normalization
+(ingestion.normalize.normalize_batch) is a required stage of this daily
+run, not an optional/best-effort afterthought — a run that only reached
+RAW must not be reported as a successful completion.
 
 run_category_status is intentionally NOT written anywhere in this module —
 it belongs to the future report pipeline (Section 4 of the Phase 2B
@@ -23,6 +29,7 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 
 from ingestion.config_hash import compute_registry_hash
+from ingestion.normalize import normalize_batch
 from ingestion.persistence import record_run_source_status
 from ingestion.pipeline import run_source_ingestion
 
@@ -111,13 +118,22 @@ def _aggregate_run_status(results):
     return "completed", None
 
 
-def finalize_run(conn, runs_row_id, results):
+def finalize_run(conn, runs_row_id, results, override_status=None, override_failure_stage=None):
     """Small, independent transaction that only updates the `runs` row —
     never re-touches raw_items/run_source_status, which each source
     already committed for itself. Exceptions here are NOT swallowed —
     callers must surface a run-finalization failure as a non-zero exit,
-    per Section 20 of the contract."""
-    status, failure_stage = _aggregate_run_status(results)
+    per Section 20 of the contract.
+
+    `override_status`/`override_failure_stage` let a caller force the
+    final status instead of deriving it from per-source `results` — used
+    when a required run-wide stage (normalization) fails outright, which
+    isn't attributable to any single source and must not be masked by
+    otherwise-successful source results."""
+    if override_status is not None:
+        status, failure_stage = override_status, override_failure_stage
+    else:
+        status, failure_stage = _aggregate_run_status(results)
     finished_at = datetime.now(timezone.utc).isoformat()
     conn.execute(
         "UPDATE runs SET status = ?, finished_at = ?, failure_stage = ? WHERE id = ?",
@@ -202,6 +218,29 @@ def run_daily_ingestion(conn, registry, run_id, run_date=None, sleep=None):
                 source_config.source_name, source_config.category, reason,
             )
         results.append(outcome)
+
+    # Normalization is a REQUIRED stage, not a best-effort afterthought —
+    # a run that only reached RAW must not be reported "completed". This
+    # sweeps every not-yet-normalized raw_item (not just this run's new
+    # ones): normalize_batch is already idempotent, so this also catches
+    # any backlog from a prior run, at the cost of a full-table scan each
+    # time -- an accepted tradeoff at current volume, not optimized here.
+    try:
+        normalize_batch(conn, registry)
+    except Exception as exc:
+        logger.error(
+            "run_id=%s normalization stage FAILED: %s", run_id, type(exc).__name__,
+        )
+        final_status = finalize_run(
+            conn, runs_row_id, results,
+            override_status="failed", override_failure_stage="normalization_stage_failed",
+        )
+        return {
+            "run_id": run_id,
+            "runs_row_id": runs_row_id,
+            "status": final_status,
+            "source_results": results,
+        }
 
     final_status = finalize_run(conn, runs_row_id, results)
     return {
