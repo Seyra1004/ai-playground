@@ -49,11 +49,11 @@ def _insert_item(conn, source_name, source_item_key, category, event_key, title,
 
 def test_kst_boundary_excludes_items_outside_the_kst_day(conn):
     # 2026-08-11 23:59:59 KST == 2026-08-11 14:59:59 UTC -- previous KST day.
-    _insert_item(conn, "s1", "k1", "AI", "ev-before", "before", "2026-08-11T14:59:59+00:00")
+    _insert_item(conn, "s1", "k1", "AI_NEWS","ev-before", "before", "2026-08-11T14:59:59+00:00")
     # 2026-08-12 00:00:00 KST == 2026-08-11 15:00:00 UTC -- start of target KST day.
-    _insert_item(conn, "s1", "k2", "AI", "ev-start", "start", "2026-08-11T15:00:00+00:00")
+    _insert_item(conn, "s1", "k2", "AI_NEWS","ev-start", "start", "2026-08-11T15:00:00+00:00")
     # 2026-08-13 00:00:00 KST == 2026-08-12 15:00:00 UTC -- start of the NEXT KST day.
-    _insert_item(conn, "s1", "k3", "AI", "ev-after", "after", "2026-08-12T15:00:00+00:00")
+    _insert_item(conn, "s1", "k3", "AI_NEWS","ev-after", "after", "2026-08-12T15:00:00+00:00")
 
     result = select_news_candidates(conn, ["AI"], "2026-08-12")
     keys = {c["event_key"] for c in result["AI"]}
@@ -64,9 +64,9 @@ def test_kst_boundary_excludes_items_outside_the_kst_day(conn):
 
 
 def test_event_key_dedup_and_source_count(conn):
-    _insert_item(conn, "source_a", "k1", "AI", "ev-1", "title", "2026-08-11T16:00:00+00:00")
-    _insert_item(conn, "source_b", "k2", "AI", "ev-1", "title", "2026-08-11T17:00:00+00:00")
-    _insert_item(conn, "source_a", "k3", "AI", "ev-2", "other", "2026-08-11T16:30:00+00:00")
+    _insert_item(conn, "source_a", "k1", "AI_NEWS","ev-1", "title", "2026-08-11T16:00:00+00:00")
+    _insert_item(conn, "source_b", "k2", "AI_NEWS","ev-1", "title", "2026-08-11T17:00:00+00:00")
+    _insert_item(conn, "source_a", "k3", "AI_NEWS","ev-2", "other", "2026-08-11T16:30:00+00:00")
 
     result = select_news_candidates(conn, ["AI"], "2026-08-12")
     by_key = {c["event_key"]: c for c in result["AI"]}
@@ -79,9 +79,9 @@ def test_event_key_dedup_and_source_count(conn):
 
 
 def test_candidate_ordering_is_deterministic(conn):
-    _insert_item(conn, "s1", "k1", "AI", "ev-b", "b", "2026-08-11T16:00:00+00:00")
-    _insert_item(conn, "s1", "k2", "AI", "ev-a", "a", "2026-08-11T16:00:00+00:00")
-    _insert_item(conn, "s2", "k3", "AI", "ev-a", "a", "2026-08-11T16:01:00+00:00")
+    _insert_item(conn, "s1", "k1", "AI_NEWS","ev-b", "b", "2026-08-11T16:00:00+00:00")
+    _insert_item(conn, "s1", "k2", "AI_NEWS","ev-a", "a", "2026-08-11T16:00:00+00:00")
+    _insert_item(conn, "s2", "k3", "AI_NEWS","ev-a", "a", "2026-08-11T16:01:00+00:00")
 
     first = select_news_candidates(conn, ["AI"], "2026-08-12")
     second = select_news_candidates(conn, ["AI"], "2026-08-12")
@@ -103,7 +103,7 @@ def test_previous_day_selected_event_key_is_excluded(conn):
     )
     interp_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
 
-    item_id = _insert_item(conn, "s1", "k-old", "AI", "ev-repeat", "repeat", "2026-08-10T16:00:00+00:00")
+    item_id = _insert_item(conn, "s1", "k-old", "AI_NEWS","ev-repeat", "repeat", "2026-08-10T16:00:00+00:00")
     conn.execute(
         "INSERT INTO interpretation_items (interpretation_id, normalized_item_id) VALUES (?, ?)",
         (interp_id, item_id),
@@ -116,10 +116,10 @@ def test_previous_day_selected_event_key_is_excluded(conn):
     conn.commit()
 
     # Same event_key resurfaces the next KST day -- must be excluded.
-    _insert_item(conn, "s1", "k-new", "AI", "ev-repeat", "repeat", "2026-08-11T16:00:00+00:00")
+    _insert_item(conn, "s1", "k-new", "AI_NEWS","ev-repeat", "repeat", "2026-08-11T16:00:00+00:00")
     # A two-days-ago report existing must NOT affect exclusion for a
     # different, unrelated event_key.
-    _insert_item(conn, "s1", "k-fresh", "AI", "ev-fresh", "fresh", "2026-08-11T16:00:00+00:00")
+    _insert_item(conn, "s1", "k-fresh", "AI_NEWS","ev-fresh", "fresh", "2026-08-11T16:00:00+00:00")
 
     result = select_news_candidates(conn, ["AI"], "2026-08-12")
     keys = {c["event_key"] for c in result["AI"]}
@@ -127,7 +127,7 @@ def test_previous_day_selected_event_key_is_excluded(conn):
 
 
 def test_no_previous_report_means_no_exclusion(conn):
-    _insert_item(conn, "s1", "k1", "AI", "ev-1", "title", "2026-08-11T16:00:00+00:00")
+    _insert_item(conn, "s1", "k1", "AI_NEWS","ev-1", "title", "2026-08-11T16:00:00+00:00")
     result = select_news_candidates(conn, ["AI"], "2026-08-12")
     assert len(result["AI"]) == 1
 
@@ -138,3 +138,57 @@ def test_no_previous_report_means_no_exclusion(conn):
 def test_category_with_no_items_returns_empty_list_not_missing_key(conn):
     result = select_news_candidates(conn, ["AI", "ECONOMY", "SOCIETY"], "2026-08-12")
     assert result == {"AI": [], "ECONOMY": [], "SOCIETY": []}
+
+
+# ---- report-category -> normalized_items source-category mapping ----------
+
+
+def test_AI_reads_AI_NEWS(conn):
+    _insert_item(conn, "s1", "k1", "AI_NEWS", "ev-1", "title", "2026-08-11T16:00:00+00:00")
+    result = select_news_candidates(conn, ["AI"], "2026-08-12")
+    assert len(result["AI"]) == 1
+
+
+def test_ECONOMY_reads_ECONOMY_NEWS(conn):
+    _insert_item(conn, "s1", "k1", "ECONOMY_NEWS", "ev-1", "title", "2026-08-11T16:00:00+00:00")
+    result = select_news_candidates(conn, ["ECONOMY"], "2026-08-12")
+    assert len(result["ECONOMY"]) == 1
+
+
+def test_SOCIETY_reads_SOCIETY_NEWS(conn):
+    _insert_item(conn, "s1", "k1", "SOCIETY_NEWS", "ev-1", "title", "2026-08-11T16:00:00+00:00")
+    result = select_news_candidates(conn, ["SOCIETY"], "2026-08-12")
+    assert len(result["SOCIETY"]) == 1
+
+
+def test_a_category_never_reads_a_different_categorys_source_rows(conn):
+    # An ECONOMY_NEWS-labeled row must never leak into the AI report,
+    # and vice versa -- proves the mapping is per-category, not a
+    # blanket "any news category" query.
+    _insert_item(conn, "s1", "k1", "ECONOMY_NEWS", "ev-econ", "econ title", "2026-08-11T16:00:00+00:00")
+    _insert_item(conn, "s1", "k2", "AI_NEWS", "ev-ai", "ai title", "2026-08-11T16:00:00+00:00")
+    result = select_news_candidates(conn, ["AI", "ECONOMY", "SOCIETY"], "2026-08-12")
+    assert [c["event_key"] for c in result["AI"]] == ["ev-ai"]
+    assert [c["event_key"] for c in result["ECONOMY"]] == ["ev-econ"]
+    assert result["SOCIETY"] == []
+
+
+def test_returned_keys_are_report_output_categories_not_source_categories(conn):
+    _insert_item(conn, "s1", "k1", "AI_NEWS", "ev-1", "title", "2026-08-11T16:00:00+00:00")
+    result = select_news_candidates(conn, ["AI", "ECONOMY", "SOCIETY"], "2026-08-12")
+    assert set(result.keys()) == {"AI", "ECONOMY", "SOCIETY"}
+    # The candidate dicts themselves also carry the report-output category,
+    # never the source category string.
+    assert result["AI"][0]["category"] == "AI"
+
+
+def test_unknown_report_category_fails_clearly():
+    from report.candidate_selection import _source_category
+
+    with pytest.raises(ValueError, match="Unknown report category"):
+        _source_category("NOT_A_REAL_CATEGORY")
+
+
+def test_unknown_report_category_passed_to_select_news_candidates_raises(conn):
+    with pytest.raises(ValueError, match="Unknown report category"):
+        select_news_candidates(conn, ["NOT_A_REAL_CATEGORY"], "2026-08-12")

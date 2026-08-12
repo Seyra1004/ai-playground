@@ -39,8 +39,12 @@ def _insert_ai_candidate(conn, key="k1"):
     )
     raw_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
     conn.execute(
+        # normalized_items.category is the collection-layer source category
+        # (see report.candidate_selection.NEWS_CATEGORY_SOURCE_MAP) -- the
+        # report-output category 'AI' is what select_news_candidates() is
+        # called with, never what's stored here.
         """INSERT INTO normalized_items (raw_item_id, category, event_key, normalized_title, created_at)
-           VALUES (?, 'AI', ?, 'AI news', '2026-08-11T16:00:00+00:00')""",
+           VALUES (?, 'AI_NEWS', ?, 'AI news', '2026-08-11T16:00:00+00:00')""",
         (raw_id, f"ev-{key}"),
     )
     conn.commit()

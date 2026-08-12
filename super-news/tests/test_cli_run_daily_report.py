@@ -105,7 +105,7 @@ def test_thin_integration_writes_real_rows_and_calls_llm(tmp_path):
     raw_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
     conn.execute(
         """INSERT INTO normalized_items (raw_item_id, category, event_key, normalized_title, created_at)
-           VALUES (?, 'AI', 'ev-1', 'AI news', '2026-08-12T00:00:00+00:00')""",
+           VALUES (?, 'AI_NEWS', 'ev-1', 'AI news', '2026-08-12T00:00:00+00:00')""",
         (raw_id,),
     )
     conn.commit()

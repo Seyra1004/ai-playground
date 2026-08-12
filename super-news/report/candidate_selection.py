@@ -20,6 +20,33 @@ from datetime import datetime, timedelta, timezone
 # dependency this project doesn't otherwise need.
 _KST = timezone(timedelta(hours=9))
 
+# Report output categories (reports.category / run_category_status.category)
+# are NOT the same strings as normalized_items.category. The collection
+# layer's authoritative taxonomy is ingestion/registry.py's KNOWN_CATEGORIES
+# ({"AI_NEWS", "ECONOMY_NEWS", "SOCIETY_NEWS"}, enforced at registry-load
+# time and declared in sources.yaml) -- normalize.py copies raw_items.category
+# verbatim, so normalized_items.category is always one of those three
+# strings. This map is the single place that bridges the two vocabularies;
+# report output category values are never changed to match.
+NEWS_CATEGORY_SOURCE_MAP = {
+    "AI": "AI_NEWS",
+    "ECONOMY": "ECONOMY_NEWS",
+    "SOCIETY": "SOCIETY_NEWS",
+}
+
+
+def _source_category(report_category):
+    """Maps a report-output category to its normalized_items.category
+    source value. Raises on an unrecognized report category rather than
+    silently returning no rows -- a typo/new category here must fail
+    loudly, not masquerade as an ordinary zero-candidate day."""
+    try:
+        return NEWS_CATEGORY_SOURCE_MAP[report_category]
+    except KeyError:
+        raise ValueError(
+            f"Unknown report category {report_category!r}; expected one of {sorted(NEWS_CATEGORY_SOURCE_MAP)}"
+        ) from None
+
 
 def _kst_day_bounds_utc(report_date_kst):
     """Returns (start_utc_iso, end_utc_iso) -- the half-open UTC instant
@@ -56,7 +83,7 @@ def _excluded_event_keys(conn, category, previous_date):
            JOIN llm_interpretations li ON li.id = ii.interpretation_id
            JOIN normalized_items ni ON ni.id = ii.normalized_item_id
            WHERE li.run_id = ? AND ni.category = ?""",
-        (report_row["run_id"], category),
+        (report_row["run_id"], _source_category(category)),
     ).fetchall()
     return {row["event_key"] for row in rows}
 
@@ -70,6 +97,7 @@ def select_news_candidates(conn, categories, report_date_kst):
 
     result = {}
     for category in categories:
+        source_category = _source_category(category)
         excluded = _excluded_event_keys(conn, category, previous_date)
 
         rows = conn.execute(
@@ -79,7 +107,7 @@ def select_news_candidates(conn, categories, report_date_kst):
                JOIN raw_items ri ON ri.id = ni.raw_item_id
                WHERE ni.category = ? AND ri.collected_at >= ? AND ri.collected_at < ?
                ORDER BY ni.id ASC""",
-            (category, start_utc, end_utc),
+            (source_category, start_utc, end_utc),
         ).fetchall()
 
         groups = {}
