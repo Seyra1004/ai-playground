@@ -1,8 +1,8 @@
 [Unit]
-Description=Run SUPER NEWS daily pipeline at 07:50 KST
+Description=Run SUPER NEWS daily pipeline at 06:55 KST
 
 [Timer]
-OnCalendar=*-*-* 07:50:00 Asia/Seoul
+OnCalendar=*-*-* 06:55:00 Asia/Seoul
 Persistent=true
 AccuracySec=1min
 
