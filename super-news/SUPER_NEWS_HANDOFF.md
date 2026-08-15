@@ -131,6 +131,73 @@ Section 0 reconciliation below for the full evidence.
 
 ---
 
+**Updated (2026-08-15 KST) — twenty-eighth session, "QUALITY HARDENING +
+REQUIRED DAILY V2 RELEASE FLOW"**: closed every real gap the prior
+session's own read-only audit found (near-duplicate LLM-path news items,
+source-trust as a ranking weight only, no malformed/gibberish text
+rejection for LLM-native Korean synthesis, no fact-token grounding check,
+V2 generation never actually reaching the public site automatically, the
+daily Kakao path still sending V1 content, no automated post-send
+publication-consistency enforcement). **Quality gates, all real and wired
+into the production read/validation paths, not just documented:** (1)
+**duplicate gate** — `report.web_data_v2._suppress_duplicate_selections`
+applies the existing `report.story_clustering` near-duplicate detector to
+the LLM-selected news path too (previously only the no-LLM fallback path
+had it), so the LLM is never the sole duplicate-defense layer; only
+suppresses when 2+ of the LLM's OWN selected items share a real cluster,
+never touching a cluster partner the LLM didn't select. (2)
+**source-trust gate** — new `_is_lead_eligible_by_trust`: LEAD requires a
+TIER_1/TIER_2 best source (score ≥0.8) or real corroboration (≥2
+independent outlets); a low-trust single-source item is still shown, just
+never as the top-billed story. (3) **native Korean text-quality gate** —
+new `report/text_quality.py` (extracted from `report/translation_
+validation.py`, same real Hangul-plausibility/refusal-marker detection,
+now reused) rejects malformed/gibberish text in the news-selection
+`reason`, Producer Intelligence's 4 text fields, Music Trend
+Intelligence's observed/interpretation, and News Intelligence's
+what_happened/why_it_matters/what_to_watch. (4) **fact-preservation gate**
+— `text_quality.unsupported_fact_tokens` requires every YEAR/PERCENTAGE/
+VERSION/CURRENCY-MAGNITUDE token a synthesis field asserts to be traceable
+to its own cited evidence text; an unsupported token rejects the item via
+the existing fail-safe validation path (never persisted, real retry next
+run) — deliberately not universal fact-checking, only this mechanically
+checkable class. **Required daily V2 release flow, new
+`report/release_v2.py` + `scripts/publish_and_deliver_v2.py`:**
+`verify_local_v2_dashboard` (SAME-DATE + MUSIC INTELLIGENCE marker +
+secret scan) blocks `publish_v2_dashboard` (exact-file `git add`/commit/
+push only — never `git add .`/`-A`, aborts if anything else is already
+staged) on failure; `verify_external_v2_dashboard` (real HTTP GET against
+the live public pages — HTTP 200 alone is never sufficient) blocks Kakao
+on failure; **exactly ONE Kakao message per report_date**
+(`report_delivery_v2.deliver_daily_summary_v2`, the pre-existing but
+never-wired `report.kakao_render_v2.render_kakao_digest` ≤200-char
+teaser, never `split_message`/multiple sends), sharing the same
+`DAILY_DIGEST_V2` idempotency key as the older full-digest sender so at
+most one V2 message can ever be sent per date regardless of which path
+runs; then the **REQUIRED post-send `report.publication_consistency`
+check** — overall status is only ever PASS when every gate, including
+this last one, passed. `scripts/run_daily_pipeline.sh`'s Stage 4 now calls
+`publish_and_deliver_v2.py` instead of V1's `deliver_daily_report.py` —
+**the automated daily Kakao path no longer invokes V1's sender at all**
+(V1's own script is completely untouched and still usable manually).
+**Full regression: 964/964 passing**, run once after all implementation,
+plus one earlier full run that surfaced a single pre-existing test fixture
+using a non-Korean placeholder `reason` (correctly caught by the new
+gate) — fixed the fixture, re-ran once per this project's own "one retry
+after a fix" convention; 964/964 is the final, clean baseline. **Four
+commits, each reviewed file-by-file before staging (exact files only,
+never `git add .`/`-A`), 0 secret-scan hits, `.env` never in any commit
+tree, V1 untouched in every one, all four pushed to `origin/main`:**
+`f0213df` (shared text-quality foundation), `9ac2e3e` (native-text-quality
++ fact-grounding validation wiring), `8ade723` (duplicate suppression +
+source-trust gate), `cdf1153` (the required daily V2 release flow). No
+real Kakao send, no real production publish/push of `docs/v2/`, no
+scheduler configured, no DB mutation, no deletion, no V1 file touched.
+**Next task, as scoped by the user: FINAL PROFESSIONAL UI/UX** — not
+started this session.
+
+---
+
 **Updated (2026-08-15 KST) — twenty-seventh session, "REAL KAKAO LINK E2E
 INCIDENT + PERMANENT REGRESSION GUARD"**: closed out the twenty-sixth
 session's open item (V2's Kakao CTA had zero real callers and no live
@@ -468,6 +535,172 @@ mutated_by_backup=False`, independently re-confirmed by direct row-count
 comparison). **Final verdict: DAILY_R2_BACKUP_INTEGRATION_PASS.** No OS
 scheduler was configured -- see the "DAILY BACKUP ORDER" permanent rule
 above for the exact contract this session established.
+
+---
+
+## QUALITY HARDENING + REQUIRED DAILY V2 RELEASE FLOW (2026-08-15 KST, twenty-eighth session)
+
+### 1. Read-only audit (start of session)
+
+Re-verified `ingestion/http.py`'s default-User-Agent fix against the real
+live endpoints for the first time: `the_verge_ai_rss`, `mk_economy_rss`,
+`mk_stock_rss` all now return real HTTP 200 (confirmed via the actual
+`ingestion.http.request_with_retry` path, not a raw probe).
+`hankyung_economy_rss` remains a real HTTP 403 even with a browser UA —
+expected, pre-existing, non-blocking (4 other real Economy sources already
+cover the category). Audited `scripts/run_daily_pipeline.sh` and every
+called script and found, all confirmed by direct code reading, not
+assumption: V2 dashboard generation (`generate_daily_web_report_v2.py`)
+already defaults to today's real KST date and was already correct; but
+(a) nothing in the pipeline ever committed/pushed the regenerated
+`docs/v2/` files — a real daily run would leave the live site stale every
+day, exactly the class of incident the twenty-seventh session's own
+`report/publication_consistency.py` was built to catch after the fact,
+never before it; (b) Stage 4 called V1's `deliver_daily_report.py`, so
+the daily Kakao message never carried Music Intelligence; (c)
+`report/publication_consistency.check_publication_consistency` was built
+and tested but never wired into any automated flow; (d)
+`report.web_data_v2._cluster_suppression` (real near-duplicate
+suppression) was only ever applied to the no-LLM fallback path, never to
+the primary LLM-selected path; (e) `report.source_metadata.quality_tier`
+was a ranking weight only, no structural trust floor existed anywhere;
+(f) no deterministic malformed/gibberish-text check existed for any
+LLM-native-generated Korean synthesis field (only translated text had
+one, via `report/translation_validation.py`).
+
+### 2. Quality gates built (Phase A)
+
+- **`report/text_quality.py`** (new): shared, deterministic
+  Korean-plausibility/refusal-marker detection
+  (`is_plausibly_korean_output`, `has_refusal_marker`,
+  `is_malformed_synthesis_text`) and evidence-grounding fact-token checks
+  (`unsupported_fact_tokens`: YEAR/PERCENTAGE/VERSION/CURRENCY-MAGNITUDE),
+  extracted from `report/translation_validation.py` (which now imports
+  from it — `validate_translation_facts`'s own behavior is unchanged,
+  confirmed byte-identical by its existing test suite).
+- **`report/validation.py`**: `validate_category_selection` gained an
+  optional `title_by_id` param (checks the news-selection `reason`
+  against its own candidate's real title); `validate_producer_insights`
+  and `validate_music_trend_signals` gained an optional `evidence_by_ref`
+  param (checks their text fields against the insight/item's own cited
+  evidence-catalog summaries). Both are opt-in (default `None` = old
+  behavior, unaffected) — wired to real evidence in
+  `report/producer_orchestrator.py` and `report/music_trend_orchestrator.py`.
+  `report/news_intelligence_synthesis.py`'s own `_valid_field` gained the
+  same two checks directly (its evidence is the item's own title/snippet).
+  An unsupported/malformed field rejects the whole item via the existing
+  fail-safe path — never persisted, never shown, a real retry remains
+  possible next run.
+- **`report/web_data_v2.py`**: `_suppress_duplicate_selections` (new) —
+  applies `report.story_clustering.cluster_candidates` (already real,
+  already high-precision) to the LLM-selected `_news_section` items, not
+  only the fallback path's existing `_cluster_suppression`. Only
+  suppresses when 2+ of the LLM's OWN selected items are members of the
+  same real cluster; a cluster partner the LLM never selected is left
+  completely alone, so legitimate information quantity is never reduced.
+  `_is_lead_eligible_by_trust` (new) — LEAD requires a TIER_1/TIER_2 best
+  source (`report.source_metadata.source_quality_score` ≥0.8) or real
+  corroboration (≥2 independent outlets); wired into `_tier_for` on both
+  the fallback and LLM-selected paths. A low-trust single-source item is
+  still shown, just never as the top-billed story.
+
+### 3. Required daily V2 release flow built (Phase B/C/D)
+
+- **`report/release_v2.py`** (new): `verify_local_v2_dashboard` (index +
+  dated-report `<title>` date both equal REPORT_DATE — reuses
+  `report.publication_consistency._extract_page_date` — plus the MUSIC
+  INTELLIGENCE domain-header marker present, plus a secret-shaped-pattern
+  scan of both files) blocks `publish_v2_dashboard` (stages EXACTLY
+  `docs/v2/index.html` + `docs/v2/reports/<date>.html` via injectable
+  `git_runner`, aborts — never commits — if anything else is already
+  staged, verifies the staged set is exactly those two files after
+  `git add`, never `git add .`/`-A`) on any failure. `publish_v2_dashboard`
+  success (including a real push) then unblocks
+  `verify_external_v2_dashboard` (real HTTP GET via injectable `http_get`
+  against `https://seyra1004.github.io/ai-playground/v2/` and its own
+  dated report — HTTP 200 alone, local success alone, and git-push success
+  alone are each explicitly insufficient; requires the SAME date/marker/
+  secret checks against the real live content). `run_daily_v2_release`
+  chains all of the above, then sends the one real Kakao message, then
+  runs the REQUIRED post-send `check_publication_consistency` — a
+  `MISMATCH`, any unrecognized/pending status, or an exception all map to
+  overall FAIL; PASS requires every gate, a successful send included.
+- **`report_delivery_v2.py`**: `deliver_daily_summary_v2` (new) — exactly
+  ONE `send_memo()` call using the pre-existing but never-before-wired
+  `report.kakao_render_v2.render_kakao_digest` (a real ≤200-char
+  teaser: date header, MUSIC signals, AI/ECONOMY/SOCIETY one-line
+  headlines, CTA), never `report.kakao_render.split_message`/multiple
+  sends. Shares the SAME `DAILY_DIGEST_V2` idempotency key as the older
+  `deliver_daily_report_v2` (full multi-chunk digest, unchanged, still
+  available for manual/audit use) — deliberately, so at most one of the
+  two can ever be "sent" for the same `report_date`, never both. CTA link
+  reuses the already-existing, already-verified `_resolve_v2_link_url()`
+  (`KAKAO_DEFAULT_LINK_URL` + `/v2/`, or `KAKAO_V2_LINK_URL` override).
+- **`scripts/publish_and_deliver_v2.py`** (new): production daily CLI —
+  `run_id` prefix `daily-publish-deliver-v2-`, pushes by default
+  (`--no-push` for local/test verification only), exit 0 only on overall
+  `PASS`.
+- **`scripts/run_daily_pipeline.sh`**: Stage 4 now calls
+  `publish_and_deliver_v2.py` — the literal invocation `$PY
+  scripts/deliver_daily_report.py` no longer exists anywhere in the real
+  script (V1's own script file is completely untouched and still directly
+  runnable by hand). A failure at Stage 4 remains a REQUIRED pipeline
+  failure (`any_required_failure=1`), same precedent V1's own delivery
+  stage always had — a successful Kakao send can never hide a failed
+  required gate.
+
+### 4. Verification
+
+612 new/updated targeted tests (text_quality, validation, candidate
+selection, translation/translation_validation, producer/music-trend/news-
+intelligence synthesis+orchestration, `web_data_v2` duplicate+trust gates,
+`release_v2` local/external verify + publish + full orchestration,
+`report_delivery_v2` compact summary, the new `publish_and_deliver_v2`
+CLI, `generate_daily_web_report_v2` same-date proof against the REAL
+generator output, and `run_daily_pipeline.sh` wiring incl. two tests
+proving V1's sender is never invoked, static and at runtime) — 0
+failures. **Full regression: 964/964 passing** (one earlier full run
+surfaced a single pre-existing fixture in `tests/test_report_orchestrator.py`
+using a non-Korean placeholder `reason`, correctly caught by the new
+gate — fixed, re-ran once per this project's own "one retry after a fix"
+convention; 964/964 is the final clean baseline). All git/HTTP/Kakao calls
+in every test are mocked/faked — 0 real network/git/Kakao calls made by
+the test suite itself.
+
+### 5. Commits (all pushed to `origin/main`, reviewed file-by-file before staging)
+
+- **`f0213df`** — shared text-quality foundation (3 files):
+  `report/text_quality.py` (new), `report/translation_validation.py`,
+  `tests/test_text_quality.py` (new).
+- **`9ac2e3e`** — native-text-quality + fact-grounding validation wiring
+  (10 files): `report/validation.py`, `report/news_intelligence_
+  synthesis.py`, `report/producer_orchestrator.py`, `report/music_trend_
+  orchestrator.py`, and 6 matching test files.
+- **`8ade723`** — duplicate suppression + source-trust gate (2 files):
+  `report/web_data_v2.py`, `tests/test_web_data_v2.py`.
+- **`cdf1153`** — the required daily V2 release flow (9 files):
+  `report/release_v2.py` (new), `report_delivery_v2.py`, `scripts/publish_
+  and_deliver_v2.py` (new), `scripts/run_daily_pipeline.sh`, and 5
+  matching test files.
+
+Each commit staged EXACTLY its reviewed file list (never `git add .`/
+`-A`), 0 secret-scan hits per commit and across the full range, `.env`
+confirmed absent from every commit tree, V1 confirmed untouched in every
+one. No real Kakao send, no real production publish/push of `docs/v2/`,
+no scheduler configured, no production DB mutation, no file deleted, no
+V1 file modified this session.
+
+### 6. Not done this session
+
+- **No real controlled E2E of the new flow** — `run_daily_v2_release` has
+  never been invoked for real (every test mocks git/HTTP/Kakao); the
+  first real run is a deliberately separate, explicitly-approved future
+  step, not assumed safe by extension of the unit tests alone.
+- UI/UX redesign — explicitly out of scope this session (`redesign the
+  UI` was on this session's own DO-NOT-YET list every turn).
+- Scheduler configuration, real Kakao send, real `docs/v2/` publish.
+
+**Next task, as scoped by the user: FINAL PROFESSIONAL UI/UX.**
 
 ---
 
