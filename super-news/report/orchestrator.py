@@ -23,7 +23,7 @@ from report.validation import CategoryValidationError, validate_all_categories
 
 logger = logging.getLogger(__name__)
 
-NEWS_CATEGORIES = ("AI", "ECONOMY", "SOCIETY")
+NEWS_CATEGORIES = ("AI", "ECONOMY", "SOCIETY", "TIKTOK", "SPOTIFY")
 
 # See ingestion/orchestrator.py's _KST docstring: fixed +09:00 offset,
 # stdlib-only, exact for KST (no DST).

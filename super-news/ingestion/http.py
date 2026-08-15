@@ -17,6 +17,20 @@ logger = logging.getLogger(__name__)
 
 TRANSIENT_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
 
+# Several real, legitimate public RSS feeds (confirmed by direct probe,
+# 2026-08-14 -- see SUPER_NEWS_HANDOFF.md) return HTTP 403 specifically to
+# requests' own default User-Agent string ("python-requests/x.x"), not to
+# a missing/invalid URL or a real access restriction -- a plain browser UA
+# passes. This is the one default header every adapter gets; it is never
+# used to defeat an intentional bot-block (see HttpClientError's 403
+# still propagating normally for sources that block regardless).
+_DEFAULT_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+    ),
+}
+
 
 class HttpTransientError(RuntimeError):
     """Raised once retries are exhausted for a transient failure
@@ -43,10 +57,14 @@ def request_with_retry(method, url, retry_policy, timeout_seconds, sleep=None, *
     HttpClientError immediately on a non-429 4xx (no retry attempted)."""
     sleep_fn = sleep if sleep is not None else time.sleep
     last_exc = None
+    # Caller-supplied headers (e.g. Naver's client-id/secret pair) always
+    # win on a key collision -- this only fills in a default, never
+    # overrides an adapter's own explicit choice.
+    headers = {**_DEFAULT_HEADERS, **kwargs.pop("headers", {})}
 
     for attempt in range(1, retry_policy.max_attempts + 1):
         try:
-            response = requests.request(method, url, timeout=timeout_seconds, **kwargs)
+            response = requests.request(method, url, timeout=timeout_seconds, headers=headers, **kwargs)
         except requests.RequestException as exc:
             last_exc = exc
             logger.warning(

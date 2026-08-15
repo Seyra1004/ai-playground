@@ -74,6 +74,33 @@ def test_all_three_fixture_entries_parsed_with_no_errors():
     assert outcome.parse_errors == 0
 
 
+# ---- Real-world defect: a feed-emitted placeholder date must not be trusted --
+
+
+def test_placeholder_year_one_updated_date_is_none_not_fabricated():
+    """Real production defect (nocutnews.co.kr's category feeds, found
+    2026-08-15 source-expansion audit): an entry with no real published
+    date but a literal `<updated>Mon, 01 Jan 0001 00:00:00 GMT</updated>`
+    placeholder parses into a structurally-valid (year=1) struct_time --
+    naively trusting any parseable date would silently persist a
+    nonsensical published_at (worse than no date at all, since downstream
+    freshness scoring would read it as maximally stale rather than
+    honestly unknown)."""
+    content = b"""<?xml version="1.0"?>
+<rss version="2.0"><channel><title>t</title><link>https://example.com</link>
+<description>d</description>
+<item><title>Placeholder Date Entry</title>
+<link>https://example.com/placeholder</link>
+<description>desc</description>
+<updated>Mon, 01 Jan 0001 00:00:00 GMT</updated>
+</item>
+</channel></rss>"""
+    with patch("ingestion.adapters.rss.request_with_retry", return_value=_FakeResponse(content)):
+        outcome = rss.fetch_source(_rss_source_config())
+    assert len(outcome.records) == 1
+    assert outcome.records[0].published_at is None
+
+
 def test_entry_missing_link_counts_as_parse_error_not_crash():
     content = b"""<?xml version="1.0"?>
 <rss version="2.0"><channel><title>t</title><link>https://example.com</link>

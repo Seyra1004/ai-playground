@@ -18,8 +18,17 @@ from dataclasses import dataclass, field
 import yaml
 
 KNOWN_SOURCE_TYPES = {"rss", "naver_news_api"}
-KNOWN_CATEGORIES = {"AI_NEWS", "ECONOMY_NEWS", "SOCIETY_NEWS"}
+KNOWN_CATEGORIES = {
+    "AI_NEWS", "ECONOMY_NEWS", "SOCIETY_NEWS",
+    "TIKTOK_NEWS", "SPOTIFY_NEWS", "MUSIC_INDUSTRY_NEWS",
+}
 KNOWN_AUTH_MODES = {"none", "api_key_pair"}
+# TIER_1 = primary/official newsroom or platform, TIER_2 = established major
+# newsroom, TIER_3 = reputable specialist/trade press or an aggregator API,
+# TIER_4 = secondary/aggregator (e.g. a search-RSS proxy). See sources.yaml's
+# own header comment for the full rubric -- this is a ranking SIGNAL
+# (report/candidate_selection.py), never a hard ordering rule by itself.
+KNOWN_QUALITY_TIERS = {"TIER_1", "TIER_2", "TIER_3", "TIER_4"}
 
 
 class SourceRegistryError(ValueError):
@@ -46,8 +55,21 @@ class SourceConfig:
     timeout_seconds: float
     retry: RetryPolicy
     auth_mode: str
+    # Both optional with a None default -- existing callers that construct
+    # SourceConfig directly (tests predating this field) are unaffected.
+    # load_source_registry always resolves display_name to a real string
+    # (defaulting to source_name) before constructing one; __post_init__
+    # below applies that SAME fallback here too, so a directly-constructed
+    # SourceConfig with display_name left at None never surprises a caller
+    # that reads .display_name expecting a usable string.
+    display_name: str = None
+    quality_tier: str = None
     credential_env: dict = field(default_factory=dict)
     params: dict = field(default_factory=dict)
+
+    def __post_init__(self):
+        if self.display_name is None:
+            object.__setattr__(self, "display_name", self.source_name)
 
 
 def _require(mapping, key, source_label):
@@ -149,6 +171,21 @@ def _parse_source(raw, index):
     if region is not None and not isinstance(region, str):
         raise SourceRegistryError(f"{label}: region must be a string if present.")
 
+    # Both optional (default to the raw source_name / an unknown-tier
+    # sentinel) so a minimal test fixture or an older sources.yaml entry
+    # without these two fields still loads -- the "visible-but-ugly beats
+    # silently hidden" fallback report/web_render_v2.py's own docstring
+    # already committed to for an unmapped source label.
+    display_name = raw.get("display_name", source_name)
+    if not isinstance(display_name, str) or not display_name.strip():
+        raise SourceRegistryError(f"{label}: display_name must be a non-empty string if present.")
+
+    quality_tier = raw.get("quality_tier")
+    if quality_tier is not None and quality_tier not in KNOWN_QUALITY_TIERS:
+        raise SourceRegistryError(
+            f"{label}: unknown quality_tier {quality_tier!r} (known: {sorted(KNOWN_QUALITY_TIERS)})."
+        )
+
     params = raw.get("params", {})
     if not isinstance(params, dict):
         raise SourceRegistryError(f"{label}: params must be a mapping if present.")
@@ -163,6 +200,8 @@ def _parse_source(raw, index):
         timeout_seconds=float(timeout_seconds),
         retry=retry,
         auth_mode=auth_mode,
+        display_name=display_name,
+        quality_tier=quality_tier,
         credential_env=dict(credential_env),
         params=dict(params),
     )

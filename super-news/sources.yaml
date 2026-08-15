@@ -10,6 +10,27 @@
 # ingestion/adapters/__init__.py, not here. No credential VALUES appear
 # here, ever — only environment-variable NAMES via `credential_env`; the
 # actual secret lives in .env / the real process environment.
+#
+# display_name / quality_tier (added 2026-08-14, credential-independent
+# architecture pass): this is now the SINGLE source of truth for a source's
+# reader-facing name and editorial quality tier -- report/web_render_v2.py
+# no longer keeps its own hardcoded SOURCE_LABELS copy (see report/
+# source_metadata.py, which merges this file with music/registry.py's chart
+# sources into one lookup). Adding a new source here requires no renderer
+# change to display it correctly.
+#
+# quality_tier is a ranking SIGNAL, not a hard ordering rule -- an
+# official/TIER_1 source does not automatically outrank a fresher TIER_3
+# story (see report/candidate_selection.py's final_score, where freshness
+# is still the primary weight). Tiers:
+#   TIER_1 - primary/official (the entity's own newsroom, an official
+#            platform chart, or a government/central-bank press office)
+#   TIER_2 - established major newsroom (national wire service, major
+#            mainstream outlet with its own reporting staff)
+#   TIER_3 - reputable specialist/trade press, or a news aggregator API
+#            whose underlying outlets aren't individually distinguished
+#   TIER_4 - secondary/aggregator (a search-RSS proxy standing in for a
+#            platform with no real newsroom feed of its own)
 
 sources:
   - source_name: openai_news_rss
@@ -17,6 +38,8 @@ sources:
     source_type: rss
     category: AI_NEWS
     region: GLOBAL
+    display_name: OpenAI
+    quality_tier: TIER_1
     endpoint: https://openai.com/news/rss.xml
     timeout_seconds: 10
     retry:
@@ -26,12 +49,307 @@ sources:
     auth:
       mode: none
 
+  # AI_NEWS source diversity (2026-08-14): openai_news_rss alone is a
+  # single-vendor source -- these two add independent, reputable tech-press
+  # coverage of the wider AI industry (not just OpenAI's own announcements).
+  # Both verified reachable (HTTP 200, real current entries) by direct probe
+  # before being added -- same due-diligence standard as every other source
+  # in this file. the_verge_ai_rss is an Atom feed; source_type: rss is
+  # still correct since ingestion/adapters/rss.py's own docstring documents
+  # feedparser handling both formats transparently -- no separate adapter
+  # needed.
+  - source_name: techcrunch_ai_rss
+    enabled: true
+    source_type: rss
+    category: AI_NEWS
+    region: GLOBAL
+    display_name: TechCrunch
+    quality_tier: TIER_2
+    endpoint: https://techcrunch.com/category/artificial-intelligence/feed/
+    timeout_seconds: 10
+    retry:
+      max_attempts: 3
+      backoff_base_seconds: 1.0
+      backoff_jitter_seconds: 0.5
+    auth:
+      mode: none
+
+  - source_name: the_verge_ai_rss
+    enabled: true
+    source_type: rss
+    category: AI_NEWS
+    region: GLOBAL
+    display_name: The Verge
+    quality_tier: TIER_2
+    endpoint: https://www.theverge.com/rss/ai-artificial-intelligence/index.xml
+    timeout_seconds: 10
+    retry:
+      max_attempts: 3
+      backoff_base_seconds: 1.0
+      backoff_jitter_seconds: 0.5
+    auth:
+      mode: none
+
+  # AI_NEWS source expansion (SOURCE EXPANSION + CONTENT QUALITY HARDENING
+  # phase, 2026-08-15): the prior phase's audit reported AI_NEWS at only 3
+  # distinct domains (COVERAGE_INSUFFICIENT). Every endpoint below was
+  # verified by a real, direct HTTP probe the same day -- HTTP 200, a
+  # parseable feed (feedparser bozo=False), and real current entries dated
+  # 2026-08-13/14 -- before being added; none is guessed. Brings AI_NEWS
+  # to 8 distinct working domains (target: >=7).
+  - source_name: arstechnica_ai_rss
+    enabled: true
+    source_type: rss
+    category: AI_NEWS
+    region: GLOBAL
+    display_name: Ars Technica
+    quality_tier: TIER_2
+    endpoint: https://arstechnica.com/ai/feed/
+    timeout_seconds: 10
+    retry:
+      max_attempts: 3
+      backoff_base_seconds: 1.0
+      backoff_jitter_seconds: 0.5
+    auth:
+      mode: none
+
+  - source_name: wired_ai_rss
+    enabled: true
+    source_type: rss
+    category: AI_NEWS
+    region: GLOBAL
+    display_name: Wired
+    quality_tier: TIER_2
+    endpoint: https://www.wired.com/feed/category/artificial-intelligence/rss
+    timeout_seconds: 10
+    retry:
+      max_attempts: 3
+      backoff_base_seconds: 1.0
+      backoff_jitter_seconds: 0.5
+    auth:
+      mode: none
+
+  # Official primary source (Google DeepMind's own blog) -- not
+  # third-party reporting about DeepMind/Google AI.
+  - source_name: deepmind_blog_rss
+    enabled: true
+    source_type: rss
+    category: AI_NEWS
+    region: GLOBAL
+    display_name: Google DeepMind
+    quality_tier: TIER_1
+    endpoint: https://deepmind.google/blog/rss.xml
+    timeout_seconds: 10
+    retry:
+      max_attempts: 3
+      backoff_base_seconds: 1.0
+      backoff_jitter_seconds: 0.5
+    auth:
+      mode: none
+
+  # Uses technologyreview.com's AI-TOPIC feed, not its general/all-sections
+  # feed -- a real top-20-by-score quality audit (2026-08-15) found the
+  # general feed injecting off-topic content (cloning/biotech, "space
+  # travel agent" career pieces, generic newsletter digests) into AI_NEWS;
+  # this topic-scoped endpoint was verified by direct probe the same day
+  # (10/10 real entries all genuinely AI-focused) before switching.
+  - source_name: mit_technology_review_rss
+    enabled: true
+    source_type: rss
+    category: AI_NEWS
+    region: GLOBAL
+    display_name: MIT Technology Review
+    quality_tier: TIER_2
+    endpoint: https://www.technologyreview.com/topic/artificial-intelligence/feed/
+    timeout_seconds: 10
+    retry:
+      max_attempts: 3
+      backoff_base_seconds: 1.0
+      backoff_jitter_seconds: 0.5
+    auth:
+      mode: none
+
+  # engadget_rss (general/all-sections feed -- no AI-specific Engadget feed
+  # exists) was REMOVED here (2026-08-15 quality audit): its top-20-ranked
+  # real output included Disney+ streaming news, car dash-cam legality,
+  # and MacBook battery settings -- entirely off-topic for AI_NEWS, with
+  # no on-topic alternative endpoint available. AI_NEWS still meets its
+  # >=7-domain target (7 working domains) without it; a general-topic feed
+  # was judged not worth the category-relevance cost it added.
+
+  # hankyung_economy_rss returns HTTP 403 to automated requests (verified
+  # 2026-08-14: still 403 even with a browser User-Agent -- a persistent
+  # bot-block, not a URL/header bug on our side). Left enabled (harmless --
+  # a single-source FAILED status is already isolated by ingestion/
+  # pipeline.py and never blocks the other sources below) rather than
+  # removed, in case it recovers; ECONOMY_NEWS no longer depends on it
+  # alone -- see the redundant sources immediately below, each verified
+  # reachable by direct probe the same day.
   - source_name: hankyung_economy_rss
     enabled: true
     source_type: rss
     category: ECONOMY_NEWS
     region: KR
+    display_name: 한국경제
+    quality_tier: TIER_2
     endpoint: https://www.hankyung.com/feed/economy
+    timeout_seconds: 10
+    retry:
+      max_attempts: 3
+      backoff_base_seconds: 1.0
+      backoff_jitter_seconds: 0.5
+    auth:
+      mode: none
+
+  - source_name: mk_economy_rss
+    enabled: true
+    source_type: rss
+    category: ECONOMY_NEWS
+    region: KR
+    display_name: 매일경제
+    quality_tier: TIER_2
+    endpoint: https://www.mk.co.kr/rss/30100041/
+    timeout_seconds: 10
+    retry:
+      max_attempts: 3
+      backoff_base_seconds: 1.0
+      backoff_jitter_seconds: 0.5
+    auth:
+      mode: none
+
+  - source_name: mk_stock_rss
+    enabled: true
+    source_type: rss
+    category: ECONOMY_NEWS
+    region: KR
+    display_name: 매일경제
+    quality_tier: TIER_2
+    endpoint: https://www.mk.co.kr/rss/50200011/
+    timeout_seconds: 10
+    retry:
+      max_attempts: 3
+      backoff_base_seconds: 1.0
+      backoff_jitter_seconds: 0.5
+    auth:
+      mode: none
+
+  - source_name: yonhap_economy_rss
+    enabled: true
+    source_type: rss
+    category: ECONOMY_NEWS
+    region: KR
+    display_name: 연합뉴스
+    quality_tier: TIER_2
+    endpoint: https://www.yna.co.kr/rss/economy.xml
+    timeout_seconds: 10
+    retry:
+      max_attempts: 3
+      backoff_base_seconds: 1.0
+      backoff_jitter_seconds: 0.5
+    auth:
+      mode: none
+
+  # Official global macro source (US Federal Reserve's own press releases --
+  # not third-party reporting about the Fed).
+  - source_name: federal_reserve_press_rss
+    enabled: true
+    source_type: rss
+    category: ECONOMY_NEWS
+    region: GLOBAL
+    display_name: 美 연방준비제도
+    quality_tier: TIER_1
+    endpoint: https://www.federalreserve.gov/feeds/press_all.xml
+    timeout_seconds: 10
+    retry:
+      max_attempts: 3
+      backoff_base_seconds: 1.0
+      backoff_jitter_seconds: 0.5
+    auth:
+      mode: none
+
+  # ECONOMY_NEWS source expansion (SOURCE EXPANSION + CONTENT QUALITY
+  # HARDENING phase, 2026-08-15): prior working domains (mk.co.kr, yna.co.kr,
+  # federalreserve.gov) = 3; hankyung_economy_rss above is excluded from
+  # this count -- still enabled per its own note in case it recovers, but
+  # confirmed persistently HTTP 403 to automated requests, so it
+  # contributes 0 real domains today. Every endpoint below was verified by
+  # a real, direct HTTP probe the same day -- HTTP 200, a parseable feed,
+  # real current entries dated 2026-08-14/15 -- before being added. Brings
+  # ECONOMY_NEWS to 8 distinct working domains (target: >=7).
+  - source_name: newsis_economy_rss
+    enabled: true
+    source_type: rss
+    category: ECONOMY_NEWS
+    region: KR
+    display_name: 뉴시스
+    quality_tier: TIER_2
+    endpoint: https://newsis.com/RSS/economy.xml
+    timeout_seconds: 10
+    retry:
+      max_attempts: 3
+      backoff_base_seconds: 1.0
+      backoff_jitter_seconds: 0.5
+    auth:
+      mode: none
+
+  - source_name: nocutnews_economy_rss
+    enabled: true
+    source_type: rss
+    category: ECONOMY_NEWS
+    region: KR
+    display_name: 노컷뉴스
+    quality_tier: TIER_2
+    endpoint: https://rss.nocutnews.co.kr/category/economy.xml
+    timeout_seconds: 10
+    retry:
+      max_attempts: 3
+      backoff_base_seconds: 1.0
+      backoff_jitter_seconds: 0.5
+    auth:
+      mode: none
+
+  - source_name: segye_economy_rss
+    enabled: true
+    source_type: rss
+    category: ECONOMY_NEWS
+    region: KR
+    display_name: 세계일보
+    quality_tier: TIER_2
+    endpoint: https://www.segye.com/Articles/RSSList/segye_economy.xml
+    timeout_seconds: 10
+    retry:
+      max_attempts: 3
+      backoff_base_seconds: 1.0
+      backoff_jitter_seconds: 0.5
+    auth:
+      mode: none
+
+  - source_name: etnews_economy_rss
+    enabled: true
+    source_type: rss
+    category: ECONOMY_NEWS
+    region: KR
+    display_name: 전자신문
+    quality_tier: TIER_3
+    endpoint: http://rss.etnews.com/02.xml
+    timeout_seconds: 10
+    retry:
+      max_attempts: 3
+      backoff_base_seconds: 1.0
+      backoff_jitter_seconds: 0.5
+    auth:
+      mode: none
+
+  # Official primary source (Korea's Financial Services Commission press
+  # releases) -- not third-party reporting about the regulator.
+  - source_name: fsc_press_rss
+    enabled: true
+    source_type: rss
+    category: ECONOMY_NEWS
+    region: KR
+    display_name: 금융위원회
+    quality_tier: TIER_1
+    endpoint: "http://www.fsc.go.kr/about/fsc_bbs_rss/?fid=0111"
     timeout_seconds: 10
     retry:
       max_attempts: 3
@@ -45,6 +363,8 @@ sources:
     source_type: naver_news_api
     category: SOCIETY_NEWS
     region: KR
+    display_name: 네이버뉴스
+    quality_tier: TIER_3
     endpoint: https://naverapihub.apigw.ntruss.com/search/v1/news
     timeout_seconds: 10
     retry:
@@ -60,3 +380,270 @@ sources:
       query: "사회"
       display: 50
       sort: date
+
+  # SOCIETY_NEWS redundancy (added the same session as the Economy
+  # diversification above, same rationale: naver_news alone was the only
+  # working SOCIETY_NEWS source). Both endpoints verified reachable by
+  # direct probe the same day: yna.co.kr/rss/society.xml returned HTTP 200
+  # with 120 real items, koreatimes.co.kr/www/rss/nation.xml returned HTTP
+  # 200 with 3 real items -- koreaherald.com/rss/national was also probed
+  # but returned an empty (0-item) channel and was not added.
+  - source_name: yonhap_society_rss
+    enabled: true
+    source_type: rss
+    category: SOCIETY_NEWS
+    region: KR
+    display_name: 연합뉴스
+    quality_tier: TIER_2
+    endpoint: https://www.yna.co.kr/rss/society.xml
+    timeout_seconds: 10
+    retry:
+      max_attempts: 3
+      backoff_base_seconds: 1.0
+      backoff_jitter_seconds: 0.5
+    auth:
+      mode: none
+
+  - source_name: koreatimes_nation_rss
+    enabled: true
+    source_type: rss
+    category: SOCIETY_NEWS
+    region: KR
+    display_name: 코리아타임스
+    quality_tier: TIER_2
+    endpoint: https://www.koreatimes.co.kr/www/rss/nation.xml
+    timeout_seconds: 10
+    retry:
+      max_attempts: 3
+      backoff_base_seconds: 1.0
+      backoff_jitter_seconds: 0.5
+    auth:
+      mode: none
+
+  # SOCIETY_NEWS source expansion (SOURCE EXPANSION + CONTENT QUALITY
+  # HARDENING phase, 2026-08-15): prior working domains (naver, yna.co.kr,
+  # koreatimes.co.kr) = 3. Every endpoint below was verified by a real,
+  # direct HTTP probe the same day -- HTTP 200, a parseable feed, real
+  # current entries dated 2026-08-14/15 -- before being added; khan.co.kr
+  # (경향신문) and rss.hankooki.com (한국일보) were also probed but returned
+  # 404/503 and were NOT added (no guessed URL substituted). Brings
+  # SOCIETY_NEWS to 7 distinct working domains (target: >=7).
+  - source_name: newsis_society_rss
+    enabled: true
+    source_type: rss
+    category: SOCIETY_NEWS
+    region: KR
+    display_name: 뉴시스
+    quality_tier: TIER_2
+    endpoint: https://newsis.com/RSS/society.xml
+    timeout_seconds: 10
+    retry:
+      max_attempts: 3
+      backoff_base_seconds: 1.0
+      backoff_jitter_seconds: 0.5
+    auth:
+      mode: none
+
+  - source_name: nocutnews_society_rss
+    enabled: true
+    source_type: rss
+    category: SOCIETY_NEWS
+    region: KR
+    display_name: 노컷뉴스
+    quality_tier: TIER_2
+    endpoint: https://rss.nocutnews.co.kr/category/society.xml
+    timeout_seconds: 10
+    retry:
+      max_attempts: 3
+      backoff_base_seconds: 1.0
+      backoff_jitter_seconds: 0.5
+    auth:
+      mode: none
+
+  - source_name: segye_society_rss
+    enabled: true
+    source_type: rss
+    category: SOCIETY_NEWS
+    region: KR
+    display_name: 세계일보
+    quality_tier: TIER_2
+    endpoint: https://www.segye.com/Articles/RSSList/segye_society.xml
+    timeout_seconds: 10
+    retry:
+      max_attempts: 3
+      backoff_base_seconds: 1.0
+      backoff_jitter_seconds: 0.5
+    auth:
+      mode: none
+
+  - source_name: ohmynews_society_rss
+    enabled: true
+    source_type: rss
+    category: SOCIETY_NEWS
+    region: KR
+    display_name: 오마이뉴스
+    quality_tier: TIER_3
+    endpoint: https://rss.ohmynews.com/rss/society.xml
+    timeout_seconds: 10
+    retry:
+      max_attempts: 3
+      backoff_base_seconds: 1.0
+      backoff_jitter_seconds: 0.5
+    auth:
+      mode: none
+
+  # Music-industry news (V2). No native TikTok Newsroom RSS was found
+  # (verified 2026-08-13: newsroom.tiktok.com/en-us/rss serves a
+  # JS-rendered HTML page, not real RSS) -- Google News' RSS search is used
+  # as a stable, publicly accessible fallback instead of a fabricated URL.
+  - source_name: tiktok_music_news_google
+    enabled: true
+    source_type: rss
+    category: TIKTOK_NEWS
+    region: GLOBAL
+    display_name: Google 뉴스
+    quality_tier: TIER_4
+    endpoint: "https://news.google.com/rss/search?q=TikTok+music&hl=en-US&gl=US&ceid=US:en"
+    timeout_seconds: 10
+    retry:
+      max_attempts: 3
+      backoff_base_seconds: 1.0
+      backoff_jitter_seconds: 0.5
+    auth:
+      mode: none
+
+  - source_name: spotify_newsroom_rss
+    enabled: true
+    source_type: rss
+    category: SPOTIFY_NEWS
+    region: GLOBAL
+    display_name: Spotify Newsroom
+    quality_tier: TIER_1
+    endpoint: https://newsroom.spotify.com/feed/
+    timeout_seconds: 10
+    retry:
+      max_attempts: 3
+      backoff_base_seconds: 1.0
+      backoff_jitter_seconds: 0.5
+    auth:
+      mode: none
+
+  - source_name: billboard_rss
+    enabled: true
+    source_type: rss
+    category: MUSIC_INDUSTRY_NEWS
+    region: GLOBAL
+    display_name: 빌보드
+    quality_tier: TIER_2
+    endpoint: https://www.billboard.com/feed/
+    timeout_seconds: 10
+    retry:
+      max_attempts: 3
+      backoff_base_seconds: 1.0
+      backoff_jitter_seconds: 0.5
+    auth:
+      mode: none
+
+  - source_name: music_business_worldwide_rss
+    enabled: true
+    source_type: rss
+    category: MUSIC_INDUSTRY_NEWS
+    region: GLOBAL
+    display_name: Music Business Worldwide
+    quality_tier: TIER_3
+    endpoint: https://www.musicbusinessworldwide.com/feed/
+    timeout_seconds: 10
+    retry:
+      max_attempts: 3
+      backoff_base_seconds: 1.0
+      backoff_jitter_seconds: 0.5
+    auth:
+      mode: none
+
+  - source_name: variety_music_rss
+    enabled: true
+    source_type: rss
+    category: MUSIC_INDUSTRY_NEWS
+    region: GLOBAL
+    display_name: 버라이어티
+    quality_tier: TIER_2
+    endpoint: https://variety.com/c/music/feed/
+    timeout_seconds: 10
+    retry:
+      max_attempts: 3
+      backoff_base_seconds: 1.0
+      backoff_jitter_seconds: 0.5
+    auth:
+      mode: none
+
+  - source_name: rollingstone_music_rss
+    enabled: true
+    source_type: rss
+    category: MUSIC_INDUSTRY_NEWS
+    region: GLOBAL
+    display_name: 롤링스톤
+    quality_tier: TIER_2
+    endpoint: https://www.rollingstone.com/music/music-news/feed/
+    timeout_seconds: 10
+    retry:
+      max_attempts: 3
+      backoff_base_seconds: 1.0
+      backoff_jitter_seconds: 0.5
+    auth:
+      mode: none
+
+  # MUSIC_INDUSTRY_NEWS source expansion (SOURCE EXPANSION + CONTENT
+  # QUALITY HARDENING phase, 2026-08-15): prior working domains (billboard,
+  # musicbusinessworldwide, variety, rollingstone) = 4. Every endpoint
+  # below was verified by a real, direct HTTP probe the same day -- HTTP
+  # 200, a parseable feed, real current entries dated 2026-08-12/14 --
+  # before being added; hypebot's feedblitz proxy returned HTTP 404 and
+  # was NOT added. Brings MUSIC_INDUSTRY_NEWS to 7 distinct working
+  # domains (target: >=6).
+  - source_name: pitchfork_rss
+    enabled: true
+    source_type: rss
+    category: MUSIC_INDUSTRY_NEWS
+    region: GLOBAL
+    display_name: 피치포크
+    quality_tier: TIER_2
+    endpoint: https://pitchfork.com/feed/feed-news/rss
+    timeout_seconds: 10
+    retry:
+      max_attempts: 3
+      backoff_base_seconds: 1.0
+      backoff_jitter_seconds: 0.5
+    auth:
+      mode: none
+
+  - source_name: cmu_rss
+    enabled: true
+    source_type: rss
+    category: MUSIC_INDUSTRY_NEWS
+    region: GLOBAL
+    display_name: Complete Music Update
+    quality_tier: TIER_3
+    endpoint: https://completemusicupdate.com/feed/
+    timeout_seconds: 10
+    retry:
+      max_attempts: 3
+      backoff_base_seconds: 1.0
+      backoff_jitter_seconds: 0.5
+    auth:
+      mode: none
+
+  - source_name: nme_music_rss
+    enabled: true
+    source_type: rss
+    category: MUSIC_INDUSTRY_NEWS
+    region: GLOBAL
+    display_name: NME
+    quality_tier: TIER_2
+    endpoint: https://www.nme.com/news/music/feed
+    timeout_seconds: 10
+    retry:
+      max_attempts: 3
+      backoff_base_seconds: 1.0
+      backoff_jitter_seconds: 0.5
+    auth:
+      mode: none
