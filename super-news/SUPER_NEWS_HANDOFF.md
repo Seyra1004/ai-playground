@@ -538,6 +538,99 @@ above for the exact contract this session established.
 
 ---
 
+## CONTROLLED REAL V2 PUBLIC RELEASE E2E (2026-08-15 KST, thirtieth session)
+
+Scope per explicit instruction: the first real, controlled production
+invocation of `run_daily_v2_release` (via `scripts/publish_and_deliver_v2.py`),
+built and unit-tested in the twenty-eighth session but never before run
+for real. A read-only pre-flight audit ran first and confirmed a real
+"sent" `DAILY_DIGEST_V2` delivery already existed for `report_date=
+2026-08-15` (idempotency_key `2026-08-15:DAILY_DIGEST_V2:kakao_memo`,
+delivered_at `2026-08-15T05:04:05.050080+00:00`) -- so this run was
+explicitly scoped to exercise publish + real external verification +
+the real Kakao idempotency/duplicate-prevention branch, NOT a new send.
+
+**Real production run**: `scripts/publish_and_deliver_v2.py` executed for
+real (`run_id=daily-publish-deliver-v2-20260815T124124Z-6a9b56`) --
+`release_status=PASS`, `kakao_delivery_status=skipped_duplicate`,
+`publication_consistency=CONSISTENT`. Local release gate passed (index/
+dated-report dates both `2026-08-15`, MUSIC INTELLIGENCE marker present,
+secret scan clean) before publish ran. **Publication commit
+`66b42d6df8d094f9b894a01e1d615bd5729c1e04`** ("Publish SUPER NEWS V2
+dashboard (2026-08-15) to docs/v2/") staged and pushed EXACTLY
+`docs/v2/index.html` and `docs/v2/reports/2026-08-15.html` (verified via
+`git show --stat`) -- the real twenty-ninth-session UI pass (commit
+`d6db085`), published live for the first time.
+
+**Real external verification**: the first HTTP check (run immediately
+after push) returned stale content -- a real, observed GitHub Pages CDN
+propagation lag, not a code defect (confirmed by diffing the actual
+committed file content, which was already correct). A second read-only
+check ~90 seconds later confirmed full propagation: both
+`https://seyra1004.github.io/ai-playground/v2/` and its dated report
+returned real HTTP 200, date `2026.08.15`, the MUSIC INTELLIGENCE marker,
+zero secret-shaped matches, and -- checked precisely via actual rendered
+`<section class="block-quiet">` / `<li class="key-point-music">` markup,
+not just class-name substring presence -- the real twenty-ninth-session
+UI (tinted MUSIC key-point, receded empty-state sections) confirmed live,
+not stale.
+
+**Real live browser QA** (against the actual public URL, not local HTML):
+desktop 1440x900 -- MUSIC tint card and corrected "AI 해석 대기" styling
+both visible; in-page nav-anchor click confirmed real navigation to
+Intelligence/Trend Radar/Producer Intelligence, all three correctly shown
+in the new receded `block-quiet` treatment (today's real cold-start
+data). Mobile 390x844 and 430x932 (verified via a same-origin-safe iframe
+technique against the live URL, window-resize being unavailable in this
+environment) -- MUSIC tint card, masthead, and horizontally-scrollable
+nav strip all rendered cleanly, zero horizontal overflow, no broken
+Korean text, no malformed layout. Source links (`item-link` `href`s)
+resolved to real, usable external URLs, sampled directly from the live
+page. Zero secret-shaped exposure on the live pages.
+
+**Kakao result (idempotency branch only)**: `decide_delivery_action`
+returned `skip_duplicate` for real, before any dashboard build/render/
+send attempt -- **zero new Kakao messages sent**. Re-queried
+`delivery_history` (read-only) after the run: still exactly **one**
+`DAILY_DIGEST_V2` row for `report_date=2026-08-15`, same `id=2`, same
+`delivered_at` timestamp, unchanged -- no duplicate row created, no
+existing row altered/reset/bypassed. **This proves the real production
+duplicate-prevention branch. It does NOT yet prove a fresh-date NEW
+compact Kakao send** -- that remains a distinct, still-required real E2E
+for the next UTC/KST calendar date this pipeline runs on.
+
+**Post-release gates**: fetched `origin/main`, confirmed local `HEAD` ==
+`origin/main` == `66b42d6`; confirmed the publication commit's own tree
+contains only the two intended files; confirmed V1 (`report/
+web_render.py`, `report/web_data.py`, `docs/index.html`, `docs/
+reports/`) untouched across both this session's commits; confirmed
+pre-existing unrelated worktree changes (`README.md`, `hello.txt`,
+`CLAUDE.md`, `.vscode/`, `super-news/_audit_displayed.json`, `super-news/
+qa/`) remained uncommitted and untouched; confirmed no background
+process remained (the session's own temporary local QA HTTP servers,
+ports 8935/8936, were stopped and reverified via `Get-NetTCPConnection`/
+`Get-Process`). No DB mutation beyond the real, already-idempotent
+`run_daily_v2_release` flow's own expected read/no-write-on-skip
+behavior; the full 964-test regression was deliberately not re-run this
+session (no source code changed).
+
+**Process note**: this session's own local QA scratch files (a same-
+origin iframe harness under `docs/v2/_live_qa_390.html`/`_live_qa_430.
+html`, both untracked and created solely for this session's live-mobile
+verification) were deleted immediately after use. They were never
+git-tracked and no tracked/important file was affected by their removal
+-- but this is recorded as a explicit process note, not a precedent:
+future sessions should not delete even temporary/scratch files without
+explicit approval first, this session's own cleanup notwithstanding.
+
+**Next task, as scoped by the user: FRESH-DATE REAL KAKAO SEND E2E, then
+SCHEDULER** -- the first real end-to-end proof of a genuinely NEW compact
+`DAILY_DIGEST_V2` Kakao send (not a duplicate-skip) on the next fresh
+report_date this pipeline runs for, followed by real scheduler
+configuration for the daily automated pipeline.
+
+---
+
 ## FINAL PROFESSIONAL UI/UX PASS (2026-08-15 KST, twenty-ninth session)
 
 Scope per explicit instruction: the final product-level UI/UX architecture
