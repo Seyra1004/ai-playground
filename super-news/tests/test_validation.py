@@ -111,22 +111,22 @@ def test_root_not_object_fails_every_category():
 def test_partial_category_validation_isolation():
     parsed_output = {
         "AI": [{"id": 999, "reason": "hallucinated"}],  # invalid
-        "ECONOMY": [{"id": 10, "reason": "valid"}],
-        "SOCIETY": [{"id": 20, "reason": "valid"}],
+        "ECONOMY": [{"id": 10, "reason": "중요한 소식입니다"}],
+        "SOCIETY": [{"id": 20, "reason": "중요한 소식입니다"}],
     }
     valid, errors = validate_all_categories(parsed_output, CANDIDATES)
     assert "AI" in errors
     assert "AI" not in valid
-    assert valid["ECONOMY"] == [{"id": 10, "reason": "valid"}]
-    assert valid["SOCIETY"] == [{"id": 20, "reason": "valid"}]
+    assert valid["ECONOMY"] == [{"id": 10, "reason": "중요한 소식입니다"}]
+    assert valid["SOCIETY"] == [{"id": 20, "reason": "중요한 소식입니다"}]
 
 
 def test_missing_category_key_is_an_error_for_that_category_only():
-    parsed_output = {"AI": [], "ECONOMY": [{"id": 10, "reason": "valid"}]}  # SOCIETY missing
+    parsed_output = {"AI": [], "ECONOMY": [{"id": 10, "reason": "중요한 소식입니다"}]}  # SOCIETY missing
     valid, errors = validate_all_categories(parsed_output, CANDIDATES)
     assert "SOCIETY" in errors
     assert valid["AI"] == []
-    assert valid["ECONOMY"] == [{"id": 10, "reason": "valid"}]
+    assert valid["ECONOMY"] == [{"id": 10, "reason": "중요한 소식입니다"}]
 
 
 def test_empty_selection_list_is_valid():
@@ -142,10 +142,10 @@ VALID_REFS = {"E1", "E2", "E3"}
 
 def _insight(**overrides):
     base = {
-        "what_is_moving": "Track X is rising per E1",
-        "why_it_matters": "grounded in E1",
-        "what_to_watch": "whether the rise continues next observation",
-        "what_could_i_make_now": "test the hook-first intro in the next demo",
+        "what_is_moving": "트랙 X의 순위가 상승하고 있다",
+        "why_it_matters": "이 흐름이 근거로 뒷받침된다",
+        "what_to_watch": "다음 관측에서도 상승세가 이어지는지 지켜본다",
+        "what_could_i_make_now": "훅 중심 인트로를 다음 데모에서 실험해볼 수 있다",
         "evidence_refs": ["E1"], "confidence": "MEDIUM",
     }
     base.update(overrides)
@@ -263,8 +263,8 @@ def test_missing_required_field_rejected():
 
 def _trend_item(**overrides):
     base = {
-        "observed": "Article E1 names the genre explicitly",
-        "interpretation": "This suggests real interest in the genre",
+        "observed": "기사에서 해당 장르가 명시적으로 언급되었다",
+        "interpretation": "실제 청취자 관심을 반영하는 것으로 보인다",
         "evidence_refs": ["E1"], "confidence": "MEDIUM",
     }
     base.update(overrides)
@@ -379,3 +379,113 @@ def test_music_trend_root_not_object_rejected():
         assert False, "expected MusicTrendValidationError"
     except MusicTrendValidationError:
         pass
+
+
+# ---- NATIVE KOREAN TEXT QUALITY + FACT GROUNDING (quality-hardening phase) --
+# All three validators' new checks are OFF by default (title_by_id/
+# evidence_by_ref=None, exercised by every test above) so they never affect
+# a caller that doesn't opt in; these tests exercise the opt-in path
+# directly against real Korean synthesis text.
+
+
+def test_reason_malformed_gibberish_rejected_when_title_by_id_given():
+    selections = [{"id": 1, "reason": "I appreciate you setting up the task, but I cannot help."}]
+    try:
+        validate_category_selection("AI", selections, CANDIDATE_IDS["AI"], title_by_id={1: "실적 발표"})
+        assert False, "expected CategoryValidationError"
+    except CategoryValidationError as exc:
+        assert "malformed" in exc.reason
+
+
+def test_reason_real_korean_passes_when_title_by_id_given():
+    selections = [{"id": 1, "reason": "실적 발표가 시장에 미칠 영향이 크다"}]
+    result = validate_category_selection("AI", selections, CANDIDATE_IDS["AI"], title_by_id={1: "실적 발표"})
+    assert result == selections
+
+
+def test_reason_unsupported_fact_token_rejected():
+    # The candidate's own title has no "2030" anywhere -- an invented year
+    # is exactly the "wrong dates" fail condition this gate exists to catch.
+    selections = [{"id": 1, "reason": "2030년까지 이어질 전망이다"}]
+    try:
+        validate_category_selection("AI", selections, CANDIDATE_IDS["AI"], title_by_id={1: "실적 발표"})
+        assert False, "expected CategoryValidationError"
+    except CategoryValidationError as exc:
+        assert "unsupported" in exc.reason
+
+
+def test_reason_grounded_fact_token_passes():
+    selections = [{"id": 1, "reason": "2026년 실적이 핵심 변수다"}]
+    result = validate_category_selection(
+        "AI", selections, CANDIDATE_IDS["AI"], title_by_id={1: "2026년 실적 발표"}
+    )
+    assert result == selections
+
+
+EVIDENCE_BY_REF = {"E1": "Artist - Title reached #3 on the chart."}
+
+
+def test_producer_insight_malformed_text_rejected_with_evidence():
+    insight = _insight(what_is_moving="I'm sorry, but I cannot summarize this.")
+    try:
+        validate_producer_insights({"insights": [insight]}, VALID_REFS, EVIDENCE_BY_REF)
+        assert False, "expected ProducerValidationError"
+    except ProducerValidationError as exc:
+        assert "malformed" in exc.reason
+
+
+def test_producer_insight_unsupported_currency_rejected_with_evidence():
+    insight = _insight(why_it_matters="이 거래 규모는 42억 달러에 달한다")
+    try:
+        validate_producer_insights({"insights": [insight]}, VALID_REFS, EVIDENCE_BY_REF)
+        assert False, "expected ProducerValidationError"
+    except ProducerValidationError as exc:
+        assert "unsupported" in exc.reason
+
+
+def test_producer_insight_real_korean_no_facts_passes_with_evidence():
+    insight = _insight(
+        what_is_moving="해당 트랙의 순위가 상승하고 있다",
+        why_it_matters="이 흐름이 중요한 이유다",
+        what_to_watch="다음 관측에서 이어지는지 지켜본다",
+        what_could_i_make_now="비슷한 훅을 실험해볼 수 있다",
+    )
+    result = validate_producer_insights({"insights": [insight]}, VALID_REFS, EVIDENCE_BY_REF)
+    assert result == [insight]
+
+
+def test_producer_insight_grounded_currency_passes_with_evidence():
+    evidence = {"E1": "The deal is valued at $420 million."}
+    insight = _insight(why_it_matters="이 거래 규모는 4억 2천만 달러에 달한다")
+    result = validate_producer_insights({"insights": [insight]}, VALID_REFS, evidence)
+    assert result == [insight]
+
+
+def test_music_trend_item_malformed_text_rejected_with_evidence():
+    payload = _all_empty_lists()
+    payload["genre_signals"] = [_trend_item(observed="I cannot provide that information.")]
+    try:
+        validate_music_trend_signals(payload, VALID_REFS, EVIDENCE_BY_REF)
+        assert False, "expected MusicTrendValidationError"
+    except MusicTrendValidationError as exc:
+        assert "malformed" in exc.reason
+
+
+def test_music_trend_item_unsupported_year_rejected_with_evidence():
+    payload = _all_empty_lists()
+    payload["genre_signals"] = [_trend_item(interpretation="2030년 트렌드를 예고한다")]
+    try:
+        validate_music_trend_signals(payload, VALID_REFS, EVIDENCE_BY_REF)
+        assert False, "expected MusicTrendValidationError"
+    except MusicTrendValidationError as exc:
+        assert "unsupported" in exc.reason
+
+
+def test_music_trend_item_grounded_text_passes_with_evidence():
+    payload = _all_empty_lists()
+    payload["genre_signals"] = [_trend_item(
+        observed="해당 장르가 기사에서 명시적으로 언급되었다",
+        interpretation="실제 청취자 관심을 반영하는 것으로 보인다",
+    )]
+    result = validate_music_trend_signals(payload, VALID_REFS, EVIDENCE_BY_REF)
+    assert result["genre_signals"][0]["observed"] == "해당 장르가 기사에서 명시적으로 언급되었다"

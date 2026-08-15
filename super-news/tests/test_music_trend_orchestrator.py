@@ -116,8 +116,8 @@ def test_fresh_output_hallucinated_ref_fails_and_persists_nothing(conn):
 
 def _good_response(ref="E1"):
     genre_item = {
-        "observed": "Article text explicitly names the genre",
-        "interpretation": "suggests genuine listener interest in the genre",
+        "observed": "기사 본문에 해당 장르가 명시적으로 언급되었다",
+        "interpretation": "실제 청취자 관심이 반영된 것으로 보인다",
         "evidence_refs": [ref], "confidence": "MEDIUM",
     }
     parsed = {"genre_signals": [genre_item], "production_notes": [], "producer_references": [], "kpop_ar_notes": []}

@@ -32,6 +32,7 @@ import re
 from datetime import datetime, timezone
 
 from config import get_optional_env
+from report.text_quality import is_malformed_synthesis_text, unsupported_fact_tokens
 
 CATEGORY = "NEWS_INTELLIGENCE_V2"
 PROMPT_VERSION = "v1"
@@ -194,7 +195,7 @@ def _build_prompts(items):
     return system_prompt, user_prompt
 
 
-def _valid_field(value, forbidden_texts):
+def _valid_field(value, forbidden_texts, evidence_text=""):
     if not isinstance(value, str):
         return False
     text = value.strip()
@@ -206,6 +207,17 @@ def _valid_field(value, forbidden_texts):
     for forbidden in forbidden_texts:
         if forbidden and normalized == forbidden.strip().casefold():
             return False
+    # NATIVE KOREAN TEXT QUALITY + FACT GROUNDING (quality-hardening
+    # phase): reuses report.text_quality's shared, deterministic
+    # gibberish/refusal-output detector (same real defect class report/
+    # translation_validation.py already catches for translated text) plus
+    # its evidence-grounding check -- every explicit YEAR/PERCENTAGE/
+    # VERSION/CURRENCY-MAGNITUDE token this field asserts must be
+    # traceable to the item's own real title/snippet evidence.
+    if is_malformed_synthesis_text(text):
+        return False
+    if unsupported_fact_tokens(text, evidence_text):
+        return False
     return True
 
 
@@ -252,11 +264,12 @@ def validate_news_intelligence(parsed_output, items_by_id):
         if item is None:
             continue
         forbidden = (item.get("title"), item.get("snippet"))
+        evidence_text = f"{item.get('title') or ''} {item.get('snippet') or ''}"
         fields = {}
         ok = True
         for field in _FIELDS:
             value = entry.get(field)
-            if not _valid_field(value, forbidden):
+            if not _valid_field(value, forbidden, evidence_text):
                 ok = False
                 break
             fields[field] = value.strip()

@@ -115,10 +115,10 @@ def test_fresh_output_hallucinated_ref_fails_and_persists_nothing(conn):
 
 def _good_response(ref="E1"):
     insight = {
-        "what_is_moving": "Multiple rising signals show fast entries",
-        "why_it_matters": "multiple rising signals show fast entries",
-        "what_to_watch": "whether the trend continues past the next observation",
-        "what_could_i_make_now": "test a short hook-first intro next demo",
+        "what_is_moving": "여러 신호가 빠른 순위 진입을 보여준다",
+        "why_it_matters": "여러 신호가 빠른 순위 진입을 보여준다는 점이 중요하다",
+        "what_to_watch": "다음 관측에서도 이 흐름이 이어지는지 지켜볼 필요가 있다",
+        "what_could_i_make_now": "훅 중심 인트로를 짧게 실험해볼 수 있다",
         "evidence_refs": [ref], "confidence": "MEDIUM",
     }
     text = json.dumps({"insights": [insight]})
@@ -136,7 +136,7 @@ def test_valid_fresh_output_is_persisted_and_readable(conn):
     data = build_dashboard_data_v2(conn, "2026-08-13")
     assert data["producer_intelligence"]["state"] == "NORMAL"
     assert len(data["producer_intelligence"]["insights"]) == 1
-    assert "hook-first" in data["producer_intelligence"]["insights"][0]["what_could_i_make_now"]
+    assert "훅 중심" in data["producer_intelligence"]["insights"][0]["what_could_i_make_now"]
 
 
 def test_persisted_output_carries_resolvable_evidence_summary_not_bare_ref(conn):

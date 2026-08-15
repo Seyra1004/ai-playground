@@ -77,8 +77,9 @@ def run_daily_music_trend_intelligence(conn, run_id, report_date_kst, llm=None):
     # synthesis_result is never None here: catalog_preview was non-empty,
     # and build_evidence_catalog is a pure function of the same inputs.
     valid_refs = {e["ref"] for e in synthesis_result["catalog"]}
+    evidence_by_ref = {e["ref"]: e.get("summary", "") for e in synthesis_result["catalog"]}
     try:
-        validate_music_trend_signals(synthesis_result["parsed"], valid_refs)
+        validate_music_trend_signals(synthesis_result["parsed"], valid_refs, evidence_by_ref)
     except MusicTrendValidationError as exc:
         logger.error(
             "run_id=%s music trend intelligence validation FAILED (reused=%s): %s",

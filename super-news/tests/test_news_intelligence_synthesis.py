@@ -54,9 +54,9 @@ def _items():
 def _valid_entry(item_id):
     return {
         "id": item_id,
-        "what_happened": "A concrete factual statement about what occurred.",
-        "why_it_matters": "A grounded implication drawn from the given evidence.",
-        "what_to_watch": "Whether the next data point confirms this trend.",
+        "what_happened": "실제로 있었던 일에 대한 구체적인 사실 진술이다.",
+        "why_it_matters": "주어진 근거로부터 도출된 합리적인 함의다.",
+        "what_to_watch": "다음 데이터가 이 흐름을 확인해줄지 지켜볼 필요가 있다.",
     }
 
 

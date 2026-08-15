@@ -57,9 +57,9 @@ def _item(item_id, tier="LEAD", title="Some Title", snippet="Some snippet."):
 def _valid_entry(item_id):
     return {
         "id": item_id,
-        "what_happened": "A concrete factual statement about what occurred.",
-        "why_it_matters": "A grounded implication drawn from the given evidence.",
-        "what_to_watch": "Whether the next data point confirms this trend.",
+        "what_happened": "실제로 있었던 일에 대한 구체적인 사실 진술이다.",
+        "why_it_matters": "주어진 근거로부터 도출된 합리적인 함의다.",
+        "what_to_watch": "다음 데이터가 이 흐름을 확인해줄지 지켜볼 필요가 있다.",
     }
 
 
@@ -299,7 +299,7 @@ def test_E_dashboard_read_back_correct_after_skipped_persist_on_reuse(conn, monk
     items = [{"id": 1, "title": "Some Title", "snippet": "Some snippet."}]
     result = _attach_news_intelligence(conn, "2026-08-14", items)
     assert result[0]["ai_intelligence_status"] == "AVAILABLE"
-    assert result[0]["what_happened"] == "A concrete factual statement about what occurred."
+    assert result[0]["what_happened"] == "실제로 있었던 일에 대한 구체적인 사실 진술이다."
 
 
 def test_F_preexisting_malformed_row_is_not_silently_trusted(conn, monkeypatch):
@@ -380,7 +380,7 @@ _MALFORMED_OUTPUT = {"items": [{"id": 1, "what_happened": "", "why_it_matters": 
 
 
 def _valid_output(item_id, marker=""):
-    return {"items": [dict(_valid_entry(item_id), what_happened=f"Real fact{marker}.")]}
+    return {"items": [dict(_valid_entry(item_id), what_happened=f"실제로 있었던 일이다{marker}.")]}
 
 
 def test_3C2_A_valid_existing_row_reused_zero_llm_row_count_unchanged(conn, monkeypatch):

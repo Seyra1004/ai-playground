@@ -57,7 +57,7 @@ def _insert_ai_candidate(conn, key="k1"):
 def test_valid_selection_produces_report_and_completed_run(conn):
     item_id = _insert_ai_candidate(conn)
     llm = FakeLLM(response=LLMResponse(
-        parsed={"AI": [{"id": item_id, "reason": "important"}], "ECONOMY": [], "SOCIETY": []},
+        parsed={"AI": [{"id": item_id, "reason": "중요한 소식이다"}], "ECONOMY": [], "SOCIETY": []},
         raw_text="{}", model_used="fake-model", input_tokens=1, output_tokens=1,
     ))
     result = run_daily_report(conn, "run-1", run_date="2026-08-12", llm=llm)
