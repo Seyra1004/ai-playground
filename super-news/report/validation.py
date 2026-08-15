@@ -38,6 +38,121 @@ def validate_category_selection(category, selections, candidate_ids):
     return selections
 
 
+MAX_PRODUCER_INSIGHTS = 5
+
+
+class ProducerValidationError(Exception):
+    def __init__(self, reason):
+        self.reason = reason
+        super().__init__(reason)
+
+
+_PRODUCER_INSIGHT_TEXT_FIELDS = ("what_is_moving", "why_it_matters", "what_to_watch", "what_could_i_make_now")
+
+
+def validate_producer_insights(parsed_output, valid_refs):
+    """parsed_output: the raw value the LLM returned for the Producer
+    Intelligence call (should be {"insights": [...]}). valid_refs: the set
+    of evidence `ref` labels actually offered in the evidence catalog for
+    this call. Returns the `insights` list unchanged if valid; raises
+    ProducerValidationError otherwise -- same id/ref-grounding discipline
+    validate_category_selection already enforces for news selections, so
+    the LLM can never cite evidence that wasn't actually computed this
+    run. Every insight must cite at least one real ref -- an insight with
+    no evidence_refs is not grounded and is rejected, never silently kept
+    as an ungrounded opinion.
+
+    MUSIC INTELLIGENCE COMPLETION phase's 6-question contract: each
+    insight has 4 required text fields (what_is_moving/why_it_matters/
+    what_to_watch/what_could_i_make_now) instead of the older bare
+    action/why pair -- see report.producer_synthesis's own schema/prompt
+    docstring for which of the four is the OBSERVED FACT vs. AI
+    INFERENCE."""
+    if not isinstance(parsed_output, dict) or "insights" not in parsed_output:
+        raise ProducerValidationError(f"expected an object with an 'insights' key, got {parsed_output!r}")
+    insights = parsed_output["insights"]
+    if not isinstance(insights, list):
+        raise ProducerValidationError(f"'insights' must be a list, got {type(insights).__name__}")
+    if len(insights) > MAX_PRODUCER_INSIGHTS:
+        raise ProducerValidationError(f"{len(insights)} insights exceeds max {MAX_PRODUCER_INSIGHTS}")
+    for insight in insights:
+        if not isinstance(insight, dict):
+            raise ProducerValidationError(f"malformed insight: {insight!r}")
+        for field in _PRODUCER_INSIGHT_TEXT_FIELDS + ("evidence_refs", "confidence"):
+            if field not in insight:
+                raise ProducerValidationError(f"insight missing required field {field!r}: {insight!r}")
+        for field in _PRODUCER_INSIGHT_TEXT_FIELDS:
+            if not isinstance(insight[field], str) or not insight[field].strip():
+                raise ProducerValidationError(f"empty {field}: {insight!r}")
+        if not isinstance(insight["evidence_refs"], list) or not insight["evidence_refs"]:
+            raise ProducerValidationError(f"evidence_refs must be a non-empty list: {insight!r}")
+        for ref in insight["evidence_refs"]:
+            if ref not in valid_refs:
+                raise ProducerValidationError(f"evidence ref {ref!r} is not in the evidence catalog")
+        if insight["confidence"] not in ("LOW", "MEDIUM", "HIGH"):
+            raise ProducerValidationError(f"invalid confidence: {insight.get('confidence')!r}")
+    return insights
+
+
+_MUSIC_TREND_LIST_FIELDS = ("genre_signals", "production_notes", "producer_references", "kpop_ar_notes")
+MAX_MUSIC_TREND_ITEMS_PER_LIST = 3
+
+
+class MusicTrendValidationError(Exception):
+    def __init__(self, reason):
+        self.reason = reason
+        super().__init__(reason)
+
+
+def validate_music_trend_signals(parsed_output, valid_refs):
+    """parsed_output: the raw value the LLM returned for Music Trend
+    Intelligence (should have genre_signals/production_notes/
+    producer_references/kpop_ar_notes list keys). valid_refs: the set of
+    evidence `ref` labels actually offered in the evidence catalog for
+    this call. Returns parsed_output unchanged if valid; raises
+    MusicTrendValidationError otherwise -- same ref-grounding discipline
+    validate_producer_insights already enforces, applied independently to
+    all four lists so a bad item in one category can never silently
+    invalidate an honest, well-grounded item in another. Every item's
+    `observed`/`interpretation` text is NOT independently fact-checked
+    beyond ref-grounding (matching this project's existing, established
+    trust model for LLM synthesis -- report.producer_synthesis accepts
+    the same limit) -- the real backstop against fabrication is strong
+    prompt instruction plus every item requiring a real, cited ref; an
+    ungrounded item (empty evidence_refs, or a ref that doesn't exist in
+    the catalog) is always rejected outright, never silently kept."""
+    if not isinstance(parsed_output, dict):
+        raise MusicTrendValidationError(f"expected an object, got {type(parsed_output).__name__}")
+    for field in _MUSIC_TREND_LIST_FIELDS:
+        if field not in parsed_output:
+            raise MusicTrendValidationError(f"missing required key {field!r}")
+        items = parsed_output[field]
+        if not isinstance(items, list):
+            raise MusicTrendValidationError(f"{field!r} must be a list, got {type(items).__name__}")
+        if len(items) > MAX_MUSIC_TREND_ITEMS_PER_LIST:
+            raise MusicTrendValidationError(
+                f"{field!r}: {len(items)} items exceeds max {MAX_MUSIC_TREND_ITEMS_PER_LIST}"
+            )
+        for item in items:
+            if not isinstance(item, dict):
+                raise MusicTrendValidationError(f"{field!r}: malformed item: {item!r}")
+            for key in ("observed", "interpretation", "evidence_refs", "confidence"):
+                if key not in item:
+                    raise MusicTrendValidationError(f"{field!r}: item missing required field {key!r}: {item!r}")
+            if not isinstance(item["observed"], str) or not item["observed"].strip():
+                raise MusicTrendValidationError(f"{field!r}: empty observed: {item!r}")
+            if not isinstance(item["interpretation"], str) or not item["interpretation"].strip():
+                raise MusicTrendValidationError(f"{field!r}: empty interpretation: {item!r}")
+            if not isinstance(item["evidence_refs"], list) or not item["evidence_refs"]:
+                raise MusicTrendValidationError(f"{field!r}: evidence_refs must be a non-empty list: {item!r}")
+            for ref in item["evidence_refs"]:
+                if ref not in valid_refs:
+                    raise MusicTrendValidationError(f"{field!r}: evidence ref {ref!r} is not in the evidence catalog")
+            if item["confidence"] not in ("LOW", "MEDIUM", "HIGH"):
+                raise MusicTrendValidationError(f"{field!r}: invalid confidence: {item.get('confidence')!r}")
+    return parsed_output
+
+
 def validate_all_categories(parsed_output, candidates_by_category):
     """Returns (valid, errors): valid is dict[category -> selections] for
     categories that passed; errors is dict[category -> CategoryValidationError]

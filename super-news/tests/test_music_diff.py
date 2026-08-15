@@ -93,7 +93,7 @@ def test_no_prior_snapshot_all_entries_are_new(conn):
 
 def test_no_snapshot_at_all_returns_empty_diff(conn):
     diff = compute_music_diff(conn, "2026-08-12")
-    assert diff == {"observed_at": None, "entries": []}
+    assert diff == {"observed_at": None, "entries": [], "is_first_observation": False}
     assert render_music_report(diff) == "오늘 Apple Music KR 차트 데이터가 없습니다."
 
 

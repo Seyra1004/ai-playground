@@ -19,7 +19,14 @@ Per-category status semantics (matches run_category_status's frozen CHECK):
 import hashlib
 from datetime import datetime, timezone
 
-NEWS_CATEGORIES = ("AI", "ECONOMY", "SOCIETY")
+NEWS_CATEGORIES = ("AI", "ECONOMY", "SOCIETY", "TIKTOK", "SPOTIFY")
+
+# report.producer_synthesis.CATEGORY -- duplicated as a literal (not
+# imported) to keep persistence.py free of a dependency on the synthesis
+# module, matching this file's existing style (NEWS_CATEGORIES is also a
+# local literal, not imported from candidate_selection.py).
+PRODUCER_INTELLIGENCE_CATEGORY = "MUSIC_PRODUCER_INTELLIGENCE"
+MUSIC_TREND_INTELLIGENCE_CATEGORY = "MUSIC_TREND_INTELLIGENCE"
 
 
 def _render_news_report(category, selections, candidates):
@@ -141,3 +148,54 @@ def persist_report_run(conn, runs_row_id, report_date_kst, news_result, valid_se
         raise
 
     return outcome
+
+
+def persist_producer_intelligence(conn, runs_row_id, synthesis_result):
+    """Writes ONE llm_interpretations row for
+    report.producer_synthesis.CATEGORY (PRODUCER_INTELLIGENCE_CATEGORY).
+
+    Deliberately independent of persist_report_run's atomic news/music
+    transaction: Producer Intelligence is a separate, best-effort daily
+    addition on top of an already-successful run, not a required part of
+    it -- a failure persisting it (or a validation failure upstream that
+    means this is never even called) must never roll back or block the
+    news/music report that already succeeded this run. Caller is
+    responsible for having already validated synthesis_result["parsed"]
+    (report.validation.validate_producer_insights) -- this function only
+    persists what it's given, exactly like persist_report_run trusts
+    valid_selections has already been validated by its caller. Caller
+    commits (matches persist_report_run's own transaction ownership: this
+    function issues the INSERT but does not commit/rollback itself)."""
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute(
+        """INSERT INTO llm_interpretations
+           (run_id, category, model_used, prompt_version, input_hash, input_tokens,
+            output_tokens, estimated_cost, output_text, confidence, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'MEDIUM', ?)""",
+        (runs_row_id, PRODUCER_INTELLIGENCE_CATEGORY, synthesis_result["model_used"],
+         synthesis_result["prompt_version"], synthesis_result["input_hash"],
+         synthesis_result["input_tokens"], synthesis_result["output_tokens"],
+         synthesis_result["estimated_cost"], synthesis_result["output_text"], now),
+    )
+    return conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+
+def persist_music_trend_intelligence(conn, runs_row_id, synthesis_result):
+    """Writes ONE llm_interpretations row for report.music_trend_
+    synthesis.CATEGORY (MUSIC_TREND_INTELLIGENCE_CATEGORY) -- same
+    contract as persist_producer_intelligence directly above: independent
+    of persist_report_run's atomic transaction, caller must have already
+    validated synthesis_result["parsed"] (report.validation.
+    validate_music_trend_signals), caller commits."""
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute(
+        """INSERT INTO llm_interpretations
+           (run_id, category, model_used, prompt_version, input_hash, input_tokens,
+            output_tokens, estimated_cost, output_text, confidence, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'MEDIUM', ?)""",
+        (runs_row_id, MUSIC_TREND_INTELLIGENCE_CATEGORY, synthesis_result["model_used"],
+         synthesis_result["prompt_version"], synthesis_result["input_hash"],
+         synthesis_result["input_tokens"], synthesis_result["output_tokens"],
+         synthesis_result["estimated_cost"], synthesis_result["output_text"], now),
+    )
+    return conn.execute("SELECT last_insert_rowid()").fetchone()[0]

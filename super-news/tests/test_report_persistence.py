@@ -6,7 +6,7 @@ import sqlite3
 import pytest
 
 from db.database import connect, init_db
-from report.persistence import persist_report_run
+from report.persistence import PRODUCER_INTELLIGENCE_CATEGORY, persist_producer_intelligence, persist_report_run
 
 
 @pytest.fixture
@@ -79,12 +79,12 @@ def test_generates_reports_and_run_category_status(conn):
     assert outcome["MUSIC"]["status"] == "NOT_READY"
 
     reports = conn.execute("SELECT category FROM reports WHERE run_id=?", (runs_row_id,)).fetchall()
-    assert {r["category"] for r in reports} == {"AI", "ECONOMY", "SOCIETY"}
+    assert {r["category"] for r in reports} == {"AI", "ECONOMY", "SOCIETY", "TIKTOK", "SPOTIFY"}
 
     status_rows = conn.execute(
         "SELECT category, status FROM run_category_status WHERE run_id=?", (runs_row_id,)
     ).fetchall()
-    assert len(status_rows) == 4
+    assert len(status_rows) == 6
 
 
 def test_interpretation_items_provenance_written(conn):
@@ -177,3 +177,50 @@ def test_mid_transaction_failure_rolls_back_everything(conn):
     assert conn.execute(
         "SELECT COUNT(*) FROM llm_interpretations WHERE run_id=?", (runs_row_id,)
     ).fetchone()[0] == 0
+
+
+# ---- persist_producer_intelligence: independent of persist_report_run ------
+
+
+def _synthesis_result(input_hash="hash1", output_text='{"insights": []}'):
+    return {
+        "input_hash": input_hash, "prompt_version": "v1", "model_used": "fake-model",
+        "output_text": output_text, "input_tokens": 10, "output_tokens": 5, "estimated_cost": None,
+    }
+
+
+def test_persist_producer_intelligence_writes_one_row(conn):
+    runs_row_id = _insert_run(conn, "run-pi")
+    result_id = persist_producer_intelligence(conn, runs_row_id, _synthesis_result())
+    conn.commit()
+
+    row = conn.execute("SELECT * FROM llm_interpretations WHERE id = ?", (result_id,)).fetchone()
+    assert row["run_id"] == runs_row_id
+    assert row["category"] == PRODUCER_INTELLIGENCE_CATEGORY
+    assert row["output_text"] == '{"insights": []}'
+    assert row["input_hash"] == "hash1"
+
+
+def test_persist_producer_intelligence_never_touches_reports_table(conn):
+    runs_row_id = _insert_run(conn, "run-pi2")
+    persist_producer_intelligence(conn, runs_row_id, _synthesis_result())
+    conn.commit()
+    assert conn.execute("SELECT COUNT(*) FROM reports WHERE run_id=?", (runs_row_id,)).fetchone()[0] == 0
+    assert conn.execute(
+        "SELECT COUNT(*) FROM run_category_status WHERE run_id=?", (runs_row_id,)
+    ).fetchone()[0] == 0
+
+
+def test_persist_producer_intelligence_independent_of_news_report_failure(conn):
+    """A prior news-report rollback (see the IntegrityError test above)
+    must not affect Producer Intelligence persistence in a later,
+    independent transaction -- proven here by writing it against a run
+    that never had any persist_report_run call at all."""
+    runs_row_id = _insert_run(conn, "run-pi3")
+    persist_producer_intelligence(conn, runs_row_id, _synthesis_result(input_hash="hash2"))
+    conn.commit()
+    row = conn.execute(
+        "SELECT * FROM llm_interpretations WHERE run_id = ? AND category = ?",
+        (runs_row_id, PRODUCER_INTELLIGENCE_CATEGORY),
+    ).fetchone()
+    assert row is not None

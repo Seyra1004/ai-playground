@@ -183,12 +183,96 @@ def test_returned_keys_are_report_output_categories_not_source_categories(conn):
 
 
 def test_unknown_report_category_fails_clearly():
-    from report.candidate_selection import _source_category
+    from report.candidate_selection import _source_categories
 
     with pytest.raises(ValueError, match="Unknown report category"):
-        _source_category("NOT_A_REAL_CATEGORY")
+        _source_categories("NOT_A_REAL_CATEGORY")
 
 
 def test_unknown_report_category_passed_to_select_news_candidates_raises(conn):
     with pytest.raises(ValueError, match="Unknown report category"):
         select_news_candidates(conn, ["NOT_A_REAL_CATEGORY"], "2026-08-12")
+
+
+# ---- SPOTIFY report category pools SPOTIFY_NEWS + MUSIC_INDUSTRY_NEWS ------
+
+
+def test_spotify_category_pools_official_and_trade_press_sources(conn):
+    _insert_item(conn, "spotify_newsroom_rss", "k1", "SPOTIFY_NEWS", "ev-1", "official", "2026-08-12T01:00:00+00:00")
+    _insert_item(conn, "billboard_rss", "k2", "MUSIC_INDUSTRY_NEWS", "ev-2", "trade press", "2026-08-12T02:00:00+00:00")
+
+    result = select_news_candidates(conn, ["SPOTIFY"], "2026-08-12")
+    titles = {c["normalized_title"] for c in result["SPOTIFY"]}
+    assert titles == {"official", "trade press"}
+
+
+def test_tiktok_category_uses_only_tiktok_news(conn):
+    _insert_item(conn, "tiktok_music_news_google", "k1", "TIKTOK_NEWS", "ev-1", "tiktok item", "2026-08-12T01:00:00+00:00")
+    _insert_item(conn, "spotify_newsroom_rss", "k2", "SPOTIFY_NEWS", "ev-2", "spotify item", "2026-08-12T01:00:00+00:00")
+
+    result = select_news_candidates(conn, ["TIKTOK"], "2026-08-12")
+    titles = {c["normalized_title"] for c in result["TIKTOK"]}
+    assert titles == {"tiktok item"}
+
+
+# ---- Low-value boilerplate genre filter (SOURCE EXPANSION + CONTENT QUALITY --
+# HARDENING phase, 2026-08-15): real production examples pulled from the
+# top-20-by-score SOCIETY audit that day.
+
+
+def test_horoscope_column_is_scored_down_not_removed(conn):
+    _insert_item(conn, "newsis_society_rss", "k1", "SOCIETY_NEWS", "ev-1",
+                 "[녹유 오늘의 운세] 05년생 믿자 하는 약속 낙서가 되어요", "2026-08-14T15:00:00+00:00")
+    result = select_news_candidates(conn, ["SOCIETY"], "2026-08-15")
+    candidate = result["SOCIETY"][0]
+    assert candidate["is_boilerplate_genre"] is True
+    assert candidate["final_score"] < 0.2  # still present, never dropped from the list
+
+
+def test_obituary_notice_is_scored_down(conn):
+    _insert_item(conn, "yonhap_society_rss", "k1", "SOCIETY_NEWS", "ev-1",
+                 "[부고] 오택림(전북특별자치도 도민안전실장)씨 부친상", "2026-08-14T15:00:00+00:00")
+    result = select_news_candidates(conn, ["SOCIETY"], "2026-08-15")
+    assert result["SOCIETY"][0]["is_boilerplate_genre"] is True
+
+
+def test_daily_weather_bulletin_is_scored_down(conn):
+    _insert_item(conn, "newsis_society_rss", "k1", "SOCIETY_NEWS", "ev-1",
+                 "광복절 낮 최고 33도…전국 곳곳 비·소나기[오늘날씨]", "2026-08-14T15:00:00+00:00")
+    result = select_news_candidates(conn, ["SOCIETY"], "2026-08-15")
+    assert result["SOCIETY"][0]["is_boilerplate_genre"] is True
+
+
+def test_bracketed_copyright_notice_is_scored_down(conn):
+    _insert_item(conn, "newsis_society_rss", "k1", "SOCIETY_NEWS", "ev-1",
+                 "[알림]뉴시스 콘텐츠 저작권 고지", "2026-08-14T15:00:00+00:00")
+    result = select_news_candidates(conn, ["SOCIETY"], "2026-08-15")
+    assert result["SOCIETY"][0]["is_boilerplate_genre"] is True
+
+
+def test_real_copyright_law_story_is_never_flagged():
+    """A bare '저작권' keyword must never alone trigger the filter -- a
+    real news story about copyright law/litigation legitimately uses that
+    word and must not be scored down."""
+    from report.candidate_selection import _is_boilerplate_genre
+    assert _is_boilerplate_genre("국회, AI 학습데이터 저작권법 개정안 통과") is False
+
+
+def test_personnel_appointment_notice_is_never_flagged(conn):
+    """Regulatory/institutional personnel notices ('[인사] ...') must
+    never be treated as boilerplate -- section 8's explicit requirement
+    that filtering never hides genuinely important regulatory news."""
+    _insert_item(conn, "yonhap_economy_rss", "k1", "ECONOMY_NEWS", "ev-1",
+                 "[인사] 공정거래위원회", "2026-08-14T15:00:00+00:00")
+    result = select_news_candidates(conn, ["ECONOMY"], "2026-08-15")
+    assert result["ECONOMY"][0]["is_boilerplate_genre"] is False
+
+
+def test_boilerplate_genre_never_outranks_equally_fresh_real_news(conn):
+    _insert_item(conn, "newsis_society_rss", "k1", "SOCIETY_NEWS", "ev-1",
+                 "[부고] 누군가씨 부친상", "2026-08-14T23:00:00+00:00")
+    _insert_item(conn, "yonhap_society_rss", "k2", "SOCIETY_NEWS", "ev-2",
+                 "실제 사회 뉴스 헤드라인입니다", "2026-08-14T23:00:00+00:00")
+    result = select_news_candidates(conn, ["SOCIETY"], "2026-08-15")
+    titles = [c["normalized_title"] for c in result["SOCIETY"]]
+    assert titles[0] == "실제 사회 뉴스 헤드라인입니다"

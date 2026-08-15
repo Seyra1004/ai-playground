@@ -1,66 +1,28 @@
-"""Deterministic Apple KR most-played chart diff for the MUSIC report.
+"""Deterministic MUSIC-report chart diff -- report-layer entry point.
 
-No AI involved -- this is a pure comparison of two chart_position
-observation snapshots (today's vs. the most recent one strictly before it).
-Deliberately excluded from LLM synthesis per the Report V1 design: rank
-deltas are an exact, fully-explainable computation, and running them through
-an LLM would only add cost and hallucination risk for zero benefit.
+No AI involved -- this is a pure comparison of two observation snapshots
+(today's vs. the most recent one strictly before it). Deliberately excluded
+from LLM synthesis per the Report V1 design: rank deltas are an exact,
+fully-explainable computation, and running them through an LLM would only
+add cost and hallucination risk for zero benefit.
+
+V2 note: the actual diff algorithm is source-agnostic and lives in
+music.signal_engine.compute_chart_diff -- this module only decides WHICH
+source's diff currently becomes the report's MUSIC content. Today that's
+the single entry in music.registry.ACTIVE_MUSIC_SOURCES (apple_music).
+Whether/how to combine multiple sources into one report is an output-layer
+product decision, not yet approved -- see the V2 architecture design doc --
+so this module still returns exactly one source's diff, unchanged in shape
+from before this refactor. Adding a second active source does not require
+editing this function's signature or music.signal_engine.
 """
 
-from datetime import datetime, timedelta, timezone
+from music.registry import ACTIVE_MUSIC_SOURCES
+from music.signal_engine import compute_chart_diff
 
-from music.apple_music import METRIC_NAME, SOURCE_NAME
-
-_KST = timezone(timedelta(hours=9))
-
-
-def _kst_date_of(observed_at_iso):
-    dt = datetime.fromisoformat(observed_at_iso).astimezone(_KST)
-    return dt.strftime("%Y-%m-%d")
-
-
-def _latest_snapshot_on_or_before(conn, report_date_kst):
-    """Returns (observed_at, [rows]) for the most recent chart snapshot whose
-    KST calendar date is <= report_date_kst, or (None, []) if none exists."""
-    rows = conn.execute(
-        """SELECT DISTINCT observed_at FROM music_observations
-           WHERE source_name = ? AND metric_name = ?
-           ORDER BY observed_at DESC""",
-        (SOURCE_NAME, METRIC_NAME),
-    ).fetchall()
-    for row in rows:
-        if _kst_date_of(row["observed_at"]) <= report_date_kst:
-            observed_at = row["observed_at"]
-            snapshot_rows = conn.execute(
-                """SELECT mo.music_entity_id, mo.metric_value AS rank, me.canonical_artist, me.canonical_title
-                   FROM music_observations mo
-                   JOIN music_entities me ON me.id = mo.music_entity_id
-                   WHERE mo.source_name = ? AND mo.metric_name = ? AND mo.observed_at = ?""",
-                (SOURCE_NAME, METRIC_NAME, observed_at),
-            ).fetchall()
-            return observed_at, list(snapshot_rows)
-    return None, []
-
-
-def _previous_snapshot_before(conn, observed_at):
-    if observed_at is None:
-        return None, []
-    rows = conn.execute(
-        """SELECT DISTINCT observed_at FROM music_observations
-           WHERE source_name = ? AND metric_name = ? AND observed_at < ?
-           ORDER BY observed_at DESC LIMIT 1""",
-        (SOURCE_NAME, METRIC_NAME, observed_at),
-    ).fetchone()
-    if rows is None:
-        return None, []
-    prev_observed_at = rows["observed_at"]
-    snapshot_rows = conn.execute(
-        """SELECT mo.music_entity_id, mo.metric_value AS rank
-           FROM music_observations mo
-           WHERE mo.source_name = ? AND mo.metric_name = ? AND mo.observed_at = ?""",
-        (SOURCE_NAME, METRIC_NAME, prev_observed_at),
-    ).fetchall()
-    return prev_observed_at, list(snapshot_rows)
+# The report's current single music source. Not a product decision to
+# combine multiple sources -- see module docstring.
+_PRIMARY_SOURCE_NAME = "apple_music"
 
 
 def compute_music_diff(conn, report_date_kst):
@@ -70,31 +32,8 @@ def compute_music_diff(conn, report_date_kst):
     wasn't present in the prior snapshot. Entries are ordered by today's
     rank ascending. If there is no snapshot at all for report_date_kst,
     returns {"observed_at": None, "entries": []} -- never raises."""
-    today_observed_at, today_rows = _latest_snapshot_on_or_before(conn, report_date_kst)
-    if today_observed_at is None:
-        return {"observed_at": None, "entries": []}
-
-    _prev_observed_at, prev_rows = _previous_snapshot_before(conn, today_observed_at)
-    prev_rank_by_entity = {row["music_entity_id"]: row["rank"] for row in prev_rows}
-
-    entries = []
-    for row in sorted(today_rows, key=lambda r: r["rank"]):
-        entity_id = row["music_entity_id"]
-        entry = {
-            "music_entity_id": entity_id,
-            "rank": int(row["rank"]),
-            "canonical_artist": row["canonical_artist"],
-            "canonical_title": row["canonical_title"],
-        }
-        if entity_id in prev_rank_by_entity:
-            entry["is_new"] = False
-            entry["rank_delta"] = int(prev_rank_by_entity[entity_id] - row["rank"])
-        else:
-            entry["is_new"] = True
-            entry["rank_delta"] = None
-        entries.append(entry)
-
-    return {"observed_at": today_observed_at, "entries": entries}
+    metric_name = ACTIVE_MUSIC_SOURCES[_PRIMARY_SOURCE_NAME]["metric_name"]
+    return compute_chart_diff(conn, report_date_kst, _PRIMARY_SOURCE_NAME, metric_name)
 
 
 def render_music_report(diff):
