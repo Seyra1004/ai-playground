@@ -340,3 +340,43 @@ CREATE TABLE IF NOT EXISTS delivery_history (
 CREATE UNIQUE INDEX IF NOT EXISTS ux_delivery_sent_once
   ON delivery_history(idempotency_key)
   WHERE status = 'sent';
+
+-- =========================================================================
+-- Translation cache (credential-independent architecture pass, 2026-08-14).
+-- report/translation.py's persistent cache: original_text is NEVER
+-- overwritten by a caller -- this table only ever gains new rows (a real
+-- text+target_lang pair resolves to exactly one row forever, via
+-- ux_translation_cache_key) or has translated_text/status/updated_at
+-- refreshed by report/translation.py itself. No FK to raw_items/
+-- normalized_items on purpose: the cache key is the real text content
+-- itself, so the SAME headline appearing on two different raw_items rows
+-- (a real, observed case -- e.g. a wire story picked up verbatim by two
+-- outlets) is naturally one cache hit, not a duplicate translation.
+-- =========================================================================
+
+-- Retry/failure-kind fields (Phase 3A.1, 2026-08-14): failure_kind/
+-- attempt_count/retry_after/last_attempt_at are additive, NULL/0-default so
+-- existing TRANSLATED/TRANSLATION_UNAVAILABLE rows from before this phase
+-- stay valid unchanged. FAILED no longer hides two different meanings --
+-- failure_kind distinguishes a retryable TRANSIENT failure (network
+-- timeout/connection/429/5xx) from a terminal PERMANENT one (deterministic
+-- malformed/empty/unsafe provider response). See report/translation.py's
+-- module docstring for the full retry-state contract.
+CREATE TABLE IF NOT EXISTS translation_cache (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  cache_key TEXT NOT NULL,
+  source_lang TEXT,
+  target_lang TEXT NOT NULL,
+  original_text TEXT NOT NULL,
+  translated_text TEXT,
+  status TEXT NOT NULL CHECK(status IN ('TRANSLATED','TRANSLATION_UNAVAILABLE','FAILED')),
+  failure_kind TEXT CHECK(failure_kind IN ('TRANSIENT','PERMANENT') OR failure_kind IS NULL),
+  attempt_count INTEGER NOT NULL DEFAULT 0,
+  retry_after TEXT,
+  last_attempt_at TEXT,
+  provider TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_translation_cache_key
+  ON translation_cache(cache_key, target_lang);
