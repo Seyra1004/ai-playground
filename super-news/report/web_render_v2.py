@@ -165,6 +165,7 @@ _STYLE = """
   --hue-producer: #a3651f;
   --hue-sources: #6b7280;
   --hue-music: #0f6e4f;
+  --hue-music-tint: rgba(15,110,79,0.055);
   --bad-down: #b91c1c;
   --good-up: #15803d;
   --new-badge: #1d4ed8;
@@ -189,6 +190,7 @@ _STYLE = """
     --hue-producer: #e0a75e;
     --hue-sources: #9aa0aa;
     --hue-music: #3ddc9a;
+    --hue-music-tint: rgba(61,220,154,0.09);
     --bad-down: #f87171;
     --good-up: #4ade80;
     --new-badge: #93c5fd;
@@ -216,15 +218,19 @@ li.key-point-dominant { grid-column: 1 / -1; padding: 20px 0 22px; border-bottom
 li.key-point-dominant .key-label { color: var(--masthead); }
 li.key-point-dominant .key-title { font-size: clamp(1.3rem, 2.6vw, 1.7rem); font-weight: 800; line-height: 1.3; text-wrap: balance; }
 li.key-point-dominant .key-sub { font-size: 0.92rem; max-width: 68ch; }
+li.key-point-dominant .key-watch { display: flex; gap: 8px; margin-top: 10px; max-width: 68ch; font-size: 0.88rem; }
+li.key-point-dominant .key-watch-label { flex: 0 0 auto; font-size: 0.66rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--hue-music); padding-top: 2px; }
+li.key-point-dominant .key-watch p { margin: 0; color: var(--ink-soft); }
 /* MUSIC is SUPER NEWS's primary intelligence domain (FINAL PREMIUM UI
-   phase) -- its TODAY entry gets real, distinct visual weight, not the
-   plain-chip treatment every other secondary key-point gets. Never as
-   large as the single true dominant headline (that stays freshness-
-   driven, never overridden), but never mistaken for a minor category
-   either. */
-li.key-point-music { grid-column: span 2; border-left: 2px solid var(--hue-music); padding-left: 14px; }
+   phase) -- its TODAY entry gets real, distinct visual weight: a soft
+   tint fill (never a bordered card -- see the "no generic card grid"
+   product rule) plus its own accent line, not the plain-chip treatment
+   every other secondary key-point gets. Never as large as the single
+   true dominant headline (that stays freshness-driven, never
+   overridden), but never mistaken for a minor category either. */
+li.key-point-music { grid-column: span 2; border-left: 2px solid var(--hue-music); background: var(--hue-music-tint); padding: 12px 14px 12px 12px; border-radius: 0 4px 4px 0; }
 li.key-point-music .key-label { color: var(--hue-music); }
-li.key-point-music .key-title { font-size: 1.08rem; font-weight: 800; }
+li.key-point-music .key-title { font-size: 1.1rem; font-weight: 800; }
 .key-label { display: block; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-faint); margin-bottom: 4px; }
 .key-title { font-weight: 700; font-size: 1rem; line-height: 1.4; }
 .key-sub { display: block; font-size: 0.8rem; color: var(--ink-soft); margin-top: 3px; }
@@ -249,6 +255,19 @@ section.block:last-of-type { border-bottom: none; }
 .block-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 16px; }
 .block-head h2 { font-size: 0.82rem; font-weight: 800; margin: 0; text-transform: uppercase; letter-spacing: 0.1em; }
 .block-head .block-sub { font-size: 0.8rem; color: var(--ink-faint); }
+/* QUIET section variant: a section with no real signal today (or a
+   capability not yet connected at all, e.g. TikTok) must never compete
+   visually with sections that DO carry real content -- see the product
+   rule "low-confidence/no-signal information must never look as certain
+   as strongly supported information." Same real header/anchor/copy,
+   just deliberately receded: smaller muted header, tighter rhythm, no
+   heavy section-boundary rule. Never hides or shortens the real message
+   text itself. */
+section.block.block-quiet { margin-bottom: 22px; padding-bottom: 16px; border-bottom: none; }
+section.block.block-quiet .block-head { margin-bottom: 8px; }
+section.block.block-quiet .block-head h2 { font-size: 0.74rem; font-weight: 700; color: var(--ink-faint) !important; }
+section.block.block-quiet .state-message,
+section.block.block-quiet .intelligence-status-card { font-size: 0.88rem; }
 .block-TIKTOK .block-head h2, .kicker-TIKTOK { color: var(--hue-tiktok); }
 .block-SPOTIFY .block-head h2, .kicker-SPOTIFY { color: var(--hue-spotify); }
 .block-VIRAL .block-head h2 { color: var(--hue-spotify); }
@@ -275,7 +294,10 @@ section.block:last-of-type { border-bottom: none; }
 .item-standard .item-body { font-size: 0.96rem; color: var(--ink-soft); margin: 0 0 4px; max-width: 68ch; }
 .item-standard .item-context { font-size: 0.86rem; color: var(--ink-faint); margin: 0 0 8px; max-width: 68ch; }
 .item-byline { font-size: 0.8rem; color: var(--ink-faint); margin: 0 0 8px; }
-.uninterpreted-notice { font-size: 0.78rem; color: var(--hue-society); margin: 0 0 14px; display: inline-block; }
+/* Deliberately NOT any domain hue (would falsely pattern-match against
+   the real SOCIETY/AI/ECONOMY section colors readers learn from the
+   nav) -- this is a neutral operational state, not a finding. */
+.uninterpreted-notice { font-size: 0.78rem; font-style: italic; color: var(--ink-faint); margin: 0 0 14px; display: inline-block; }
 .item-link { display: inline-block; font-size: 0.88rem; color: var(--masthead); text-decoration: none; min-height: 30px; line-height: 30px; }
 .item-link:hover { text-decoration: underline; }
 
@@ -664,8 +686,12 @@ def _chart_row(entry):
 
 def _render_tiktok_section(tiktok_chart):
     body = f'<p class="state-message state-unavailable">{_e(_TIKTOK_UNAVAILABLE_MESSAGE)}</p>'
+    # Permanently UNAVAILABLE by design (no source integrated at all, see
+    # this function's own always-honest contract above) -- rendered
+    # "quiet" (see .block-quiet) every day, never competing visually with
+    # a section that has real chart data.
     return (
-        '<section class="block block-TIKTOK" id="section-TIKTOK">'
+        '<section class="block block-TIKTOK block-quiet" id="section-TIKTOK">'
         '<div class="block-head"><h2>TikTok</h2></div>' + body + "</section>"
     )
 
@@ -786,16 +812,26 @@ def _render_daily_trend(spotify_chart):
     fallers.sort(key=lambda e: e["rank_delta"])
     debut_entries.sort(key=lambda e: e["rank"])
 
+    # On a first-observation day EVERY entry is FIRST_OBSERVED (see the
+    # docstring above) -- re-listing all 10 tracks here, one per row, would
+    # be a verbatim repeat of the TOP10 list the Spotify section already
+    # showed immediately above (same rank order, same identity, no real
+    # delta to add since there is no prior snapshot). The aggregate
+    # baseline sentence below already states this fact once, honestly;
+    # this only skips the redundant per-track restatement, never the fact
+    # itself. A genuine NEW re-entry (real prior absence-then-presence
+    # history, unlike a baseline) still gets its own full per-track list.
+    is_baseline_debut = bool(debut_entries) and debut_entries[0].get("status") == "FIRST_OBSERVED"
+
     groups_html = ""
     if risers:
         groups_html += (
             '<p class="movement-group-label">▲ RISERS</p><ul class="movement-list">'
             + "".join(_movement_row(e) for e in risers) + "</ul>"
         )
-    if debut_entries:
-        new_label = "첫 관측" if debut_entries[0].get("status") == "FIRST_OBSERVED" else "NEW"
+    if debut_entries and not is_baseline_debut:
         groups_html += (
-            f'<p class="movement-group-label">{new_label}</p><ul class="movement-list">'
+            '<p class="movement-group-label">NEW</p><ul class="movement-list">'
             + "".join(_movement_row(e) for e in debut_entries) + "</ul>"
         )
     if fallers:
@@ -803,7 +839,12 @@ def _render_daily_trend(spotify_chart):
             '<p class="movement-group-label">▼ FALLERS</p><ul class="movement-list">'
             + "".join(_movement_row(e) for e in fallers) + "</ul>"
         )
-    if not groups_html:
+    # A baseline-debut day (see is_baseline_debut above) already gets its
+    # own honest explanation from the aggregate narrative directly below --
+    # "오늘 TOP10 내 변동이 없습니다" would misleadingly imply real movement
+    # was checked and found absent, when in fact there was nothing yet to
+    # compare against.
+    if not groups_html and not is_baseline_debut:
         groups_html = '<p class="signal-empty">오늘 TOP10 내 변동이 없습니다.</p>'
 
     if spotify_chart.get("is_first_observation"):
@@ -1040,6 +1081,7 @@ def _render_intelligence_section(intelligence):
     )
     if all_empty:
         body = _render_intelligence_empty_status_card(intelligence["outlook"], cross_platform_state)
+        quiet_class = " block-quiet"
     else:
         parts = (
             [_render_early_signal_group(name, early[name]) for name in sorted(early.keys())]
@@ -1047,8 +1089,9 @@ def _render_intelligence_section(intelligence):
             + [_render_cross_platform_group(cross_platform, cross_platform_state), _render_outlook_group(intelligence["outlook"])]
         )
         body = "".join(parts)
+        quiet_class = ""
     return (
-        '<section class="block block-INTELLIGENCE" id="section-INTELLIGENCE">'
+        f'<section class="block block-INTELLIGENCE{quiet_class}" id="section-INTELLIGENCE">'
         '<div class="block-head"><h2>Intelligence</h2></div>' + body + "</section>"
     )
 
@@ -1098,6 +1141,7 @@ def _render_music_trend_section(music_trend_intelligence):
     own honest empty message, never hidden and never padded."""
     if music_trend_intelligence["state"] != "NORMAL":
         body = f'<p class="state-message">{_e(_MUSIC_TREND_UNAVAILABLE_MESSAGE)}</p>'
+        quiet_class = " block-quiet"
     else:
         groups = [
             ("Genre Radar", "genre_signals"),
@@ -1114,15 +1158,18 @@ def _render_music_trend_section(music_trend_intelligence):
                 + "</div>"
             )
         body = "".join(parts)
+        quiet_class = ""
     return (
-        '<section class="block block-TRENDS" id="section-TRENDS">'
+        f'<section class="block block-TRENDS{quiet_class}" id="section-TRENDS">'
         '<div class="block-head"><h2>Trend Radar</h2></div>' + body + "</section>"
     )
 
 
 def _render_producer_section(producer_intelligence):
+    quiet_class = ""
     if producer_intelligence["state"] != "NORMAL" or not producer_intelligence["insights"]:
         body = f'<p class="state-message">{_e(_PRODUCER_EMPTY_MESSAGE)}</p>'
+        quiet_class = " block-quiet"
     else:
         cards = []
         for insight in producer_intelligence["insights"]:
@@ -1153,7 +1200,7 @@ def _render_producer_section(producer_intelligence):
             )
         body = f'<div class="producer-list">{"".join(cards)}</div>'
     return (
-        '<section class="block block-PRODUCER" id="section-PRODUCER">'
+        f'<section class="block block-PRODUCER{quiet_class}" id="section-PRODUCER">'
         '<div class="block-head"><h2>Producer Intelligence</h2></div>' + body + "</section>"
     )
 
@@ -1176,12 +1223,22 @@ def _render_sources_section(intelligence):
     )
 
 
-def _key_point_html(label, title, sub=None, dominant=False, music=False):
+def _key_point_html(label, title, sub=None, dominant=False, music=False, watch=None):
     sub_html = f'<span class="key-sub">{_e(sub)}</span>' if sub else ""
+    # watch (real what_to_watch text, dominant headline only -- see caller)
+    # answers the 5-second test's own "what should I watch next?" question
+    # right on the first screen, instead of only inside the full item
+    # further down the page. Never fabricated: only rendered when the
+    # separately-run news-intelligence synthesis actually produced this
+    # exact item's own real field.
+    watch_html = (
+        f'<div class="key-watch"><span class="key-watch-label">지켜볼 점</span><p>{_e(watch)}</p></div>'
+        if dominant and watch else ""
+    )
     variant_class = " key-point-dominant" if dominant else (" key-point-music" if music else "")
     return (
         f'<li class="key-point{variant_class}"><span class="key-label">{_e(label)}</span>'
-        f'<span class="key-title">{_e(title)}</span>{sub_html}</li>'
+        f'<span class="key-title">{_e(title)}</span>{sub_html}{watch_html}</li>'
     )
 
 
@@ -1225,10 +1282,16 @@ def _render_today_in_30_seconds(dashboard_data):
     dominant_point = ""
     remaining_news_points = []
     for position, (category, item) in enumerate(lead_candidates):
+        is_dominant = position == 0
+        # Real what_to_watch (the SAME field the LEAD item's own full "앞으로
+        # 지켜볼 점" row already shows further down the page) -- None unless
+        # news_intelligence synthesis actually ran and validated for THIS
+        # item, never fabricated here.
+        watch = item.get("what_to_watch") if is_dominant and item.get("ai_intelligence_status") == "AVAILABLE" else None
         html = _key_point_html(
-            NEWS_LABELS[category], _display_title(item), item.get("reason"), dominant=(position == 0),
+            NEWS_LABELS[category], _display_title(item), item.get("reason"), dominant=is_dominant, watch=watch,
         )
-        if position == 0:
+        if is_dominant:
             dominant_point = html
         else:
             remaining_news_points.append(html)
