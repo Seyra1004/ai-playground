@@ -30,7 +30,7 @@ from kakao.auth import KakaoAuthError
 from kakao.client import MAX_TEXT_LENGTH, KakaoSendError, send_memo
 from config import MissingSecretError, get_optional_env
 from report.kakao_render import split_message
-from report.kakao_render_v2 import render_full_digest_text
+from report.kakao_render_v2 import render_full_digest_text, render_kakao_digest
 from report.web_data_v2 import build_dashboard_data_v2
 
 logger = logging.getLogger(__name__)
@@ -145,6 +145,72 @@ def deliver_daily_report_v2(report_date_kst, runs_row_id, conn=None):
             "status": status, "message_count": len(chunks),
             "sent_count": sent_count, "reason": failure_reason,
         }
+    finally:
+        if owns_conn:
+            active_conn.close()
+
+
+_CTA_BUTTON_TITLE = "전체 브리핑"
+
+
+def deliver_daily_summary_v2(report_date_kst, runs_row_id, conn=None):
+    """KAKAO PRODUCT CONTRACT (quality-hardening phase): Kakao is ONLY a
+    daily notification + short executive summary + entry point to the
+    full web dashboard -- never the full news container (that's the V2.1
+    web dashboard, report.web_data_v2/report.web_render_v2). This is the
+    PRODUCTION DAILY delivery path: exactly ONE real Kakao message
+    (report.kakao_render_v2.render_kakao_digest -- a single, deterministic,
+    <=200-char string; never report.kakao_render.split_message, never
+    multiple send_memo() calls). Shares the EXACT SAME idempotency key
+    space as deliver_daily_report_v2 above (REPORT_TYPE=DAILY_DIGEST_V2) --
+    deliberately, not a distinct key: whichever V2 delivery path runs
+    first for a given report_date_kst is the one real send for that date,
+    so at most one of {this compact summary, the older full multi-chunk
+    digest} can ever be 'sent' for the same date, never both. The daily
+    automated pipeline calls ONLY this function; deliver_daily_report_v2
+    remains available for manual/audit invocation but is naturally blocked
+    by this same idempotency guard once either one has sent for a date.
+
+    Returns {"status": "sent"|"skipped_duplicate"|"failed", "reason":
+    str|None} -- no `message_count`/`sent_count` chunk bookkeeping (there
+    is exactly one message by construction). NoDashboardDataError
+    propagates exactly as deliver_daily_report_v2's own precondition
+    contract already documents."""
+    owns_conn = conn is None
+    active_conn = conn if conn is not None else connect()
+    try:
+        idempotency_key = build_idempotency_key(report_date_kst, REPORT_TYPE, DESTINATION)
+        action = decide_delivery_action(idempotency_key, conn=active_conn)
+        if action == "skip_duplicate":
+            logger.info("report_date=%s V2 summary delivery skipped (already sent).", report_date_kst)
+            return {"status": "skipped_duplicate", "reason": None}
+
+        dashboard_data_v2 = build_dashboard_data_v2(active_conn, report_date_kst)
+        if not _dashboard_has_any_real_content(dashboard_data_v2):
+            raise NoDashboardDataError(
+                f"No real V2.1 dashboard content exists yet for report_date={report_date_kst!r}."
+            )
+
+        text = render_kakao_digest(dashboard_data_v2)
+        content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        v2_link_url = _resolve_v2_link_url()
+
+        try:
+            send_memo(text, link_url=v2_link_url, button_title=_CTA_BUTTON_TITLE)
+            status, failure_reason = "sent", None
+        except _DELIVERY_FAILURE_TYPES as exc:
+            status = "failed"
+            failure_reason = f"{type(exc).__name__}: {exc}"
+            logger.error("report_date=%s V2 summary delivery FAILED: %s", report_date_kst, type(exc).__name__)
+
+        record_delivery(
+            runs_row_id, report_date_kst, REPORT_TYPE, DESTINATION, content_hash, status,
+            conn=active_conn, report_id=None,
+        )
+        active_conn.commit()
+        logger.info("report_date=%s V2 summary delivery status=%s", report_date_kst, status)
+
+        return {"status": status, "reason": failure_reason}
     finally:
         if owns_conn:
             active_conn.close()

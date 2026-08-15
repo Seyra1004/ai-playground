@@ -271,6 +271,37 @@ def test_default_report_date_is_today_kst(tmp_path):
     assert (docs_dir / "reports" / f"{today}.html").exists()
 
 
+# ---- SAME-DATE generation: title content date must equal REPORT_DATE -------
+# report.release_v2.verify_local_v2_dashboard/report.publication_consistency
+# both parse the real page <title> to enforce this invariant downstream --
+# these tests prove the REAL generator output actually satisfies it, not
+# just a synthetic fixture.
+
+
+def test_generated_index_title_date_equals_report_date(tmp_path):
+    from report.publication_consistency import _extract_page_date
+
+    db_path = tmp_path / "test.db"
+    docs_dir = tmp_path / "docs_v2_out"
+    _insert_run_and_report(db_path, report_date="2026-08-15")
+
+    exit_code = cli.main(["--db-path", str(db_path), "--docs-dir", str(docs_dir), "--report-date", "2026-08-15"])
+    assert exit_code == cli.EXIT_OK
+    assert _extract_page_date(docs_dir / "index.html") == "2026-08-15"
+
+
+def test_generated_dated_report_title_date_equals_report_date(tmp_path):
+    from report.publication_consistency import _extract_page_date
+
+    db_path = tmp_path / "test.db"
+    docs_dir = tmp_path / "docs_v2_out"
+    _insert_run_and_report(db_path, report_date="2026-08-15")
+
+    exit_code = cli.main(["--db-path", str(db_path), "--docs-dir", str(docs_dir), "--report-date", "2026-08-15"])
+    assert exit_code == cli.EXIT_OK
+    assert _extract_page_date(docs_dir / "reports" / "2026-08-15.html") == "2026-08-15"
+
+
 # ---- V1 remains functional and untouched -----------------------------------
 
 

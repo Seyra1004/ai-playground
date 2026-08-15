@@ -12,8 +12,8 @@ import pytest
 
 from db.database import connect, init_db
 from kakao.auth import ReauthRequiredError
-from kakao.client import KakaoSendError
-from report_delivery_v2 import NoDashboardDataError, deliver_daily_report_v2
+from kakao.client import MAX_TEXT_LENGTH, KakaoSendError
+from report_delivery_v2 import NoDashboardDataError, deliver_daily_report_v2, deliver_daily_summary_v2
 
 
 @pytest.fixture
@@ -234,3 +234,111 @@ def test_link_url_is_none_when_default_unset(conn, monkeypatch):
 
     for call in mock_send.call_args_list:
         assert call.kwargs["link_url"] is None
+
+
+# =============================================================================
+# deliver_daily_summary_v2: the PRODUCTION DAILY compact-message path
+# (KAKAO PRODUCT CONTRACT, quality-hardening phase) -- exactly ONE real
+# send_memo() call, never split_message(), sharing the SAME idempotency key
+# space as deliver_daily_report_v2 above.
+# =============================================================================
+
+
+def test_summary_sends_exactly_one_message_never_chunked(conn):
+    run_row_id = _insert_run(conn, "run-1")
+    _insert_producer_intelligence(conn, run_row_id)
+    delivery_run_row_id = _insert_run(conn, "run-delivery")
+
+    with patch("report_delivery_v2.send_memo") as mock_send:
+        result = deliver_daily_summary_v2("2026-08-14", delivery_run_row_id, conn=conn)
+
+    assert result["status"] == "sent"
+    assert mock_send.call_count == 1  # exactly one Kakao message, never split
+    sent_text = mock_send.call_args.args[0]
+    assert len(sent_text) <= MAX_TEXT_LENGTH
+
+    row = conn.execute(
+        "SELECT status, report_type FROM delivery_history WHERE report_date='2026-08-14'"
+    ).fetchone()
+    assert row["status"] == "sent"
+    assert row["report_type"] == "DAILY_DIGEST_V2"
+
+
+def test_summary_duplicate_send_is_skipped(conn):
+    run_row_id = _insert_run(conn, "run-1")
+    _insert_producer_intelligence(conn, run_row_id)
+    delivery_run_1 = _insert_run(conn, "run-delivery-1")
+
+    with patch("report_delivery_v2.send_memo"):
+        first = deliver_daily_summary_v2("2026-08-14", delivery_run_1, conn=conn)
+    assert first["status"] == "sent"
+
+    delivery_run_2 = _insert_run(conn, "run-delivery-2")
+    with patch("report_delivery_v2.send_memo") as mock_send:
+        second = deliver_daily_summary_v2("2026-08-14", delivery_run_2, conn=conn)
+
+    assert second["status"] == "skipped_duplicate"
+    mock_send.assert_not_called()
+
+    sent_count = conn.execute(
+        "SELECT COUNT(*) FROM delivery_history WHERE report_date='2026-08-14' AND status='sent'"
+    ).fetchone()[0]
+    assert sent_count == 1
+
+
+def test_summary_shares_idempotency_key_with_full_digest_at_most_one_ever_sent(conn):
+    """A prior real full-digest send (deliver_daily_report_v2) for this date
+    must block the compact summary from ALSO sending -- KAKAO_MESSAGE_COUNT_
+    PER_REPORT_DATE=1 holds regardless of which V2 delivery function runs
+    first."""
+    run_row_id = _insert_run(conn, "run-1")
+    _insert_producer_intelligence(conn, run_row_id)
+
+    delivery_run_1 = _insert_run(conn, "run-delivery-1")
+    with patch("report_delivery_v2.send_memo"):
+        first = deliver_daily_report_v2("2026-08-14", delivery_run_1, conn=conn)
+    assert first["status"] == "sent"
+
+    delivery_run_2 = _insert_run(conn, "run-delivery-2")
+    with patch("report_delivery_v2.send_memo") as mock_send:
+        second = deliver_daily_summary_v2("2026-08-14", delivery_run_2, conn=conn)
+
+    assert second["status"] == "skipped_duplicate"
+    mock_send.assert_not_called()
+    sent_count = conn.execute(
+        "SELECT COUNT(*) FROM delivery_history WHERE report_date='2026-08-14' AND status='sent'"
+    ).fetchone()[0]
+    assert sent_count == 1
+
+
+def test_summary_cta_targets_v2_link(conn, monkeypatch):
+    monkeypatch.delenv("KAKAO_V2_LINK_URL", raising=False)
+    monkeypatch.setenv("KAKAO_DEFAULT_LINK_URL", "https://example.github.io/ai-playground")
+    run_row_id = _insert_run(conn, "run-1")
+    _insert_producer_intelligence(conn, run_row_id)
+    delivery_run_row_id = _insert_run(conn, "run-delivery")
+
+    with patch("report_delivery_v2.send_memo") as mock_send:
+        deliver_daily_summary_v2("2026-08-14", delivery_run_row_id, conn=conn)
+
+    assert mock_send.call_args.kwargs["link_url"] == "https://example.github.io/ai-playground/v2/"
+
+
+def test_summary_no_real_content_raises_and_sends_nothing(conn):
+    with patch("report_delivery_v2.send_memo") as mock_send:
+        with pytest.raises(NoDashboardDataError):
+            deliver_daily_summary_v2("2026-08-14", _insert_run(conn, "run-delivery"), conn=conn)
+    mock_send.assert_not_called()
+
+
+def test_summary_kakao_send_error_is_recorded_as_failed_not_sent(conn):
+    run_row_id = _insert_run(conn, "run-1")
+    _insert_producer_intelligence(conn, run_row_id)
+    delivery_run_row_id = _insert_run(conn, "run-delivery")
+
+    with patch("report_delivery_v2.send_memo", side_effect=KakaoSendError("boom")):
+        result = deliver_daily_summary_v2("2026-08-14", delivery_run_row_id, conn=conn)
+
+    assert result["status"] == "failed"
+    row = conn.execute("SELECT status FROM delivery_history WHERE report_date='2026-08-14'").fetchone()
+    assert row["status"] == "failed"

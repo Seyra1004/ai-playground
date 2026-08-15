@@ -235,16 +235,18 @@ echo "STAGE_RESULT music_trend_intelligence=$music_trend_status exit=$music_tren
 
 # --- Stage 3c: WEB V2.1 dashboard generation ---
 # NOT a required stage, same precedent as Stage 2b/2c/3b/3b3: a failure
-# here never sets any_required_failure -- V2.1 is an additive dashboard,
-# not a replacement for V1's own generation (scripts/generate_daily_web_
-# report.py is untouched and not called from this pipeline in this pass --
-# V1 publishing remains its own separate, manual step, unchanged). Runs
-# AFTER Stage 3b (Producer Intelligence) and Stage 3b3 (Music Trend
-# Intelligence) specifically so today's results, if any, are already
-# persisted and show up in the generated page instead of leaving it stale.
-# Writes only to docs/v2/ (see the script's own docstring for why that's a
-# separate namespace from V1's docs/ root) -- never touches V1's
-# docs/index.html or docs/reports/.
+# here never sets any_required_failure on its OWN -- but Stage 4 below
+# (publish+deliver) reads whatever this stage wrote, so a real generation
+# failure here still surfaces as a required failure downstream via Stage
+# 4's own local pre-publish verification (PUBLISH_BLOCKED), never
+# silently. V1's own generation (scripts/generate_daily_web_report.py) is
+# untouched and not called from this pipeline -- V1 publishing remains its
+# own separate, manual step, unchanged. Runs AFTER Stage 3b (Producer
+# Intelligence) and Stage 3b3 (Music Trend Intelligence) specifically so
+# today's results, if any, are already persisted and show up in the
+# generated page instead of leaving it stale. Writes only to docs/v2/ (see
+# the script's own docstring for why that's a separate namespace from V1's
+# docs/ root) -- never touches V1's docs/index.html or docs/reports/.
 echo "--- Stage 3c: web v2.1 dashboard generation ---"
 web_v2_out=$($PY scripts/generate_daily_web_report_v2.py 2>&1); web_v2_exit=$?
 echo "$web_v2_out"
@@ -255,8 +257,25 @@ else
 fi
 echo "STAGE_RESULT web_v2=$web_v2_status exit=$web_v2_exit"
 
-echo "--- Stage 4: kakao delivery ---"
-delivery_out=$($PY scripts/deliver_daily_report.py 2>&1); delivery_exit=$?
+# --- Stage 4: publish + deliver V2 (REQUIRED, KAKAO PRODUCT CONTRACT) ---
+# quality-hardening phase: the production DAILY Kakao path no longer calls
+# V1's sender (scripts/deliver_daily_report.py) AT ALL -- V1's own script
+# remains completely intact and usable for manual/rollback purposes, it is
+# simply never invoked by this automated pipeline anymore. This ONE
+# required stage now covers the full REQUIRED DAILY V2 WEB FLOW in one
+# call (report.release_v2.run_daily_v2_release, via scripts/publish_and_
+# deliver_v2.py): verify the SAME-DATE local dashboard Stage 3c just wrote
+# -> publish it (git commit+push, exact files only) -> verify the real
+# external public pages -> send EXACTLY ONE Kakao summary (idempotent,
+# report_delivery_v2.deliver_daily_summary_v2) -> the REQUIRED post-send
+# report.publication_consistency check. A failure at ANY of those gates
+# (including the post-send consistency check) is a real required failure
+# here -- a successful Kakao send is explicitly never sufficient on its
+# own, matching the same "a successful send must never hide a failed
+# required upstream stage" contract this script's own module docstring
+# already states for delivery in general.
+echo "--- Stage 4: publish + deliver V2 ---"
+delivery_out=$($PY scripts/publish_and_deliver_v2.py 2>&1); delivery_exit=$?
 echo "$delivery_out"
 if [ "$delivery_exit" -ne 0 ]; then
     delivery_status="FAILED"

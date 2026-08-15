@@ -92,7 +92,7 @@ def fake_pipeline_env(tmp_path):
         "run_daily_ingestion.py", "run_daily_music.py", "run_daily_music_spotify.py",
         "run_daily_music_signals.py", "run_daily_report.py", "run_daily_producer_intelligence.py",
         "run_daily_news_intelligence.py", "run_daily_music_trend_intelligence.py",
-        "generate_daily_web_report_v2.py", "deliver_daily_report.py",
+        "generate_daily_web_report_v2.py", "publish_and_deliver_v2.py",
         "backup_database.py",
     ):
         (fake_dir / "scripts" / name).write_text("# fake stub, never actually read\n", encoding="utf-8")
@@ -193,7 +193,7 @@ def test_BCDE_every_non_failed_status_lets_dashboard_stage_proceed(fake_pipeline
     result = _run_pipeline(fake_pipeline_env, extra_env={"FAKE_NI_STATUS": status, "FAKE_NI_EXIT": "0"})
     log = _invocation_log(fake_pipeline_env)
     assert any(line.endswith("generate_daily_web_report_v2.py") for line in log)
-    assert any(line.endswith("deliver_daily_report.py") for line in log)
+    assert any(line.endswith("publish_and_deliver_v2.py") for line in log)
     assert result.returncode == 0
     assert f"NEWS_INTELLIGENCE_STAGE_RESULT: {status}" in result.stdout
 
@@ -205,7 +205,7 @@ def test_FG_news_intelligence_failure_does_not_block_dashboard_or_delivery(fake_
     result = _run_pipeline(fake_pipeline_env, extra_env={"FAKE_NI_STATUS": "failed", "FAKE_NI_EXIT": "1"})
     log = _invocation_log(fake_pipeline_env)
     assert any(line.endswith("generate_daily_web_report_v2.py") for line in log)
-    assert any(line.endswith("deliver_daily_report.py") for line in log)
+    assert any(line.endswith("publish_and_deliver_v2.py") for line in log)
     assert result.returncode == 0  # News Intelligence is not a "required" stage
     assert "STAGE_RESULT news_intelligence=FAILED exit=1" in result.stdout
     assert "NEWS_INTELLIGENCE_STAGE_RESULT: failed" in result.stdout
@@ -267,7 +267,7 @@ def test_music_trend_failure_does_not_block_dashboard_or_delivery(fake_pipeline_
     })
     log = _invocation_log(fake_pipeline_env)
     assert any(line.endswith("generate_daily_web_report_v2.py") for line in log)
-    assert any(line.endswith("deliver_daily_report.py") for line in log)
+    assert any(line.endswith("publish_and_deliver_v2.py") for line in log)
     assert result.returncode == 0  # not a "required" stage -- same precedent as producer/news intelligence
     assert "STAGE_RESULT music_trend_intelligence=FAILED exit=1" in result.stdout
 
@@ -321,7 +321,7 @@ def test_R2_A_pre_success_runs_main_pipeline_post_and_capacity(fake_pipeline_env
     log = _invocation_log(fake_pipeline_env)
     assert any(l.startswith("scripts/backup_database.py --type pre") for l in log)
     assert any(l.startswith("scripts/run_daily_ingestion.py") for l in log)
-    assert any(l.startswith("scripts/deliver_daily_report.py") for l in log)
+    assert any(l.startswith("scripts/publish_and_deliver_v2.py") for l in log)
     assert any(l.startswith("scripts/backup_database.py --type post") for l in log)
     assert any(l.startswith("scripts/backup_database.py --capacity-only") for l in log)
     assert result.returncode == 0
@@ -337,7 +337,7 @@ def test_R2_B_pre_failure_blocks_main_pipeline_and_post(fake_pipeline_env):
     assert any(l.startswith("scripts/backup_database.py --type pre") for l in log)
     assert not any(l.startswith("scripts/run_daily_ingestion.py") for l in log)
     assert not any(l.startswith("scripts/run_daily_music.py") for l in log)
-    assert not any(l.startswith("scripts/deliver_daily_report.py") for l in log)
+    assert not any(l.startswith("scripts/publish_and_deliver_v2.py") for l in log)
     assert not any(l.startswith("scripts/backup_database.py --type post") for l in log)
     assert not any(l.startswith("scripts/backup_database.py --capacity-only") for l in log)
     assert result.returncode != 0
@@ -431,3 +431,46 @@ def test_R2_no_automatic_deletion_capability_anywhere_in_script():
     assert " rm " not in content and not content.strip().startswith("rm ")
     assert "--delete" not in content
     assert "lifecycle" not in content.lower()
+
+
+# =============================================================================
+# KAKAO PRODUCT CONTRACT (quality-hardening phase): the production DAILY
+# path must NOT call V1's sender at all.
+# =============================================================================
+
+
+def test_daily_pipeline_never_invokes_v1_kakao_sender_static(fake_pipeline_env):
+    """Static check on the real script content -- V1's own delivery CLI is
+    never actually INVOKED ($PY scripts/deliver_daily_report.py) anywhere
+    in the real pipeline script; the name may still appear in an
+    explanatory comment (documenting that it's deliberately not called)."""
+    content = fake_pipeline_env["real_pipeline_script"].read_text(encoding="utf-8")
+    assert "$PY scripts/deliver_daily_report.py" not in content
+
+
+def test_daily_pipeline_never_invokes_v1_kakao_sender_runtime(fake_pipeline_env):
+    """Real end-to-end run (fake stubs, real shell control flow): V1's
+    delivery CLI is never among the actual invocations."""
+    _run_pipeline(fake_pipeline_env)
+    log = _invocation_log(fake_pipeline_env)
+    assert not any("deliver_daily_report.py" in line for line in log)
+
+
+def test_publish_and_deliver_v2_runs_exactly_once_after_web_v2_generation(fake_pipeline_env):
+    result = _run_pipeline(fake_pipeline_env)
+    log = _invocation_log(fake_pipeline_env)
+    web_v2_index = next(i for i, line in enumerate(log) if line.endswith("generate_daily_web_report_v2.py"))
+    publish_calls = [i for i, line in enumerate(log) if line.endswith("publish_and_deliver_v2.py")]
+    assert len(publish_calls) == 1
+    assert web_v2_index < publish_calls[0]
+    assert result.returncode == 0
+
+
+def test_publish_and_deliver_v2_failure_is_a_required_pipeline_failure(fake_pipeline_env):
+    """A failure at the publish+deliver stage (which internally covers
+    publish/external-verify/Kakao-send/post-send-consistency) must still
+    make the overall pipeline exit non-zero -- same required-stage
+    precedent V1's own delivery stage always had."""
+    result = _run_pipeline(fake_pipeline_env, extra_env={"FAKE_FORCE_FAIL_SCRIPT": "publish_and_deliver_v2.py"})
+    assert result.returncode != 0
+    assert "STAGE_RESULT delivery=FAILED" in result.stdout
