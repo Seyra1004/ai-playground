@@ -46,6 +46,7 @@ from music.registry import ACTIVE_MUSIC_SOURCES
 from music.signal_engine import compute_chart_diff
 from report.candidate_selection import _kst_day_bounds_utc, select_news_candidates
 from report.news_intelligence_synthesis import validate_news_intelligence
+from report.source_metadata import source_quality_score as _source_quality_score
 from report.story_clustering import cluster_candidates
 from report.translation import NullTranslationProvider, build_translation_provider, translate_and_cache
 from report.web_data import _classify_state
@@ -110,16 +111,49 @@ _TREND_HIGH_THRESHOLD = 6
 _TREND_MEDIUM_THRESHOLD = 3
 
 
-def _tier_for(index, freshness_bucket):
+# SOURCE TRUST GATE (quality-hardening phase): the structural LEAD-
+# eligibility floor -- promoted from report.source_metadata.QUALITY_TIER_
+# SCORE's existing TIER_1/TIER_2 ranking weight (report.candidate_
+# selection's own final_score already uses this as a 25% ranking signal,
+# never a hard floor). A single-source item can become LEAD only when its
+# own best contributing source clears this score (TIER_1=1.0/TIER_2=0.8;
+# TIER_3=0.6/TIER_4=0.4/unknown=0.5 do not) -- a low-trust single-source
+# claim must never become the top story merely because its freshness/
+# novelty signals are strong. Real corroboration (>=2 independent
+# outlets) is an independent, always-sufficient path to LEAD regardless of
+# any single source's own tier -- multiple outlets confirming the same
+# event is real evidence a claim is established, not a rumor, even if
+# none of them individually clears the high-trust floor alone. This never
+# removes a reputable (TIER_1/TIER_2) source's own existing eligibility,
+# and never demotes a candidate below STANDARD -- it only closes the one
+# real path ("strong ranking signals alone") by which a weak,
+# uncorroborated single source could reach the most prominent display
+# slot.
+_LEAD_TRUST_SCORE_FLOOR = 0.8
+_LEAD_TRUST_MIN_CORROBORATION = 2
+
+
+def _is_lead_eligible_by_trust(source_names, source_count):
+    if source_count >= _LEAD_TRUST_MIN_CORROBORATION:
+        return True
+    best_score = max((_source_quality_score(name) for name in source_names), default=0.5)
+    return best_score >= _LEAD_TRUST_SCORE_FLOOR
+
+
+def _tier_for(index, freshness_bucket, lead_eligible_by_trust=True):
     """LEAD is reserved for index 0 AND a freshness bucket of 0 or 1 (<=7
-    days old -- report.candidate_selection._freshness_bucket) -- a story
-    older than 7 days can never become a LEAD by default, since this
-    pipeline has no objective "why is this news again today" signal to
-    justify it (see candidate_selection's own docstring). If the very top
-    candidate is bucket 2, no item gets LEAD that category/day -- an
-    honest "no fresh top story" rather than forcing an old one into the
-    lead slot."""
-    if index == 0 and freshness_bucket is not None and freshness_bucket <= 1:
+    days old -- report.candidate_selection._freshness_bucket) AND real
+    source-trust eligibility (see _is_lead_eligible_by_trust directly
+    above) -- a story older than 7 days can never become a LEAD by
+    default, since this pipeline has no objective "why is this news again
+    today" signal to justify it (see candidate_selection's own
+    docstring), and a low-trust uncorroborated single source can never
+    become a LEAD merely because other ranking signals are strong. If the
+    very top candidate fails either gate, no item gets LEAD that
+    category/day -- an honest "no fresh, sufficiently-trusted top story"
+    rather than forcing a stale or unsupported one into the lead slot;
+    it's still shown, just at STANDARD, never hidden."""
+    if index == 0 and freshness_bucket is not None and freshness_bucket <= 1 and lead_eligible_by_trust:
         return "LEAD"
     if index <= 1:
         return "STANDARD"
@@ -223,22 +257,26 @@ def _lookup_item_detail(conn, normalized_item_id):
     }
 
 
-def _source_count_for_event(conn, event_key, report_date_kst):
+def _source_names_for_event(conn, event_key, report_date_kst):
     """Re-derives EXACTLY what report/candidate_selection.py computed as
-    source_count at selection time: distinct outlets covering this
+    the real distinct-outlet set at selection time, scoped to this
     event_key within the same KST day window. Never recomputed over all
     history -- an event_key can legitimately recur on a later day for a
     genuinely new development in the same story (see candidate_selection's
     own stale-exclusion docstring), so counting outside the day window
-    would overstate corroboration for an old story resurfacing."""
+    would overstate corroboration for an old story resurfacing. Feeds both
+    the display source_count and the source-trust LEAD-eligibility gate
+    (_is_lead_eligible_by_trust) from the SAME real query -- never two
+    independently-maintained notions of "how many/how reputable are this
+    event's real sources"."""
     start_utc, end_utc = _kst_day_bounds_utc(report_date_kst)
-    row = conn.execute(
-        """SELECT COUNT(DISTINCT ri.source_name) AS cnt
+    rows = conn.execute(
+        """SELECT DISTINCT ri.source_name
            FROM normalized_items ni JOIN raw_items ri ON ri.id = ni.raw_item_id
            WHERE ni.event_key = ? AND ri.collected_at >= ? AND ri.collected_at < ?""",
         (event_key, start_utc, end_utc),
-    ).fetchone()
-    return row["cnt"] if row and row["cnt"] else 1
+    ).fetchall()
+    return {row["source_name"] for row in rows}
 
 
 # Safety ceiling on how many of the real, already-ranked same-day
@@ -322,6 +360,69 @@ def _cluster_suppression(candidates):
     return suppressed_event_keys, representative_counts
 
 
+def _suppress_duplicate_selections(items, item_event_keys, clusters):
+    """DUPLICATE GATE, PRIMARY (LLM-selected) PATH: the deterministic
+    near-duplicate defense (report.story_clustering, already applied to
+    the no-LLM fallback path via _cluster_suppression above) must never
+    apply ONLY to the fallback -- an LLM's own editorial judgment must
+    never be the sole duplicate-defense layer. Unlike _cluster_suppression
+    (which filters a whole day's CANDIDATE POOL), this only ever suppresses
+    a SELECTED item when ANOTHER SELECTED item in this SAME result set is
+    a real near-duplicate of it (both are members of the same
+    story_clustering cluster) -- never because some unselected candidate
+    elsewhere in the day's pool happens to be similar. This is what keeps
+    "genuinely different developments" from being reduced: a cluster whose
+    second member was never selected by the LLM in the first place is
+    left completely untouched here.
+
+    `items`/`item_event_keys` are parallel lists (same order, same
+    length -- item_event_keys[i] is items[i]'s own real event_key).
+    Keeps the cluster's representative event_key when the LLM itself
+    selected it; otherwise keeps whichever selected member appears
+    EARLIEST in the LLM's own selection order (index order is itself the
+    LLM's own relevance signal -- see _tier_for). A real, non-representative
+    duplicate that's suppressed carries its cluster's own honest
+    (related_article_count, related_source_count) forward onto the kept
+    item, mirroring the fallback path's own "N개 매체 관련 보도" evidence
+    contract -- never a fabricated number, and the suppressed article's
+    real coverage is still visible via the unchanged `clusters` evidence
+    block, never silently lost."""
+    if not clusters:
+        return items
+    event_key_to_index = {}
+    for i, event_key in enumerate(item_event_keys):
+        event_key_to_index.setdefault(event_key, i)
+
+    suppress_indices = set()
+    kept_related_counts = {}
+    for cluster in clusters:
+        member_keys = cluster["member_event_keys"]
+        selected_indices = sorted({event_key_to_index[k] for k in member_keys if k in event_key_to_index})
+        if len(selected_indices) < 2:
+            continue  # need >=2 SELECTED members actually present to suppress anything
+        representative_key = cluster["representative_event_key"]
+        keep_index = event_key_to_index.get(representative_key)
+        if keep_index is None or keep_index not in selected_indices:
+            keep_index = selected_indices[0]
+        kept_related_counts[keep_index] = (cluster["related_article_count"], cluster["distinct_source_count"])
+        for idx in selected_indices:
+            if idx != keep_index:
+                suppress_indices.add(idx)
+
+    if not suppress_indices:
+        return items
+    kept = []
+    for i, item in enumerate(items):
+        if i in suppress_indices:
+            continue
+        related = kept_related_counts.get(i)
+        if related:
+            item = dict(item)
+            item["related_article_count"], item["related_source_count"] = related
+        kept.append(item)
+    return kept
+
+
 def _raw_fallback_items(conn, category, report_date_kst, limit=_FALLBACK_DISPLAY_LIMIT):
     """Real, already-ingested candidates for this category+date, used ONLY
     when no LLM selection exists (missing/failed LLM provider, or no
@@ -371,7 +472,10 @@ def _raw_fallback_items(conn, category, report_date_kst, limit=_FALLBACK_DISPLAY
             "source_name": detail["source_name"],
             "published_at": detail["published_at"],
             "source_count": candidate["source_count"],
-            "tier": _tier_for(index, candidate.get("freshness_bucket")),
+            "tier": _tier_for(
+                index, candidate.get("freshness_bucket"),
+                _is_lead_eligible_by_trust(candidate.get("source_names") or [], candidate["source_count"]),
+            ),
         }
         related = representative_counts.get(candidate["event_key"])
         if related:
@@ -452,6 +556,7 @@ def _news_section(conn, status_by_category, selections_by_category, category, re
     state = _classify_state(status_by_category.get(category))
     provider = build_translation_provider() if category in _TRANSLATION_ELIGIBLE_CATEGORIES else NullTranslationProvider()
     items = []
+    item_event_keys = []
     for index, selection in enumerate(selections_by_category.get(category) or []):
         if not isinstance(selection, dict) or "id" not in selection:
             continue
@@ -465,6 +570,8 @@ def _news_section(conn, status_by_category, selections_by_category, category, re
         snippet = detail["snippet"]
         if _is_redundant(snippet, reason) or _is_redundant(snippet, detail["title"]):
             snippet = None
+        source_names = _source_names_for_event(conn, detail["event_key"], report_date_kst)
+        source_count = len(source_names) or 1
         item = {
             "id": selection["id"],
             "title": detail["title"],
@@ -473,12 +580,21 @@ def _news_section(conn, status_by_category, selections_by_category, category, re
             "source_url": detail["source_url"],
             "source_name": detail["source_name"],
             "published_at": detail["published_at"],
-            "source_count": _source_count_for_event(conn, detail["event_key"], report_date_kst),
-            "tier": _tier_for(index, _freshness_bucket_from_published_at(detail["published_at"], report_date_kst)),
+            "source_count": source_count,
+            "tier": _tier_for(
+                index, _freshness_bucket_from_published_at(detail["published_at"], report_date_kst),
+                _is_lead_eligible_by_trust(source_names, source_count),
+            ),
         }
         items.append(_attach_translation(conn, provider, item))
+        item_event_keys.append(detail["event_key"])
     clusters = _story_clusters_for_category(conn, category, report_date_kst)
     if items:
+        # DUPLICATE GATE: never rely on the LLM's own judgment alone (see
+        # _suppress_duplicate_selections' own docstring) -- applied BEFORE
+        # the news-intelligence attach so a suppressed duplicate's id never
+        # gets its own additive intelligence layer computed for nothing.
+        items = _suppress_duplicate_selections(items, item_event_keys, clusters)
         if category in _NEWS_INTELLIGENCE_CATEGORIES:
             items = _attach_news_intelligence(conn, report_date_kst, items)
         return {"state": state, "items": items, "clusters": clusters}

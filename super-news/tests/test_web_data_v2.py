@@ -201,6 +201,13 @@ def _insert_category_status(conn, run_row_id, category, status, items_collected,
 def test_first_selected_item_is_tier_lead_second_is_standard_third_is_brief(conn):
     run_row_id = _insert_run(conn)
     id1 = _insert_normalized_item(conn, "a1", "AI", "First story")
+    # A second, independent source corroborating the SAME event_key as
+    # id1 -- clears the source-trust LEAD-eligibility gate's corroboration
+    # path (report.web_data_v2._is_lead_eligible_by_trust) so this test's
+    # own subject (tier follows LLM selection ORDER) isn't confounded by
+    # the separate trust gate a single unmapped-tier test source would
+    # otherwise fail.
+    _insert_normalized_item(conn, "a1b", "AI", "First story", source_name="s1b", event_key="ev-a1")
     id2 = _insert_normalized_item(conn, "a2", "AI", "Second story")
     id3 = _insert_normalized_item(conn, "a3", "AI", "Third story")
     _insert_reports_marker(conn, run_row_id)
@@ -873,16 +880,16 @@ def test_news_intelligence_available_when_valid_row_exists(conn):
     item_id = _selected_ai_item(conn)
     _insert_news_intelligence_row(conn, "2026-08-13", {"items": [{
         "id": item_id,
-        "what_happened": "A concrete factual statement about what occurred.",
-        "why_it_matters": "A grounded implication drawn from the given evidence.",
-        "what_to_watch": "Whether the next data point confirms this trend.",
+        "what_happened": "실제로 있었던 일에 대한 구체적인 사실 진술이다.",
+        "why_it_matters": "주어진 근거로부터 도출된 합리적인 함의다.",
+        "what_to_watch": "다음 데이터가 이 흐름을 확인해줄지 지켜볼 필요가 있다.",
     }]})
     data = build_dashboard_data_v2(conn, "2026-08-13")
     item = data["news"]["AI"]["items"][0]
     assert item["ai_intelligence_status"] == "AVAILABLE"
-    assert item["what_happened"] == "A concrete factual statement about what occurred."
-    assert item["why_it_matters"] == "A grounded implication drawn from the given evidence."
-    assert item["what_to_watch"] == "Whether the next data point confirms this trend."
+    assert item["what_happened"] == "실제로 있었던 일에 대한 구체적인 사실 진술이다."
+    assert item["why_it_matters"] == "주어진 근거로부터 도출된 합리적인 함의다."
+    assert item["what_to_watch"] == "다음 데이터가 이 흐름을 확인해줄지 지켜볼 필요가 있다."
     assert item["title"] == "AI Story Title"  # real news item still shown unchanged
 
 
@@ -957,3 +964,124 @@ def test_translation_provider_never_constructed_for_tiktok_spotify(conn, monkeyp
     assert tk_item["translation_status"] == "TRANSLATION_UNAVAILABLE"
     assert sp_item["translation_status"] == "TRANSLATION_UNAVAILABLE"
     assert tk_item["original_title"] == "A Real English TikTok Headline"  # real text still preserved
+
+
+# ---- DUPLICATE GATE on the PRIMARY (LLM-selected) path ---------------------
+# report.web_data_v2._suppress_duplicate_selections: the LLM must never be
+# the only duplicate-defense layer -- report.story_clustering's real,
+# high-precision near-duplicate detection is also applied here, not only to
+# the no-LLM fallback path.
+
+
+def test_llm_path_suppresses_a_real_near_duplicate_the_llm_itself_selected(conn):
+    run_row_id = _insert_run(conn)
+    id1 = _insert_normalized_item(
+        conn, "d1", "AI_NEWS", "삼성전자 3분기 실적 발표", source_name="outlet-a",
+        event_key="ev-d1", published_at="2026-08-13T01:00:00+00:00",
+    )
+    id2 = _insert_normalized_item(
+        conn, "d2", "AI_NEWS", "삼성전자 3분기 실적 공식 발표", source_name="outlet-b",
+        event_key="ev-d2", published_at="2026-08-13T02:00:00+00:00",
+    )
+    _insert_reports_marker(conn, run_row_id)
+    _insert_category_status(conn, run_row_id, "AI", "REPORT_GENERATED", 2, 2)
+    for cat in ("ECONOMY", "SOCIETY", "TIKTOK", "SPOTIFY"):
+        _insert_category_status(conn, run_row_id, cat, "NOT_READY", 0, 0)
+    _insert_interpretation(conn, run_row_id, {
+        "AI": [{"id": id1, "reason": "r1"}, {"id": id2, "reason": "r2"}],
+        "ECONOMY": [], "SOCIETY": [], "TIKTOK": [], "SPOTIFY": [],
+    })
+    data = build_dashboard_data_v2(conn, "2026-08-13")
+    items = data["news"]["AI"]["items"]
+    # Two independent outlets covering the identical real event (near-
+    # identical headline, same day, source-independent) must read as ONE
+    # top-level story, not two -- even though the LLM "selected" both.
+    assert len(items) == 1
+    assert items[0]["id"] == id1  # representative: higher source_count tie-break (both 1 here, event_key order)
+    assert items[0]["related_article_count"] == 2
+    assert items[0]["related_source_count"] == 2
+    # The real coverage is still visible as cluster evidence, never lost.
+    assert len(data["news"]["AI"]["clusters"]) == 1
+
+
+def test_llm_path_never_merges_genuinely_different_developments(conn):
+    run_row_id = _insert_run(conn)
+    id1 = _insert_normalized_item(
+        conn, "e1", "AI_NEWS", "삼성전자 3분기 실적 발표", source_name="outlet-a",
+        event_key="ev-e1", published_at="2026-08-13T01:00:00+00:00",
+    )
+    id2 = _insert_normalized_item(
+        conn, "e2", "AI_NEWS", "테슬라 신규 공장 착공식 개최", source_name="outlet-b",
+        event_key="ev-e2", published_at="2026-08-13T02:00:00+00:00",
+    )
+    _insert_reports_marker(conn, run_row_id)
+    _insert_category_status(conn, run_row_id, "AI", "REPORT_GENERATED", 2, 2)
+    for cat in ("ECONOMY", "SOCIETY", "TIKTOK", "SPOTIFY"):
+        _insert_category_status(conn, run_row_id, cat, "NOT_READY", 0, 0)
+    _insert_interpretation(conn, run_row_id, {
+        "AI": [{"id": id1, "reason": "r1"}, {"id": id2, "reason": "r2"}],
+        "ECONOMY": [], "SOCIETY": [], "TIKTOK": [], "SPOTIFY": [],
+    })
+    data = build_dashboard_data_v2(conn, "2026-08-13")
+    items = data["news"]["AI"]["items"]
+    # Two completely unrelated real stories must both survive -- the
+    # duplicate gate must never reduce legitimate information quantity.
+    assert len(items) == 2
+    assert {i["id"] for i in items} == {id1, id2}
+    assert data["news"]["AI"]["clusters"] == []
+
+
+# ---- SOURCE TRUST GATE: structural LEAD-eligibility floor -------------------
+
+
+def test_low_trust_single_source_item_cannot_become_lead(conn):
+    run_row_id = _insert_run(conn)
+    # "unmapped-source" has no sources.yaml/music.registry entry -> falls
+    # back to the neutral DEFAULT_QUALITY_SCORE (0.5), below the LEAD trust
+    # floor (0.8) -- and it is the ONLY source (source_count=1), so neither
+    # the high-trust-tier path nor the corroboration path is satisfied.
+    id1 = _insert_normalized_item(
+        conn, "f1", "AI", "출처 미상 단일 보도", source_name="unmapped-source",
+        event_key="ev-f1",
+    )
+    _insert_reports_marker(conn, run_row_id)
+    _insert_category_status(conn, run_row_id, "AI", "REPORT_GENERATED", 1, 1)
+    for cat in ("ECONOMY", "SOCIETY", "TIKTOK", "SPOTIFY"):
+        _insert_category_status(conn, run_row_id, cat, "NOT_READY", 0, 0)
+    _insert_interpretation(conn, run_row_id, {
+        "AI": [{"id": id1, "reason": "r1"}],
+        "ECONOMY": [], "SOCIETY": [], "TIKTOK": [], "SPOTIFY": [],
+    })
+    data = build_dashboard_data_v2(conn, "2026-08-13")
+    item = data["news"]["AI"]["items"][0]
+    # Still shown (never hidden) -- just never the top-billed LEAD slot on
+    # trust alone.
+    assert item["tier"] != "LEAD"
+    assert item["id"] == id1
+
+
+def test_corroborated_low_tier_source_can_still_become_lead(conn):
+    """Weaker sources may surface as LEAD when genuinely corroborated by a
+    second independent outlet -- the trust gate downgrades unsupported
+    single-source claims, it does not reduce overall coverage."""
+    run_row_id = _insert_run(conn)
+    id1 = _insert_normalized_item(
+        conn, "g1", "AI", "두 매체가 함께 보도한 소식", source_name="unmapped-source-a",
+        event_key="ev-g1",
+    )
+    _insert_normalized_item(
+        conn, "g1b", "AI", "두 매체가 함께 보도한 소식", source_name="unmapped-source-b",
+        event_key="ev-g1",
+    )
+    _insert_reports_marker(conn, run_row_id)
+    _insert_category_status(conn, run_row_id, "AI", "REPORT_GENERATED", 1, 1)
+    for cat in ("ECONOMY", "SOCIETY", "TIKTOK", "SPOTIFY"):
+        _insert_category_status(conn, run_row_id, cat, "NOT_READY", 0, 0)
+    _insert_interpretation(conn, run_row_id, {
+        "AI": [{"id": id1, "reason": "r1"}],
+        "ECONOMY": [], "SOCIETY": [], "TIKTOK": [], "SPOTIFY": [],
+    })
+    data = build_dashboard_data_v2(conn, "2026-08-13")
+    item = data["news"]["AI"]["items"][0]
+    assert item["tier"] == "LEAD"
+    assert item["source_count"] == 2
