@@ -538,6 +538,111 @@ above for the exact contract this session established.
 
 ---
 
+## FINAL PROFESSIONAL UI/UX PASS (2026-08-15 KST, twenty-ninth session)
+
+Scope per explicit instruction: the final product-level UI/UX architecture
+pass on the real V2 Intelligence Dashboard, building on the twenty-third/
+twenty-fourth sessions' premium-UI and music-intelligence-completion
+baseline. Presentation-only -- `report/web_render_v2.py` was the only file
+touched; no data, ranking, duplicate-suppression, source-trust, or
+synthesis logic was reopened.
+
+**Real V2 UI audit + implementation** (against real production data,
+`report_date=2026-08-15`, a genuine cold-start/first-observation day, plus
+the richer real `2026-08-14` archive for populated-state QA): strengthened
+MUSIC's TODAY-strip prominence with a soft tint fill (not a bordered
+card) replacing the prior thin-border-only treatment; surfaced the
+dominant headline's own real `what_to_watch` field as a first-screen
+"지켜볼 점" line whenever news-intelligence synthesis actually produced one
+(never fabricated); added a `.block-quiet` visual variant that recedes
+TikTok (permanently unavailable by design) and any Intelligence/Trend
+Radar/Producer Intelligence section with no real signal that day -- same
+real header/anchor/message, just visually lighter so it never competes
+with sections carrying real content; removed a real, confirmed
+redundancy where a first-observation chart day repeated the entire real
+TOP10 list a second time inside Daily Music Trend with zero added
+information, replacing it with the existing honest one-line baseline
+narrative; fixed `.uninterpreted-notice` reusing the exact SOCIETY domain
+hue (a real color-clash bug -- caused the "AI 해석 대기" operational notice
+to falsely pattern-match against the nav's own SOCIETY color coding),
+now neutral muted/italic instead.
+
+**Verification**: targeted tests (`test_web_render_v2.py` 70/70,
+`test_web_data_v2.py` + `test_cli_generate_daily_web_report_v2.py`
+139/139 combined) passing unmodified -- no test file changed. Real
+browser QA (Playwright-equivalent, via Chrome automation) at 1440x900
+desktop plus 390x844 and 430x932 mobile (window-resize was unavailable in
+this environment; mobile viewports were verified with an accurate
+same-origin iframe technique instead, confirmed equivalent to a real
+mobile viewport for CSS media-query purposes) -- zero horizontal overflow
+(programmatically confirmed `scrollWidth == clientWidth` at both mobile
+widths, the one flagged element being the pre-existing, by-design
+horizontally-scrollable nav strip), zero console errors, the new
+watch-next line and MUSIC tint confirmed against real data at both
+dates. **Full regression re-run once after all changes: 964/964
+passing** (same baseline as the twenty-eighth session, confirming zero
+regressions from a presentation-only change). `report/web_data_v2.py`,
+every backend ranking/duplicate/trust/synthesis file, V1 (`report/
+web_render.py`, `report/web_data.py`, `docs/index.html`, `docs/
+reports/`), and every test source file confirmed untouched via direct
+`git diff` across the full working tree, not assumed.
+
+**Two independent preservation-review audit passes** were run before
+committing (both AUDIT ONLY, no repo mutation): confirmed `report/
+web_render_v2.py` was the sole real UI implementation change; confirmed
+`docs/v2/index.html` and `docs/v2/reports/2026-08-15.html` (real
+regenerated outputs from real production data) plus `docs/v2/reports/
+2026-08-14.html` (a real archived file, confirmed byte-identical to its
+committed version, never touched) were the only generated-output
+changes; ran a secret-shaped-pattern scan across both the source diff
+and the generated HTML (clean); confirmed three session-local QA
+scratch files (`docs/v2/_qa_mobile_390.html`, `docs/v2/_qa_mobile_430.
+html`, `docs/v2/_qa_2026-08-14.html` -- a same-origin iframe harness and
+a scratch-dir copy of the `2026-08-14` re-render, none ever git-tracked)
+were removed with zero effect on any tracked or important file. The
+first audit pass caught a real discrepancy this session's own earlier
+cleanup had missed: the local QA HTTP server (`python -m http.server
+8935`, used only to serve the dashboard to the browser-automation tool
+for QA) was still listening on a prior `pkill` attempt that silently
+failed -- found and killed for real via its PID during the audit, then
+reverified stopped.
+
+**Commit** (reviewed file-by-file before staging, exactly as scoped):
+`d6db085693fa7faa33fe9470e88e5b9b82839d5b` -- "Apply final professional
+V2 UI/UX pass to the Intelligence Dashboard," `super-news/report/
+web_render_v2.py` only (1 file, 83 insertions / 20 deletions). Staged
+diff re-verified to contain exactly that one file; V1, backend/data/
+ranking files, and generated `docs/v2/` HTML all confirmed absent from
+the staged diff before commit; secret scan clean. Pushed to
+`origin/main`; fetched and confirmed local `HEAD` == `origin/main`
+byte-for-byte. `docs/v2/index.html` and `docs/v2/reports/2026-08-15.
+html` were deliberately left uncommitted and local-only -- the
+controlled real E2E/release step (not yet run) must regenerate and
+publish the current report through the real `run_daily_v2_release` flow
+(see the twenty-eighth session's own release-flow build) rather than
+this UI session committing a pre-generated snapshot directly. `README.
+md`/`hello.txt` (pre-existing, unrelated modifications present before
+this session started) and `CLAUDE.md`/`.vscode/`/`super-news/
+_audit_displayed.json`/`super-news/qa/` (pre-existing untracked
+artifacts from earlier sessions) were all confirmed untouched and were
+never staged.
+
+**Not done this session** (unchanged from the twenty-eighth session's own
+list, still true): no real controlled E2E of `run_daily_v2_release`, no
+real Kakao send, no real `docs/v2/` publish/deploy, no scheduler
+configured, no production DB mutation, no file deleted, no V1 file
+modified, no backend logic reopened, full regression not re-run beyond
+the one required pass already reported above.
+
+**Next task, as scoped by the user: CONTROLLED REAL V2 E2E** -- the first
+real, explicitly-approved invocation of `run_daily_v2_release` (built,
+unit-tested, but never yet run for real per the twenty-eighth session's
+own record), which will regenerate and publish the current UI through
+the real release flow, including the one real Kakao send this session
+deliberately did not perform.
+
+---
+
 ## QUALITY HARDENING + REQUIRED DAILY V2 RELEASE FLOW (2026-08-15 KST, twenty-eighth session)
 
 ### 1. Read-only audit (start of session)
