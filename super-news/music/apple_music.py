@@ -6,9 +6,16 @@ contract this satisfies): SOURCE=APPLE_MUSIC, MARKET=KR,
 CHART=MOST_PLAYED_SONGS, LIMIT=25, metric=apple_music_chart_position only.
 No other chart type, market, or metric is implemented here.
 
-Identity: Apple's own song-level `id` (APPLE_MUSIC_ID alias) is the sole
-identity signal -- no artist/title fuzzy matching, no MusicBrainz/ISRC
-enrichment (out of scope for this slice).
+Identity: Apple's own song-level `id` (APPLE_MUSIC_ID alias) is checked
+FIRST and is authoritative for "have we already seen this exact Apple
+Music track." Only when that's a miss does this fall through to music/
+entity_resolution.py's cross-source resolver (exact normalized artist+
+title match against any existing entity, from any source) before
+creating a brand-new entity -- this is what lets an Apple Music
+observation attach to an entity Spotify already created for the same
+recording. Still no fuzzy matching and no ISRC signal of Apple's own (out
+of scope for this slice) -- see music/entity_resolution.py's own
+docstring for the full matching hierarchy and why it stays exact-only.
 
 evidence_type mapping: music_observations.evidence_type only accepts
 'MEASURED_PLATFORM_SIGNAL' or 'REPORTED_PLATFORM_SIGNAL' (frozen CHECK).
@@ -27,6 +34,7 @@ from datetime import datetime, timezone
 
 from ingestion.http import request_with_retry
 from ingestion.registry import RetryPolicy
+from music.entity_resolution import resolve_existing_entity
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +69,21 @@ def _resolve_or_create_entity(conn, apple_id, artist_name, song_name, observed_a
     ).fetchone()
     if existing is not None:
         return existing["music_entity_id"]
+
+    # Not a track this collector has seen before -- check whether ANOTHER
+    # source already created an entity for the same recording (music/
+    # entity_resolution.py) before creating a duplicate. UNRESOLVED falls
+    # through to the exact same new-entity path this always used.
+    resolution = resolve_existing_entity(conn, artist_name, song_name)
+    if resolution["entity_id"] is not None:
+        entity_id = resolution["entity_id"]
+        conn.execute(
+            """INSERT INTO music_entity_aliases
+               (music_entity_id, alias_type, alias_value, source_name, confirmed_at)
+               VALUES (?, 'APPLE_MUSIC_ID', ?, ?, ?)""",
+            (entity_id, apple_id, SOURCE_NAME, observed_at),
+        )
+        return entity_id
 
     conn.execute(
         """INSERT INTO music_entities
