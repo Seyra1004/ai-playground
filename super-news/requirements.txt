@@ -14,3 +14,7 @@ feedparser-sgmllib==2.1.0
 # Report V1: news synthesis via the Anthropic API (report/llm_anthropic.py
 # is the only module that imports this).
 anthropic==0.121.0
+
+# Phase 3D-BACKUP: offsite DB backup to Cloudflare R2 (S3-compatible API).
+# db/r2_client.py is the only module that imports this.
+boto3==1.43.71
