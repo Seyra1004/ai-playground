@@ -2,7 +2,13 @@
 never contains a full TOP10 list, never fabricates TikTok data."""
 
 from report.kakao_render import split_message
-from report.kakao_render_v2 import MAX_TEXT_LENGTH, render_full_digest_text, render_kakao_digest
+from report.kakao_render_v2 import (
+    MAX_TEXT_LENGTH,
+    render_daily_kakao_digest,
+    render_full_digest_text,
+    render_kakao_digest,
+    render_music_kakao_digest,
+)
 
 
 def _empty_dashboard():
@@ -187,3 +193,57 @@ def test_full_digest_tiktok_chart_never_fabricated_even_with_real_music_content(
     }
     text = render_full_digest_text(data)
     assert "데이터 소스 미가동" in text  # TikTok chart status unaffected by real Spotify data
+
+
+# =============================================================================
+# render_music_kakao_digest / render_daily_kakao_digest -- independent
+# per-product messages (Kakao delivery split phase)
+# =============================================================================
+
+
+def test_music_digest_within_limit_and_never_contains_daily_content():
+    data = _empty_dashboard()
+    data["news"]["AI"] = {"state": "NORMAL", "items": [{
+        "title": "AI 뉴스 제목", "reason": "x", "source_url": "https://x"}]}
+    data["news"]["ECONOMY"] = {"state": "NORMAL", "items": [{
+        "title": "경제 뉴스 제목", "reason": "x", "source_url": "https://x"}]}
+    text = render_music_kakao_digest(data)
+    assert len(text) <= MAX_TEXT_LENGTH
+    assert "SUPER NEWS MUSIC" in text
+    assert "AI 뉴스 제목" not in text
+    assert "경제 뉴스 제목" not in text
+    assert "TikTok:" in text and "Spotify:" in text
+
+
+def test_daily_digest_within_limit_and_never_contains_music_content():
+    data = _empty_dashboard()
+    data["spotify_chart"] = {
+        "state": "NORMAL",
+        "top10": [{"music_entity_id": 1, "rank": 1, "canonical_artist": "Artist", "canonical_title": "Title",
+                    "is_new": False, "rank_delta": 0}],
+        "new_entries": [],
+    }
+    data["news"]["AI"] = {"state": "NORMAL", "items": [{
+        "title": "AI 뉴스 제목", "reason": "x", "source_url": "https://x"}]}
+    text = render_daily_kakao_digest(data)
+    assert len(text) <= MAX_TEXT_LENGTH
+    assert "SUPER NEWS DAILY" in text
+    assert "AI 뉴스 제목" in text
+    assert "Artist" not in text
+    assert "TikTok:" not in text and "Spotify:" not in text
+
+
+def test_music_digest_honest_empty_state():
+    text = render_music_kakao_digest(_empty_dashboard())
+    assert "데이터 소스 미가동" in text  # TikTok honest-empty
+
+
+def test_daily_digest_honest_empty_state():
+    text = render_daily_kakao_digest(_empty_dashboard())
+    assert "오늘 보고할 뉴스 없음" in text
+
+
+def test_music_and_daily_digest_deterministic_across_calls():
+    data = _empty_dashboard()
+    assert render_music_kakao_digest(data) == render_music_kakao_digest(data)
+    assert render_daily_kakao_digest(data) == render_daily_kakao_digest(data)

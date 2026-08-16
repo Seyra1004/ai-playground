@@ -150,7 +150,22 @@ class NullTranslationProvider(TranslationProvider):
     credential in this environment. Never calls out to any network
     service, never fabricates a translation -- always reports itself as
     unconfigured so translate_and_cache short-circuits before ever calling
-    translate(), and the real, untouched original text keeps being shown."""
+    translate(), and the real, untouched original text keeps being shown.
+
+    cache_lookup_hint (PERMANENT ZERO-PAYG SAFETY pass): an optional
+    (provider_name, model) string pair identifying which REAL provider's
+    EXISTING cache entries translate_and_cache may still read (never
+    write) while this Null instance is active -- e.g. under
+    SUPER_NEWS_NO_PAID_API=1, build_translation_provider() below passes
+    ("AnthropicTranslationProvider", <model>) so an already-paid-for
+    cached translation can still be served for zero cost, without this
+    class ever importing report.translation_anthropic, the anthropic SDK,
+    or constructing anything that could reach api.anthropic.com. Purely a
+    pair of strings used as a read-only cache SELECT key; None (default)
+    means no hint, matching every prior caller's behavior unchanged."""
+
+    def __init__(self, cache_lookup_hint=None):
+        self.cache_lookup_hint = cache_lookup_hint
 
     def is_configured(self):
         return False
@@ -169,8 +184,31 @@ def build_translation_provider():
     set (the missing-credential case degrades to is_configured()==False, not
     a construction-time crash here, so a misconfigured/not-yet-credentialed
     environment never fails page generation). Any other value is a loud
-    configuration error, never a silent fallback to a default provider."""
+    configuration error, never a silent fallback to a default provider.
+
+    SUPER_NEWS_NO_PAID_API (env, unrelated to TRANSLATION_PROVIDER) is a
+    PERMANENT, process-level cost-gate override: when truthy, this ALWAYS
+    returns a NullTranslationProvider() -- report.translation_anthropic.
+    AnthropicTranslationProvider is NEVER imported or constructed on this
+    path, so api.anthropic.com is structurally unreachable from here,
+    regardless of TRANSLATION_PROVIDER/ANTHROPIC_API_KEY. When
+    TRANSLATION_PROVIDER=anthropic is ALSO configured, the returned
+    NullTranslationProvider carries a cache_lookup_hint so translate_and_
+    cache can still serve an EXISTING, already-paid-for cached translation
+    (a pure read, zero cost) -- a cache MISS degrades to STATUS_UNAVAILABLE,
+    never a live call. Checked first, before the TRANSLATION_PROVIDER
+    branch below."""
     from config import get_optional_env
+
+    if (get_optional_env("SUPER_NEWS_NO_PAID_API", "") or "").strip().lower() in ("1", "true", "yes"):
+        provider = (get_optional_env("TRANSLATION_PROVIDER", "none") or "none").strip().lower()
+        if provider == "anthropic":
+            # Mirrors report.translation_anthropic.AnthropicTranslationProvider's
+            # own (class name, default model) cache-key identity WITHOUT
+            # importing that module -- see this function's docstring.
+            model = get_optional_env("ANTHROPIC_TRANSLATION_MODEL", "claude-haiku-4-5-20251001")
+            return NullTranslationProvider(cache_lookup_hint=("AnthropicTranslationProvider", model))
+        return NullTranslationProvider()
 
     provider = (get_optional_env("TRANSLATION_PROVIDER", "none") or "none").strip().lower()
     if provider in ("none", "null"):
@@ -319,11 +357,26 @@ def translate_and_cache(conn, provider, text, target_lang=DEFAULT_TARGET_LANG, n
         return _result(normalized, STATUS_NOT_REQUIRED)
 
     if not provider.is_configured():
-        # Provider-wide config/credential gap -- deterministic, no network
-        # attempt, and deliberately never persisted (see module docstring):
-        # there is nothing cached here that could ever go stale, so a
-        # credential added later is used on the very next call with zero
-        # migration/cleanup needed.
+        # Provider-wide config/credential gap (or a deliberate cost-safety
+        # override, e.g. SUPER_NEWS_NO_PAID_API=1) -- deterministic, no
+        # network attempt, and deliberately never persisted per-text (see
+        # module docstring): there is nothing cached here that could ever
+        # go stale, so a credential added later is used on the very next
+        # call with zero migration/cleanup needed.
+        #
+        # PERMANENT ZERO-PAYG SAFETY: if the provider carries a
+        # cache_lookup_hint (see NullTranslationProvider), still perform
+        # ONE read-only cache SELECT under that (provider_name, model)
+        # identity before giving up -- an existing, already-paid-for
+        # TRANSLATED row is safe to reuse (zero cost, zero network); a
+        # cache MISS still degrades to STATUS_UNAVAILABLE exactly as
+        # before, never a live provider call.
+        hint = getattr(provider, "cache_lookup_hint", None)
+        if hint:
+            hint_provider_name, hint_model = hint
+            hinted_cached = get_cached_translation(conn, normalized, target_lang, hint_provider_name, hint_model)
+            if hinted_cached is not None and hinted_cached["status"] == STATUS_TRANSLATED:
+                return hinted_cached
         return _result(None, STATUS_UNAVAILABLE)
 
     now_fn = now_fn or (lambda: datetime.now(timezone.utc))

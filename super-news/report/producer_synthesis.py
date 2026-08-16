@@ -35,7 +35,7 @@ report.persistence.persist_producer_intelligence's caller contract.
 import hashlib
 import json
 
-PROMPT_VERSION = "v1"
+PROMPT_VERSION = "v2"
 MAX_INSIGHTS = 5
 CATEGORY = "MUSIC_PRODUCER_INTELLIGENCE"
 
@@ -106,11 +106,22 @@ def build_evidence_catalog(intelligence, spotify_chart, industry_news):
     that news item's OWN fact (context / why-it-matters) shown in the
     Music Industry section; citing them again here would have Producer
     Intelligence re-explain a fact instead of owning a new one (the
-    fact-ownership rule), so only the identifying headline is included."""
+    fact-ownership rule), so only the identifying headline is included.
+
+    MUSIC EVENT-LEVEL IDENTITY (TRUE lineage, not text matching): a
+    MUSIC_INDUSTRY_NEWS entry's `event_key` is the SAME real event_key
+    the originating `industry_news` item already carries -- propagated
+    here directly, at the one point this catalog is actually built FROM
+    that real item. None for every other evidence type here (EARLY_
+    SIGNAL/CATALOG_REVIVAL/CROSS_PLATFORM/SPOTIFY_NEW_ENTRY are all chart/
+    music_entity facts with no corresponding real article -- never a
+    fabricated event_key)."""
     catalog = []
 
-    def add(evidence_type, summary):
-        catalog.append({"ref": f"E{len(catalog) + 1}", "type": evidence_type, "summary": summary})
+    def add(evidence_type, summary, event_key=None):
+        catalog.append({
+            "ref": f"E{len(catalog) + 1}", "type": evidence_type, "summary": summary, "event_key": event_key,
+        })
 
     for source_name in sorted(intelligence["early_signal"].keys()):
         for c in intelligence["early_signal"][source_name]:
@@ -146,7 +157,7 @@ def build_evidence_catalog(intelligence, spotify_chart, industry_news):
         # rule). Keeps the catalog compact too.
         title = item.get("title")
         if title:
-            add("MUSIC_INDUSTRY_NEWS", title)
+            add("MUSIC_INDUSTRY_NEWS", title, event_key=item.get("event_key"))
 
     return catalog
 
@@ -168,6 +179,17 @@ def find_reusable_interpretation(conn, input_hash):
 
 def _build_prompts(catalog):
     system_prompt = (
+        "CRITICAL LANGUAGE RULE, apply to every field you write below: "
+        "what_is_moving, why_it_matters, what_to_watch, and what_could_i_make_now "
+        "MUST be written entirely in natural, fluent Korean (한국어). Never write "
+        "any of those four fields in English or mixed English/Korean, even though "
+        "the evidence catalog you are given is in English.\n\n"
+        f"CRITICAL COUNT LIMIT, enforced by this system (not optional): return a "
+        f"HARD MAXIMUM of {MAX_INSIGHTS} insights total, never more. If the "
+        f"evidence supports more than {MAX_INSIGHTS} genuine insights, return only "
+        f"the {MAX_INSIGHTS} strongest ones -- never exceed this limit, and it is "
+        "always fine to return fewer (including zero) if the evidence doesn't "
+        "support that many.\n\n"
         "You are a senior A&R / production-intelligence analyst writing a short, "
         "internal briefing for music producers, based ONLY on the evidence catalog "
         "you are given -- never on outside knowledge, never on anything not in the "
@@ -191,7 +213,23 @@ def _build_prompts(catalog):
         "Do not restate a catalog entry verbatim as what_is_moving without any "
         "synthesis across the other three fields. If the evidence is too thin or "
         "one-dimensional to support any genuine insight, return an empty list "
-        "rather than padding with a weak or generic one."
+        "rather than padding with a weak or generic one.\n\n"
+        "Write what_is_moving/why_it_matters/what_to_watch/what_could_i_make_now in "
+        "natural, fluent Korean (한국어) -- the evidence catalog itself is in "
+        "English, but your output text is read directly by a Korean audience and "
+        "must never be English or a mix of English and Korean. Translate/paraphrase "
+        "the English evidence into clear Korean prose yourself; do not leave any "
+        "English sentence untranslated.\n\n"
+        "Two more hard rules for what_is_moving/why_it_matters/what_to_watch/"
+        "what_could_i_make_now text: (1) NEVER write an evidence `ref` label (e.g. "
+        "\"E1\", \"E11\") as literal text inside these fields -- that citation belongs "
+        "ONLY in the separate structured `evidence_refs` field; a sentence like \"E11 "
+        "shows...\" is a defect, write \"The article shows...\" instead. (2) Keep every "
+        "AI INFERENCE field a SUPPORTED interpretation, never a leap: if the evidence "
+        "only supports a general claim (e.g. a stadium booking supports \"large-scale "
+        "demand\"), do not extend it into a specific unsupported claim (e.g. a specific "
+        "production technique) the evidence never actually establishes -- when in "
+        "doubt, state the weaker, better-supported claim."
     )
     user_prompt = canonical_json({"evidence_catalog": catalog})
     return system_prompt, user_prompt

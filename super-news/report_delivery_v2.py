@@ -23,6 +23,7 @@ independently.
 
 import hashlib
 import logging
+import time
 
 from db.database import connect
 from delivery import build_idempotency_key, decide_delivery_action, record_delivery
@@ -30,7 +31,12 @@ from kakao.auth import KakaoAuthError
 from kakao.client import MAX_TEXT_LENGTH, KakaoSendError, send_memo
 from config import MissingSecretError, get_optional_env
 from report.kakao_render import split_message
-from report.kakao_render_v2 import render_full_digest_text, render_kakao_digest
+from report.kakao_render_v2 import (
+    render_daily_kakao_digest,
+    render_full_digest_text,
+    render_kakao_digest,
+    render_music_kakao_digest,
+)
 from report.web_data_v2 import build_dashboard_data_v2
 
 logger = logging.getLogger(__name__)
@@ -38,11 +44,32 @@ logger = logging.getLogger(__name__)
 REPORT_TYPE = "DAILY_DIGEST_V2"
 DESTINATION = "kakao_memo"
 
+# SUPER NEWS MUSIC / SUPER NEWS DAILY (Kakao delivery split phase): two
+# fully independent products, each with its OWN report_type -> own
+# idempotency key space. Deliberately DISTINCT from the legacy REPORT_TYPE
+# above (still used by deliver_daily_report_v2/deliver_daily_summary_v2,
+# left intact for manual/audit use) -- a legacy 'sent' row must never skip
+# a MUSIC or DAILY send, and vice versa; each product's own send history is
+# tracked and idempotent independently, per-date.
+MUSIC_REPORT_TYPE = "SUPER_NEWS_MUSIC_V2"
+DAILY_REPORT_TYPE = "SUPER_NEWS_DAILY_V2"
+
+_MUSIC_CTA_BUTTON_TITLE = "MUSIC 브리핑"
+_DAILY_CTA_BUTTON_TITLE = "DAILY 브리핑"
+
+# Minimal retry: a real transient Kakao send failure (network blip, 5xx) is
+# retried once more after a short fixed backoff before being recorded as
+# 'failed'. Never retries a deterministic validation failure differently --
+# KakaoValidationError is a KakaoSendError subclass and would fail
+# identically on every attempt, so retrying it is harmless, just redundant.
+_MAX_SEND_ATTEMPTS = 2
+_RETRY_BACKOFF_SECONDS = 3
+
 # Same failure-mode contract as report_delivery.py's own _DELIVERY_FAILURE_TYPES.
 _DELIVERY_FAILURE_TYPES = (KakaoAuthError, KakaoSendError, MissingSecretError)
 
 
-def _resolve_v2_link_url():
+def _resolve_v2_link_url(page=None):
     """kakao.client.send_memo() already treats KAKAO_DEFAULT_LINK_URL as
     required and validates it against the domain registered in the Kakao
     app's own 링크 설정 -- that domain check is host-level, not path-level,
@@ -52,16 +79,26 @@ def _resolve_v2_link_url():
     serves V1's stale content, not the real V2.1 dashboard this message is
     actually about).
 
-    KAKAO_V2_LINK_URL overrides the derivation when set. Returns None
-    (matching send_memo's own default parameter) when the base itself
-    isn't configured, so send_memo's existing MissingSecretError contract
-    for a completely unset link is unchanged."""
+    `page` (e.g. "music.html"/"daily.html") targets the standalone
+    SUPER NEWS MUSIC / SUPER NEWS DAILY product pages (report.web_render_v2's
+    render_music_page_html_v2/render_daily_page_html_v2) instead of the
+    combined dashboard -- used only by deliver_music_digest_v2/
+    deliver_daily_digest_v2 below; every other caller passes nothing and
+    keeps linking to the combined "<base>/v2/" dashboard exactly as before.
+
+    KAKAO_V2_LINK_URL overrides the derivation when set (for every caller,
+    page-specific or not -- an explicit human override always wins).
+    Returns None (matching send_memo's own default parameter) when the
+    base itself isn't configured, so send_memo's existing MissingSecretError
+    contract for a completely unset link is unchanged."""
     override = get_optional_env("KAKAO_V2_LINK_URL")
     if override:
         return override
     base = get_optional_env("KAKAO_DEFAULT_LINK_URL")
     if not base:
         return None
+    if page:
+        return base.rstrip("/") + f"/v2/{page}"
     return base.rstrip("/") + "/v2/"
 
 
@@ -80,6 +117,47 @@ def _dashboard_has_any_real_content(dashboard_data_v2):
     music_trend_has_data = dashboard_data_v2["music_trend_intelligence"]["state"] == "NORMAL"
     producer_has_data = dashboard_data_v2["producer_intelligence"]["state"] == "NORMAL"
     return news_has_items or spotify_has_data or music_trend_has_data or producer_has_data
+
+
+def _music_has_any_real_content(dashboard_data_v2):
+    news = dashboard_data_v2["news"]
+    news_has_items = any(news[c]["items"] for c in ("TIKTOK", "SPOTIFY"))
+    spotify_has_data = dashboard_data_v2["spotify_chart"]["state"] == "NORMAL"
+    music_trend_has_data = dashboard_data_v2["music_trend_intelligence"]["state"] == "NORMAL"
+    producer_has_data = dashboard_data_v2["producer_intelligence"]["state"] == "NORMAL"
+    return news_has_items or spotify_has_data or music_trend_has_data or producer_has_data
+
+
+def _daily_has_any_real_content(dashboard_data_v2):
+    news = dashboard_data_v2["news"]
+    return any(news[c]["items"] for c in ("AI", "ECONOMY", "SOCIETY"))
+
+
+def _send_with_retry(text, link_url, button_title, product_label, report_date_kst):
+    """Attempts send_memo up to _MAX_SEND_ATTEMPTS times with a short fixed
+    backoff between attempts, logging every attempt (product/date/attempt
+    number/outcome) so a real failure sequence is diagnosable from logs
+    alone. Re-raises the last failure's exception, unmodified, if every
+    attempt fails -- callers keep their existing _DELIVERY_FAILURE_TYPES
+    handling unchanged."""
+    last_exc = None
+    for attempt in range(1, _MAX_SEND_ATTEMPTS + 1):
+        try:
+            send_memo(text, link_url=link_url, button_title=button_title)
+            logger.info(
+                "report_date=%s product=%s send attempt=%d/%d status=SUCCESS",
+                report_date_kst, product_label, attempt, _MAX_SEND_ATTEMPTS,
+            )
+            return
+        except _DELIVERY_FAILURE_TYPES as exc:
+            last_exc = exc
+            logger.error(
+                "report_date=%s product=%s send attempt=%d/%d status=FAILED error=%s",
+                report_date_kst, product_label, attempt, _MAX_SEND_ATTEMPTS, type(exc).__name__,
+            )
+            if attempt < _MAX_SEND_ATTEMPTS:
+                time.sleep(_RETRY_BACKOFF_SECONDS)
+    raise last_exc
 
 
 def deliver_daily_report_v2(report_date_kst, runs_row_id, conn=None):
@@ -209,6 +287,112 @@ def deliver_daily_summary_v2(report_date_kst, runs_row_id, conn=None):
         )
         active_conn.commit()
         logger.info("report_date=%s V2 summary delivery status=%s", report_date_kst, status)
+
+        return {"status": status, "reason": failure_reason}
+    finally:
+        if owns_conn:
+            active_conn.close()
+
+
+# =============================================================================
+# SUPER NEWS MUSIC / SUPER NEWS DAILY (Kakao delivery split phase) -- two
+# fully independent daily products. Each is exactly ONE real Kakao message
+# (report.kakao_render_v2.render_music_kakao_digest / render_daily_kakao_
+# digest), retried via _send_with_retry, and idempotent under its OWN
+# report_type (MUSIC_REPORT_TYPE / DAILY_REPORT_TYPE) -- distinct from each
+# other AND from the legacy REPORT_TYPE above, so any combination of
+# {legacy, MUSIC, DAILY} sends for the same date are tracked and gated
+# completely independently; no combination ever blocks or is blocked by
+# another. This is what scripts/run_daily_kakao_delivery_v2.py (the single
+# daily production entrypoint) actually calls.
+# =============================================================================
+
+
+def deliver_music_digest_v2(report_date_kst, runs_row_id, conn=None, dashboard_data_v2=None):
+    """SUPER NEWS MUSIC daily send. dashboard_data_v2 may be passed in
+    pre-built (e.g. by a caller also sending DAILY from the same
+    build_dashboard_data_v2() call) to avoid rebuilding it twice; if
+    omitted, this builds it itself. Returns {"status": "sent"|
+    "skipped_duplicate"|"failed", "reason": str|None}. NoDashboardDataError
+    propagates when there is genuinely no real MUSIC content for this date
+    (mirrors every other delivery function in this module)."""
+    owns_conn = conn is None
+    active_conn = conn if conn is not None else connect()
+    try:
+        idempotency_key = build_idempotency_key(report_date_kst, MUSIC_REPORT_TYPE, DESTINATION)
+        action = decide_delivery_action(idempotency_key, conn=active_conn)
+        if action == "skip_duplicate":
+            logger.info("report_date=%s MUSIC delivery skipped (already sent).", report_date_kst)
+            return {"status": "skipped_duplicate", "reason": None}
+
+        if dashboard_data_v2 is None:
+            dashboard_data_v2 = build_dashboard_data_v2(active_conn, report_date_kst)
+        if not _music_has_any_real_content(dashboard_data_v2):
+            raise NoDashboardDataError(
+                f"No real MUSIC content exists yet for report_date={report_date_kst!r}."
+            )
+
+        text = render_music_kakao_digest(dashboard_data_v2)
+        content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        v2_link_url = _resolve_v2_link_url("music.html")
+
+        try:
+            _send_with_retry(text, v2_link_url, _MUSIC_CTA_BUTTON_TITLE, "MUSIC", report_date_kst)
+            status, failure_reason = "sent", None
+        except _DELIVERY_FAILURE_TYPES as exc:
+            status = "failed"
+            failure_reason = f"{type(exc).__name__}: {exc}"
+
+        record_delivery(
+            runs_row_id, report_date_kst, MUSIC_REPORT_TYPE, DESTINATION, content_hash, status,
+            conn=active_conn, report_id=None,
+        )
+        active_conn.commit()
+        logger.info("report_date=%s MUSIC delivery status=%s", report_date_kst, status)
+
+        return {"status": status, "reason": failure_reason}
+    finally:
+        if owns_conn:
+            active_conn.close()
+
+
+def deliver_daily_digest_v2(report_date_kst, runs_row_id, conn=None, dashboard_data_v2=None):
+    """SUPER NEWS DAILY daily send (AI/ECONOMY/SOCIETY only -- never Music).
+    Same contract shape as deliver_music_digest_v2 above, independent
+    report_type/idempotency key."""
+    owns_conn = conn is None
+    active_conn = conn if conn is not None else connect()
+    try:
+        idempotency_key = build_idempotency_key(report_date_kst, DAILY_REPORT_TYPE, DESTINATION)
+        action = decide_delivery_action(idempotency_key, conn=active_conn)
+        if action == "skip_duplicate":
+            logger.info("report_date=%s DAILY delivery skipped (already sent).", report_date_kst)
+            return {"status": "skipped_duplicate", "reason": None}
+
+        if dashboard_data_v2 is None:
+            dashboard_data_v2 = build_dashboard_data_v2(active_conn, report_date_kst)
+        if not _daily_has_any_real_content(dashboard_data_v2):
+            raise NoDashboardDataError(
+                f"No real DAILY (AI/ECONOMY/SOCIETY) content exists yet for report_date={report_date_kst!r}."
+            )
+
+        text = render_daily_kakao_digest(dashboard_data_v2)
+        content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        v2_link_url = _resolve_v2_link_url("daily.html")
+
+        try:
+            _send_with_retry(text, v2_link_url, _DAILY_CTA_BUTTON_TITLE, "DAILY", report_date_kst)
+            status, failure_reason = "sent", None
+        except _DELIVERY_FAILURE_TYPES as exc:
+            status = "failed"
+            failure_reason = f"{type(exc).__name__}: {exc}"
+
+        record_delivery(
+            runs_row_id, report_date_kst, DAILY_REPORT_TYPE, DESTINATION, content_hash, status,
+            conn=active_conn, report_id=None,
+        )
+        active_conn.commit()
+        logger.info("report_date=%s DAILY delivery status=%s", report_date_kst, status)
 
         return {"status": status, "reason": failure_reason}
     finally:

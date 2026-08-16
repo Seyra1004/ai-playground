@@ -222,27 +222,27 @@ def test_reused_output_with_hallucinated_ref_still_fails_validation(conn):
     """If a BAD row somehow already exists under an input_hash that a later
     day's evidence would also hash to, reuse must not bypass validation --
     the orchestrator revalidates every reused parse just like a fresh one."""
-    from report.producer_synthesis import build_evidence_catalog, compute_input_hash, CATEGORY
+    from report.producer_synthesis import PROMPT_VERSION, build_evidence_catalog, compute_input_hash, CATEGORY
 
     _insert_spotify_riser(conn, report_date_kst="2026-08-13")
     intelligence = build_dashboard_data_v2(conn, "2026-08-13")["intelligence"]
     spotify_chart = build_dashboard_data_v2(conn, "2026-08-13")["spotify_chart"]
     catalog = build_evidence_catalog(intelligence, spotify_chart, [])
-    bad_hash = compute_input_hash("v1", catalog)
+    bad_hash = compute_input_hash(PROMPT_VERSION, catalog)
 
     conn.execute(
         "INSERT INTO runs (run_id, run_date, started_at, status) VALUES ('r-bad', '2026-08-12', 'x', 'completed')"
     )
     run_row_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
     bad_output_text = json.dumps({"insights": [{
-        "what_is_moving": "x", "why_it_matters": "y", "what_to_watch": "z", "what_could_i_make_now": "w",
+        "what_is_moving": "가나", "why_it_matters": "다라", "what_to_watch": "마바", "what_could_i_make_now": "사아",
         "evidence_refs": ["E99"], "confidence": "LOW",
     }]})
     conn.execute(
         """INSERT INTO llm_interpretations
            (run_id, category, model_used, prompt_version, input_hash, output_text, confidence, created_at)
-           VALUES (?, ?, 'm', 'v1', ?, ?, 'MEDIUM', 'x')""",
-        (run_row_id, CATEGORY, bad_hash, bad_output_text),
+           VALUES (?, ?, 'm', ?, ?, ?, 'MEDIUM', 'x')""",
+        (run_row_id, CATEGORY, PROMPT_VERSION, bad_hash, bad_output_text),
     )
     conn.commit()
 

@@ -36,11 +36,12 @@ daily synthesis read here, never generated at render time):
 """
 
 import json
+import re
 from datetime import datetime, timedelta, timezone
 
 from music.catalog_revival import detect_catalog_revival_candidates
 from music.cross_platform import classify_cross_platform_state, detect_cross_platform_signals
-from music.early_signal import select_early_signal_candidates
+from music.early_signal import MIN_RANK_DELTA, select_early_signal_candidates
 from music.forecast_gate import check_forecast_readiness
 from music.registry import ACTIVE_MUSIC_SOURCES
 from music.signal_engine import compute_chart_diff
@@ -48,6 +49,7 @@ from report.candidate_selection import _kst_day_bounds_utc, select_news_candidat
 from report.news_intelligence_synthesis import validate_news_intelligence
 from report.source_metadata import source_quality_score as _source_quality_score
 from report.story_clustering import cluster_candidates
+from report.text_quality import is_malformed_synthesis_text
 from report.translation import NullTranslationProvider, build_translation_provider, translate_and_cache
 from report.web_data import _classify_state
 from report_delivery import find_latest_report_run_id
@@ -58,18 +60,19 @@ _KST = timezone(timedelta(hours=9))
 
 NEWS_CATEGORIES = ("AI", "ECONOMY", "SOCIETY", "TIKTOK", "SPOTIFY")
 
-# Phase 3C production-pilot policy: real translation is scoped to these
-# three categories only -- TIKTOK/SPOTIFY news items keep displaying their
-# real, untranslated original text (NullTranslationProvider -> the
-# existing, already-verified zero-network/zero-DB-write TRANSLATION_
-# UNAVAILABLE path, same honest-fallback contract as any other unconfigured
-# provider). Deliberately the SAME three categories News Intelligence
-# already scopes itself to (see _NEWS_INTELLIGENCE_CATEGORIES below, and
-# report.news_intelligence_orchestrator's own docstring for why TIKTOK/
-# SPOTIFY are Music Industry's own evidence, not this pass's concern) --
-# one real constant, not two independently-maintained category lists that
-# could silently drift apart.
-_TRANSLATION_ELIGIBLE_CATEGORIES = ("AI", "ECONOMY", "SOCIETY")
+# MAJOR IA REBUILD (music-primary product phase): Music Industry news must
+# read as an edited Korean briefing, not raw English RSS -- so real
+# translation is now scoped to every news category, TIKTOK/SPOTIFY
+# included. This is deliberately a WIDER set than _NEWS_INTELLIGENCE_
+# CATEGORIES below (the separately-run what_happened/why_it_matters/
+# what_to_watch synthesis remains AI/ECONOMY/SOCIETY-only -- report.
+# news_intelligence_orchestrator was never built/run for Music Industry
+# evidence, and this pass does not expand that orchestrator) -- translation
+# and news-intelligence eligibility are two REAL, independent concerns that
+# used to be (and no longer are) aliased to the same tuple. Proper nouns
+# (artist/track/company/platform names) are never altered by translation --
+# see report/translation.py's own contract.
+_TRANSLATION_ELIGIBLE_CATEGORIES = ("AI", "ECONOMY", "SOCIETY", "TIKTOK", "SPOTIFY")
 
 # Which registered chart source powers the SPOTIFY section's TOP10/trend/
 # viral/new-song data. Apple Music remains registered and IS still surfaced
@@ -239,11 +242,74 @@ def _is_redundant(candidate, reference):
     return c in r or r in c
 
 
+def _extract_trustworthy_image_url(extra_json):
+    """MUSIC EDITORIAL IMAGERY: the only source of a news item's image is
+    the SAME extra_json blob ingestion/adapters/rss.py already populated
+    at ingestion time from real feed-provided image metadata (media:
+    thumbnail / media:content / an image-typed <enclosure>) -- never
+    fetched, scraped, or guessed here or at render time. Returns None for
+    anything that isn't a real, well-formed http(s) URL string, which is
+    exactly what "no image" looks like downstream -- never a placeholder."""
+    if not extra_json:
+        return None
+    try:
+        extra = json.loads(extra_json)
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(extra, dict):
+        return None
+    image_url = extra.get("image_url")
+    if not isinstance(image_url, str):
+        return None
+    image_url = image_url.strip()
+    if image_url.startswith("http://") or image_url.startswith("https://"):
+        return image_url
+    return None
+
+
+# MULTI-PUBLISHER CLUSTERING GAP / SOURCE PRESENTATION FIX (EDITORIAL
+# INTEGRITY PASS, confirmed real defect from actual generated-report QA):
+# a real Google-News-aggregator ingestion feed (e.g. `tiktok_music_news_
+# google`) is ONE raw source_name representing MANY different real
+# underlying publishers -- this made report.story_clustering.
+# cluster_candidates's own real "source independence" gate incorrectly
+# treat DIFFERENT real outlets' independent coverage of the SAME real
+# event as "the same non-independent source" (they all shared that one
+# raw source_name), so a real 17-article cluster (Taylor Swift/Trump/
+# TikTok) never collapsed. Google News RSS's own real, deterministic
+# convention appends " - <RealPublisherName>" to every aggregated
+# headline -- extracted here, never fabricated (returns (None, title)
+# unchanged whenever the pattern doesn't match, or the source isn't a
+# real known aggregator). This also fixes SOURCE PRESENTATION ("Google
+# 뉴스" as a visible byline) and a second real defect: the raw publisher
+# suffix text was polluting title-similarity comparisons as if it were
+# part of the real story content.
+_TRAILING_PUBLISHER_RE = re.compile(r"\s[-–]\s([A-Za-z][A-Za-z0-9.&' ]{1,40})$")
+
+
+def _extract_real_publisher(title, source_name):
+    """Real, deterministic, narrow: only ever applies to a known real
+    aggregator feed (source_name containing "google" -- a direct RSS feed
+    like billboard_rss/rollingstone_music_rss is NEVER touched, so a
+    legitimate real headline that happens to end in " - some words" is
+    never altered). Returns (real_publisher_or_None, title_with_suffix_
+    stripped_or_unchanged)."""
+    if not title or "google" not in (source_name or "").lower():
+        return None, title
+    match = _TRAILING_PUBLISHER_RE.search(title)
+    if not match:
+        return None, title
+    cleaned_title = title[: match.start()].strip()
+    if not cleaned_title:
+        return None, title
+    return match.group(1).strip(), cleaned_title
+
+
 def _lookup_item_detail(conn, normalized_item_id):
     row = conn.execute(
         """SELECT ni.normalized_title AS title, ni.event_key AS event_key,
                   ri.source_url AS source_url, ri.snippet AS snippet, ri.source_name AS source_name,
-                  ri.published_at AS published_at
+                  ri.published_at AS published_at, ri.extra_json AS extra_json
            FROM normalized_items ni
            JOIN raw_items ri ON ri.id = ni.raw_item_id
            WHERE ni.id = ?""",
@@ -251,9 +317,12 @@ def _lookup_item_detail(conn, normalized_item_id):
     ).fetchone()
     if row is None:
         return None
+    real_publisher, cleaned_title = _extract_real_publisher(row["title"], row["source_name"])
     return {
-        "title": row["title"], "source_url": row["source_url"], "snippet": row["snippet"],
-        "source_name": row["source_name"], "event_key": row["event_key"], "published_at": row["published_at"],
+        "title": cleaned_title, "source_url": row["source_url"], "snippet": row["snippet"],
+        "source_name": real_publisher or row["source_name"], "event_key": row["event_key"],
+        "published_at": row["published_at"],
+        "image_url": _extract_trustworthy_image_url(row["extra_json"]),
     }
 
 
@@ -326,6 +395,26 @@ def _diversify_by_source(detailed_candidates, limit):
     return result
 
 
+def _prepare_for_clustering(candidate):
+    """Real, additive-only pre-processing for report.story_clustering.
+    cluster_candidates -- see _extract_real_publisher/_cluster_
+    suppression's own docstrings. A shallow copy with `normalized_title`/
+    `source_names` corrected to the real extracted publisher/cleaned
+    title ONLY when a real Google-News-aggregator match exists; every
+    other real candidate (the vast majority -- direct RSS feeds) is
+    returned completely unchanged, so this never alters clustering
+    behavior for anything this fix doesn't target."""
+    source_names = candidate.get("source_names") or []
+    source_name = source_names[0] if len(source_names) == 1 else None
+    real_publisher, cleaned_title = _extract_real_publisher(candidate.get("normalized_title"), source_name)
+    if real_publisher is None:
+        return candidate
+    prepared = dict(candidate)
+    prepared["normalized_title"] = cleaned_title
+    prepared["source_names"] = [real_publisher]
+    return prepared
+
+
 def _cluster_suppression(candidates):
     """NEWS QUALITY pass: applies report.story_clustering's real,
     high-precision near-duplicate-event detection to the DISPLAYED list
@@ -345,8 +434,17 @@ def _cluster_suppression(candidates):
     never a fabricated number. Callers must filter suppressed candidates
     OUT of the top-level list entirely -- their real coverage is preserved
     as cluster evidence (report.web_render_v2._render_cluster_evidence),
-    never as a second independent-looking top story."""
-    clusters = cluster_candidates(candidates)
+    never as a second independent-looking top story.
+
+    MULTI-PUBLISHER CLUSTERING GAP FIX: `cluster_candidates` itself is
+    untouched (never rebuilt) -- only its REAL input data quality is
+    corrected here first, via `_prepare_for_clustering` (see
+    _extract_real_publisher), so a real Google-News-aggregator feed's
+    single raw source_name no longer masquerades as "the same non-
+    independent source" for every one of the many different real outlets
+    it actually aggregates."""
+    prepared = [_prepare_for_clustering(c) for c in candidates]
+    clusters = cluster_candidates(prepared)
     suppressed_event_keys = set()
     representative_counts = {}
     for cluster in clusters:
@@ -450,6 +548,8 @@ def _raw_fallback_items(conn, category, report_date_kst, limit=_FALLBACK_DISPLAY
         detail = _lookup_item_detail(conn, candidate["id"])
         if detail is None:
             continue
+        detail["title"] = _fix_known_truncated_publisher_suffix(detail["title"])
+        detail["snippet"] = _fix_known_truncated_publisher_suffix(detail["snippet"])
         detailed.append((candidate, detail))
 
     provider = build_translation_provider() if category in _TRANSLATION_ELIGIBLE_CATEGORIES else NullTranslationProvider()
@@ -471,6 +571,8 @@ def _raw_fallback_items(conn, category, report_date_kst, limit=_FALLBACK_DISPLAY
             "source_url": detail["source_url"],
             "source_name": detail["source_name"],
             "published_at": detail["published_at"],
+            "image_url": detail["image_url"],
+            "event_key": candidate["event_key"],
             "source_count": candidate["source_count"],
             "tier": _tier_for(
                 index, candidate.get("freshness_bucket"),
@@ -501,10 +603,11 @@ NEWS_INTELLIGENCE_CATEGORY = "NEWS_INTELLIGENCE_V2"
 # Only the categories/tiers report.news_intelligence_orchestrator actually
 # synthesizes for -- see that module's own _ELIGIBLE_CATEGORIES docstring
 # for why TIKTOK/SPOTIFY are excluded (their news items are Music
-# Industry's own evidence, already cited elsewhere). Same set as
-# _TRANSLATION_ELIGIBLE_CATEGORIES above, by design -- aliased, not
-# independently maintained.
-_NEWS_INTELLIGENCE_CATEGORIES = _TRANSLATION_ELIGIBLE_CATEGORIES
+# Industry's own evidence, already cited elsewhere, and that orchestrator
+# was never built/run for them). Deliberately its OWN tuple now (MAJOR IA
+# REBUILD phase) -- no longer aliased to _TRANSLATION_ELIGIBLE_CATEGORIES,
+# which now also covers TIKTOK/SPOTIFY for Korean-headline purposes only.
+_NEWS_INTELLIGENCE_CATEGORIES = ("AI", "ECONOMY", "SOCIETY")
 
 
 def _attach_news_intelligence(conn, report_date_kst, items):
@@ -563,6 +666,8 @@ def _news_section(conn, status_by_category, selections_by_category, category, re
         detail = _lookup_item_detail(conn, selection["id"])
         if detail is None:
             continue
+        detail["title"] = _fix_known_truncated_publisher_suffix(detail["title"])
+        detail["snippet"] = _fix_known_truncated_publisher_suffix(detail["snippet"])
         reason = selection.get("reason")
         # Dropped if it repeats EITHER the headline or the reason -- a
         # snippet that just restates the title (not merely the LLM's
@@ -580,6 +685,8 @@ def _news_section(conn, status_by_category, selections_by_category, category, re
             "source_url": detail["source_url"],
             "source_name": detail["source_name"],
             "published_at": detail["published_at"],
+            "image_url": detail["image_url"],
+            "event_key": detail["event_key"],
             "source_count": source_count,
             "tier": _tier_for(
                 index, _freshness_bucket_from_published_at(detail["published_at"], report_date_kst),
@@ -597,12 +704,16 @@ def _news_section(conn, status_by_category, selections_by_category, category, re
         items = _suppress_duplicate_selections(items, item_event_keys, clusters)
         if category in _NEWS_INTELLIGENCE_CATEGORIES:
             items = _attach_news_intelligence(conn, report_date_kst, items)
+        if category in ("ECONOMY", "SOCIETY"):
+            items = rank_economy_society_items(items)
         return {"state": state, "items": items, "clusters": clusters}
 
     fallback_items = _raw_fallback_items(conn, category, report_date_kst)
     if fallback_items:
         if category in _NEWS_INTELLIGENCE_CATEGORIES:
             fallback_items = _attach_news_intelligence(conn, report_date_kst, fallback_items)
+        if category in ("ECONOMY", "SOCIETY"):
+            fallback_items = rank_economy_society_items(fallback_items)
         return {"state": STATE_UNINTERPRETED, "items": fallback_items, "clusters": clusters}
     return {"state": state, "items": items, "clusters": clusters}
 
@@ -715,7 +826,10 @@ def _spotify_chart_section(conn, report_date_kst):
     metric_name = ACTIVE_MUSIC_SOURCES[SPOTIFY_CHART_SOURCE]["metric_name"]
     diff = compute_chart_diff(conn, report_date_kst, SPOTIFY_CHART_SOURCE, metric_name)
     if diff["observed_at"] is None:
-        return {"state": STATE_UNAVAILABLE, "top10": [], "new_entries": [], "trend": None, "is_first_observation": False}
+        return {
+            "state": STATE_UNAVAILABLE, "top10": [], "new_entries": [], "trend": None,
+            "is_first_observation": False, "chart_date": None,
+        }
     is_first_observation = diff.get("is_first_observation", False)
     top10 = [_enrich_chart_entry(conn, e, SPOTIFY_CHART_SOURCE, diff["observed_at"]) for e in diff["entries"]]
     for entry in top10:
@@ -728,7 +842,282 @@ def _spotify_chart_section(conn, report_date_kst):
         "state": "NORMAL", "top10": top10, "new_entries": new_entries,
         "trend": _trend_summary(top10, is_first_observation),
         "is_first_observation": is_first_observation,
+        # REAL CHART DATE CONTRACT: the actual source snapshot instant
+        # (_latest_snapshot_on_or_before's real observed_at, already used
+        # to enrich every top10 entry above) -- NOT report_date_kst, which
+        # is only an upper bound the query is allowed to look back from.
+        # Collector lag means these two dates genuinely differ (e.g. a
+        # chart observed 2026-08-15 shown in a 2026-08-16 report); this
+        # field must never be silently backfilled from report_date_kst.
+        "chart_date": diff["observed_at"],
     }
+
+
+# A NEW entry debuting this high on a 10-slot chart is a structural fact
+# (its rank position, already real) worth calling out as a notable debut --
+# NOT an invented judgment about the song. Chosen because CHART_LIMIT is
+# 10 (music/spotify_chart.py): top-3 is the top third of the chart. Moved
+# here (MAJOR IA REBUILD phase) from report/web_render_v2.py -- selecting
+# WHICH real chart facts qualify as "viral" is a real ranking/selection
+# decision, not a layout one, and both Chart Pulse and MUSIC TODAY now
+# need the same real selection.
+VIRAL_NEW_NOTABLE_RANK = 3
+
+
+def select_viral_hot(top10):
+    """Qualification is the SAME real threshold music.early_signal already
+    uses to define an acceleration signal (MIN_RANK_DELTA) -- not an
+    ad-hoc cutoff. A track that merely moved up 1 spot is a real fact
+    already shown as a plain riser; it does not also qualify as "viral
+    hot" just because it's positive."""
+    movers = [e for e in top10 if e.get("status") == "UP" and (e.get("rank_delta") or 0) >= MIN_RANK_DELTA]
+    return sorted(movers, key=lambda e: -e["rank_delta"])
+
+
+def select_viral_new(new_entries):
+    """A debut alone is already a real, already-shown fact -- this only
+    surfaces a debut that adds a genuinely distinct fact: entering
+    unusually high (top VIRAL_NEW_NOTABLE_RANK of a 10-slot chart), a
+    real, already-known structural fact, not an invented interpretation."""
+    return [e for e in new_entries if e["rank"] <= VIRAL_NEW_NOTABLE_RANK]
+
+
+# PROFESSIONAL EDITORIAL QUALITY PASS: Music Industry must rank by real
+# USER (songwriter/producer) IMPACT, not celebrity-name popularity -- a
+# real, deterministic priority-class keyword ranking, never a fabricated
+# score. Lower number = higher priority. Checked against every real text
+# field an item carries (original + Korean-translated title/snippet, so
+# classification works regardless of translation outcome) -- an item
+# matching multiple classes takes its single best (lowest-numbered)
+# match; an item matching none of the 8 real priority classes keeps its
+# existing relative order but sinks below every classified item, and one
+# that also matches a real down-rank signal (lifestyle/promo/trivia/
+# gossip) sinks lowest of all. This never removes a real story -- it only
+# re-orders the same real, already-collected set before the existing
+# display cap applies.
+_MUSIC_INDUSTRY_PRIORITY_KEYWORDS = (
+    # MUSIC EDITORIAL RANKING UPGRADE: priority 1 is "rights / copyright /
+    # publishing / royalties / licensing" as ONE combined class (SUPER_
+    # NEWS_SPEC.md section 8) -- licensing previously sat in its own
+    # class alongside unrelated DSP-platform-policy keywords, which
+    # incorrectly ranked a pure rights/licensing story one class below
+    # copyright/publishing/royalty stories that are equally "highest
+    # editorial value."
+    (1, ("저작권", "판권", "퍼블리싱", "copyright", "publishing deal", "publishing", "royalt", "로열티", "rights holder",
+         "저작권료", "퍼블리셔", "publisher", "라이선스", "license", "licensing")),
+    (2, ("플랫폼 정책", "platform policy", "streaming policy", "정책 변경", "약관 변경",
+         "이용약관", "계약 체결", "제휴", "파트너십", "inks agreement", "signs deal", "partnership", "connected app",
+         "통합 출시", "platform integration", "연동 앱")),
+    (3, ("ai 음악", "ai music", "생성형 ai", "generative ai", "creator tool", "크리에이터 도구", "ai 도구", "ai 툴",
+         "ai-generated", "ai-powered", "ai 기반", "생성형 음악", "generative music", "스튜디오 2.0", "studio 2.0",
+         "챗 바", "chat bar", "미디 지원", "midi support")),
+    (4, ("레이블", "record label", " label ", "배급", "distribution deal", "a&r", "signing", "발굴 프로그램", "artist discovery")),
+    (5, ("매출", "revenue", "market share", "시장 점유율", "streaming economics", "스트리밍 경제", "수익", "재무")),
+    # priority 6/7 ORDER (confirmed real defect vs SUPER_NEWS_SPEC.md
+    # section 8): consumption/chart/audience-behavior shifts rank ABOVE
+    # touring/ticketing/live-business economics -- these two classes were
+    # previously swapped.
+    (6, ("차트", "chart", "consumption", "소비 행태", "streams", "스트리밍 수", "재생 수")),
+    (7, ("투어", "tour", "concert", "콘서트", "아레나", "arena", "stadium", "스타디움", "티켓", "ticket")),
+    (8, ("발매 전략", "release strategy", "신보", "정규 앨범", "album release", "single release", "싱글 발매")),
+)
+_MUSIC_INDUSTRY_DOWNRANK_KEYWORDS = (
+    "라이프스타일", "lifestyle", "영화 예고편", "movie trailer", "영화 홍보", "film promotion",
+    "가십", "gossip", "루머", "rumor", "cameo", "카메오", "레드카펫", "red carpet",
+    # PROFESSIONAL EDITORIAL QUALITY PASS (confirmed real defect): a
+    # celebrity personal-health/legal/relationship story that happens to
+    # mention an unrelated priority-class word in passing (e.g. "투어" in
+    # "reveals heart condition, one tour date remains") must never be
+    # promoted by that incidental word -- these are checked BEFORE the 8
+    # priority classes below, not after, so a real personal-life/health
+    # story is downranked regardless of what else it happens to mention.
+    "심장", "질환", "질병", "투병", "건강 이상", "health condition", "diagnosed with",
+    "hospitalized", "병원 이송", "사망", "별세", "passed away", "dies at",
+    "이혼", "divorce", "결별", "breakup", "열애", "dating rumor", "임신", "pregnant",
+    "체포", "arrested", "구속", "기소", "indicted", "법정 공방", "lawsuit against",
+    # MUSIC INDUSTRY AGGRESSIVE NOISE CUT (PREMIUM INTELLIGENCE UPGRADE
+    # PASS, confirmed real defect from actual generated-report QA): estate
+    # disputes and minor-crime stories about a musician (not a real
+    # rights/business matter) read as tabloid filler in a premium
+    # publication -- real examples seen: an estate-arbitration story, a
+    # murder-for-hire trial. Still exempt from this bucket whenever the
+    # LEGAL/RIGHTS EXCEPTION above already classified the story as real
+    # rights/copyright/publishing/royalty/licensing business.
+    "유산 분쟁", "estate dispute", "상속 분쟁", "유산 재단", "estate foundation",
+    "살인", "murder", "인신매매", "trafficking", "폭행", "assault", "성범죄", "sexual assault",
+    # MASTER PRODUCT COMPLETION PASS (confirmed real defect, real generated
+    # music.html QA): a pure event-recap/fan-highlight-reel story (real
+    # example seen: a "best moments from [festival]" wrap-up) carries no
+    # rights/business/platform/production signal a composer could act on --
+    # never confused with a real tour/booking ECONOMICS story (e.g. a real
+    # revenue/pricing/route report), which stays eligible for its own real
+    # priority class above.
+    "최고의 순간", "베스트 모먼트", "best moments from", "하이라이트 모음", "명장면 모음",
+)
+_MUSIC_INDUSTRY_UNRANKED_PRIORITY = 9
+_MUSIC_INDUSTRY_DOWNRANKED_PRIORITY = 10
+
+
+def music_industry_priority_rank(item):
+    """Returns an int priority (lower = shown first). Real text only --
+    every original/translated title/snippet field the item actually
+    carries, never a fabricated summary. Check order: priority-1 rights/
+    copyright/publishing/royalty/licensing keywords FIRST (the LEGAL/
+    RIGHTS EXCEPTION below), then the down-rank signals, then priority
+    classes 2-8. A real celebrity personal-life/health story must never
+    be promoted just because it incidentally mentions an unrelated
+    priority-class word -- that's still true for classes 2-8, checked
+    after the down-rank gate; only class 1 is exempt from that gate, and
+    only because SUPER_NEWS_SPEC.md section 8 explicitly requires real
+    rights/business litigation to never be down-ranked for merely
+    containing legal language."""
+    texts = [item.get(k) for k in ("title", "ko_title", "snippet", "ko_snippet")]
+    combined = " ".join(t for t in texts if t).lower()
+    if not combined:
+        return _MUSIC_INDUSTRY_UNRANKED_PRIORITY
+    # LEGAL/RIGHTS EXCEPTION (MUSIC EDITORIAL RANKING UPGRADE, confirmed
+    # real defect vs SUPER_NEWS_SPEC.md section 8's explicit "do NOT
+    # down-rank legal stories merely because they contain court/lawsuit/
+    # legal language" rule): a real rights/copyright/publishing/royalty/
+    # licensing story checked here FIRST, before the generic downrank
+    # keywords -- a real copyright/licensing lawsuit ("법정 공방", "lawsuit
+    # against") is business litigation, the highest-value editorial class,
+    # not a personal-life/gossip story that merely mentions legal words.
+    rights_priority, rights_keywords = _MUSIC_INDUSTRY_PRIORITY_KEYWORDS[0]
+    if any(keyword in combined for keyword in rights_keywords):
+        return rights_priority
+    if any(keyword in combined for keyword in _MUSIC_INDUSTRY_DOWNRANK_KEYWORDS):
+        return _MUSIC_INDUSTRY_DOWNRANKED_PRIORITY
+    for priority, keywords in _MUSIC_INDUSTRY_PRIORITY_KEYWORDS[1:]:
+        if any(keyword in combined for keyword in keywords):
+            return priority
+    return _MUSIC_INDUSTRY_UNRANKED_PRIORITY
+
+
+def rank_music_industry_items(items):
+    """Stable sort by real priority class only -- items within the same
+    class (including two unranked/down-ranked items) keep their existing
+    real relative order (freshness/tier/source-diversity, already decided
+    upstream), never re-scored a second time."""
+    return sorted(items, key=music_industry_priority_rank)
+
+
+def _find_producer_insight_for_title(producer_intelligence, title):
+    """LEAD/SPOTIFY WATCH INTELLIGENCE GAP (PREMIUM INTELLIGENCE UPGRADE
+    PASS, confirmed real defect: a no-LLM-fallback INDUSTRY_NEWS item --
+    the common real case, since this dev DB's `reports` marker table is
+    empty -- has no real `reason`, so a lead/watch item rendered as
+    headline+summary+link only). Finds a REAL, already-computed Producer
+    Intelligence insight citing this SAME real article as evidence (same
+    real title-match mechanic report.web_data_v2._collect_music_signal_
+    candidates's own `_evidence_refs_for_title` already established) --
+    never a new LLM call, never invented text."""
+    if not title:
+        return None
+    for insight in (producer_intelligence or {}).get("insights") or []:
+        for ev in insight.get("evidence", []):
+            summary = ev.get("summary", "")
+            if summary == title or summary.startswith(title + " — "):
+                return insight
+    return None
+
+
+def resolve_producer_enrichment(item, producer_intelligence):
+    """Shared by the Lead's own INDUSTRY_NEWS candidate and SPOTIFY WATCH
+    (see report.web_render_v2._render_spotify_watch_section): returns
+    (why_it_matters, producer_implication, extra_evidence_refs) -- real
+    `item.get("reason")` (an actual LLM selection reason) wins when
+    present; otherwise a matching real Producer Intelligence insight's own
+    `why_it_matters` is reused. PRODUCER/A&R INFERENCE-DISTANCE CONTROL: a
+    LOW-confidence real insight never becomes a prescriptive TRY/ACTION --
+    only its own real `what_to_watch`, same rule the Producer/A&R section
+    itself applies. `extra_evidence_refs` lets the caller fold the
+    matching insight's own real evidence into its own MUSIC EVENT
+    EXPOSURE BUDGET identity, so that insight is correctly suppressed from
+    ALSO independently re-appearing as its own separate Producer/A&R
+    card."""
+    why_it_matters = item.get("reason")
+    matching_insight = _find_producer_insight_for_title(producer_intelligence, item.get("title"))
+    if not matching_insight:
+        return why_it_matters, None, set()
+    if not why_it_matters:
+        why_it_matters = matching_insight.get("why_it_matters")
+    if matching_insight.get("confidence") == "LOW":
+        producer_implication = matching_insight.get("what_to_watch")
+    else:
+        producer_implication = matching_insight.get("what_could_i_make_now") or matching_insight.get("what_to_watch")
+    extra_refs = {ev["ref"] for ev in matching_insight.get("evidence", [])}
+    return why_it_matters, producer_implication, extra_refs
+
+
+# SPOTIFY WATCH (PREMIUM INTELLIGENCE UPGRADE PASS): Spotify is a
+# permanent required watch layer, not a fixed quota or a keyword count --
+# a real, deterministic filter over the SAME already-collected SPOTIFY/
+# TIKTOK news pool Music Industry already uses, narrowed to items
+# genuinely ABOUT Spotify (a real title/snippet mention) rather than
+# every item merely pooled under the "SPOTIFY" display category (which
+# also legitimately includes general trade-press MUSIC_INDUSTRY_NEWS with
+# no real Spotify connection at all -- see report.candidate_selection's
+# own CATEGORY_SOURCES docstring).
+def _is_spotify_specific(item):
+    texts = [item.get(k) for k in ("title", "ko_title", "snippet", "ko_snippet")]
+    combined = " ".join(t for t in texts if t).lower()
+    return "spotify" in combined
+
+
+def spotify_watch_candidates(data):
+    """Real Spotify-specific items, ranked by the SAME real
+    music_industry_priority_rank editorial scale (licensing/royalties/
+    publishing/policy/AI-rights rank highest; ordinary promotion ranks
+    low/unranked) -- the renderer (report.web_render_v2.
+    _render_spotify_watch_section) picks the first one not already shown
+    as today's Lead Story, and only when its real priority is one of the
+    8 real classified classes (never a promotional/unranked item), so a
+    day with nothing genuinely important honestly shows the restrained
+    empty state instead of filler."""
+    spotify_items = [
+        item for item in data["news"]["SPOTIFY"]["items"] + data["news"]["TIKTOK"]["items"]
+        if _is_spotify_specific(item)
+    ]
+    return rank_music_industry_items(spotify_items)
+
+
+# PROFESSIONAL EDITORIAL QUALITY PASS: ECONOMY/SOCIETY already have a hard
+# ≤5-primary, no-archive cap (see report.web_render_v2's own
+# _ECON_SOCIETY_PRIMARY_CAP) -- but which 5 of the category's real
+# selected items land in those slots was still purely V1's own selection
+# order (real, but not re-checked for real-world importance at this V2
+# read layer). A minor local/promotional/recruitment/routine-
+# administrative story landing at position 1-5 crowds out a genuinely
+# important one at position 6+ that then never gets shown at all (no
+# archive to fall back into). This is a deliberately ONE-DIRECTIONAL
+# down-rank, not a positive priority-class system like Music Industry's
+# own (ECONOMY/SOCIETY have no equivalent notion of "8 priority
+# classes") -- a real down-ranked item still keeps its own real relative
+# order among other down-ranked items, and every non-flagged item keeps
+# its existing real V1 order untouched (stable sort).
+_ECONOMY_SOCIETY_DOWNRANK_KEYWORDS = (
+    "채용공고", "채용 공고", "구인공고", "구인 공고", "인턴 모집", "모집 공고",
+    "공개채용", "신입 채용", "경력 채용", "정기 채용", "채용 시작", "인턴 채용", "채용 돌입",
+    "job fair", "hiring event", "recruitment notice", "now hiring",
+    "공모전", "이벤트 안내", "행사 안내", "축제 안내", "체험단 모집",
+    "협찬", "광고", "sponsored content", "advertisement", "advertorial",
+    "부고", "동정", "인사말", "축사", "지역 행사 소식", "administrative notice",
+)
+
+
+def _is_minor_administrative_story(item):
+    texts = [item.get(k) for k in ("title", "ko_title", "snippet", "ko_snippet")]
+    combined = " ".join(t for t in texts if t).lower()
+    return any(keyword in combined for keyword in _ECONOMY_SOCIETY_DOWNRANK_KEYWORDS)
+
+
+def rank_economy_society_items(items):
+    """Stable sort: every genuinely minor/promotional/administrative real
+    item moves after every other real item, but never reordered relative
+    to each other or dropped -- "show fewer/less-prominent," never
+    fabricate or delete."""
+    return sorted(items, key=lambda item: 1 if _is_minor_administrative_story(item) else 0)
 
 
 def _tiktok_chart_section():
@@ -799,6 +1188,25 @@ def _intelligence_section(conn, report_date_kst):
     }
 
 
+def _resolved_evidence_entry(ref, evidence_by_ref):
+    """Builds ONE real {"ref", "summary", "event_key"} evidence entry --
+    shared by both _producer_intelligence_section and
+    _music_trend_intelligence_section so a signal's evidence always has
+    the SAME real shape regardless of which synthesis produced it.
+    `evidence_by_ref` values are {"summary", "event_key"} dicts (see
+    _safe_parse_producer_intelligence/_safe_parse_music_trend_
+    intelligence); a ref missing from the map (a malformed/legacy row)
+    falls back to showing the bare ref as its own summary with no
+    resolvable event_key -- never a crash, never a fabricated identity."""
+    found = evidence_by_ref.get(ref)
+    if found is None:
+        return {"ref": ref, "summary": ref, "event_key": None}
+    return {
+        "ref": ref, "summary": _fix_known_truncated_publisher_suffix(found["summary"]),
+        "event_key": found.get("event_key"),
+    }
+
+
 def _safe_parse_producer_intelligence(output_text):
     """Defensive shape check at read time -- report.producer_orchestrator
     is responsible for validating (report.validation.
@@ -815,7 +1223,15 @@ def _safe_parse_producer_intelligence(output_text):
     crash) if `catalog` is missing/malformed -- an older or defensive-path
     row still renders its insights, just without resolvable evidence
     text; a ref that isn't in the map falls back to showing the bare ref
-    at render time, never a fabricated explanation."""
+    at render time, never a fabricated explanation.
+
+    Each value is {"summary": str, "event_key": str|None} -- MUSIC EVENT-
+    LEVEL IDENTITY: `event_key` is the real event_key report.producer_
+    synthesis.build_evidence_catalog already propagated directly from the
+    originating real news item at catalog-build time (see that module's
+    own docstring) -- None for a legacy/older persisted row's catalog
+    entry (no `event_key` key at all) or for a real non-article evidence
+    type (chart/cross-platform facts), never fabricated."""
     try:
         parsed = json.loads(output_text)
     except (ValueError, TypeError):
@@ -842,9 +1258,91 @@ def _safe_parse_producer_intelligence(output_text):
     if isinstance(catalog, list):
         for entry in catalog:
             if isinstance(entry, dict) and "ref" in entry and "summary" in entry:
-                evidence_by_ref[entry["ref"]] = entry["summary"]
+                evidence_by_ref[entry["ref"]] = {"summary": entry["summary"], "event_key": entry.get("event_key")}
 
     return valid, evidence_by_ref
+
+
+# EDITORIAL QUALITY (music-primary product standard): report.producer_
+# synthesis / report.music_trend_synthesis both prompt the LLM in English
+# against an English evidence catalog (real article titles/snippets, most
+# from English-language music trade press), so their real what_is_moving/
+# why_it_matters/what_to_watch/what_could_i_make_now/observed/
+# interpretation text comes back in English -- correct and expected
+# upstream, but "primary explanatory language: natural Korean" is a real
+# product requirement these fields were never held to. Translated HERE at
+# read time via the SAME trusted, already-cached report.translation
+# infrastructure every news headline already uses (translate_and_cache is
+# a no-op UNAVAILABLE/NOT_REQUIRED result, never a crash, when no provider
+# is configured or the text is already Korean) -- never re-prompts the
+# LLM, never touches the persisted English original, never invents a
+# translation. Real evidence-chip quotes are deliberately left untranslated
+# (they're citations of the real source text, not primary explanatory
+# prose -- translating a direct quote would blur fact vs. paraphrase).
+def _translate_synthesis_field(conn, provider, text):
+    if not text:
+        return text
+    result = translate_and_cache(conn, provider, text)
+    if result["status"] in ("TRANSLATED", "NOT_REQUIRED") and result["translated_text"]:
+        return result["translated_text"]
+    return text
+
+
+# PROFESSIONAL EDITORIAL QUALITY PASS: a confirmed real V1/ingestion-layer
+# data-quality defect (raw_items.title/snippet themselves -- upstream of
+# any V2 code, and never modified here per this project's "V1 수정 금지"
+# constraint) leaves a real publisher name mid-word-truncated on some
+# Google-News-sourced items (e.g. "Music Wee" for the real trade
+# publication "Music Week"). This is a narrow, explicit, deterministic
+# correction table for CONFIRMED real truncations only -- never a general
+# heuristic (which risks silently mangling a legitimately short real
+# publisher name like "Vox" or "BBC") -- matched only against the exact
+# known-bad trailing suffix, applied at V2 read time everywhere this text
+# is displayed.
+_KNOWN_TRUNCATED_PUBLISHER_SUFFIXES = {
+    " - Music Wee": " - Music Week",
+    " Music Wee": " Music Week",
+}
+
+# PROFESSIONAL NEWSLETTER x INTELLIGENCE HYBRID REDESIGN: a confirmed real
+# ingestion-layer artifact -- some source feeds (e.g. Music Business
+# Worldwide) append a literal bare "Source" link-label as the very last
+# word of raw_items.snippet itself (never modified here per "V1 수정
+# 금지" -- upstream of any V2 code). Left in place, it renders as a
+# jarring untranslated English word tacked onto an otherwise-Korean
+# sentence (a real "mixed Korean/English fragment" defect). Narrow and
+# deterministic: only strips a literal trailing " Source" token, never a
+# legitimate sentence that happens to end in some other word.
+_TRAILING_FEED_ARTIFACT_SUFFIX = " Source"
+
+
+def _fix_known_truncated_publisher_suffix(text):
+    if not text:
+        return text
+    for bad, good in _KNOWN_TRUNCATED_PUBLISHER_SUFFIXES.items():
+        if text.endswith(bad):
+            text = text[: -len(bad)] + good
+            break
+    stripped = text.rstrip()
+    if stripped.endswith(_TRAILING_FEED_ARTIFACT_SUFFIX):
+        text = stripped[: -len(_TRAILING_FEED_ARTIFACT_SUFFIX)].rstrip()
+    return text
+
+
+# FINAL EDITORIAL TEXT-QUALITY GATE (PROFESSIONAL EDITORIAL QUALITY PASS):
+# report.validation already rejects malformed synthesis text (refusal
+# markers, non-Korean, internal-ref-label leaks -- see report.text_
+# quality.is_malformed_synthesis_text) BEFORE persisting, but that gate
+# was never re-applied at READ time, so a row persisted before a gate was
+# strengthened (or one whose defect class wasn't caught yet) could still
+# reach the page. This closes that gap: every real user-facing text field
+# is re-checked HERE, immediately before rendering, on every read,
+# regardless of when the row was persisted. Deliberately REJECTS the
+# whole item rather than surgically rewriting it -- a real day with too
+# little clean evidence simply shows fewer items, never a silently
+# mangled sentence. Never touches the persisted row itself.
+def _passes_editorial_gate(*texts):
+    return not any(is_malformed_synthesis_text(t) for t in texts if t)
 
 
 def _producer_intelligence_section(conn, report_date_kst):
@@ -860,13 +1358,28 @@ def _producer_intelligence_section(conn, report_date_kst):
     insights, evidence_by_ref = _safe_parse_producer_intelligence(row["output_text"])
     if not insights:
         return {"state": "UNAVAILABLE", "insights": []}
+    provider = build_translation_provider()
     resolved = []
     for insight in insights:
         enriched = dict(insight)
-        enriched["evidence"] = [
-            {"ref": ref, "summary": evidence_by_ref.get(ref, ref)} for ref in insight["evidence_refs"]
-        ]
+        for field in ("what_is_moving", "why_it_matters", "what_to_watch", "what_could_i_make_now"):
+            enriched[field] = _translate_synthesis_field(conn, provider, insight.get(field))
+        if not _passes_editorial_gate(*(enriched[f] for f in
+                                         ("what_is_moving", "why_it_matters", "what_to_watch", "what_could_i_make_now"))):
+            continue
+        enriched["evidence"] = [_resolved_evidence_entry(ref, evidence_by_ref) for ref in insight["evidence_refs"]]
+        # PRODUCER/A&R FINAL QUALITY PASS: an insight whose own real
+        # what_is_moving text is (near-)verbatim redundant with one of its
+        # own cited real evidence summaries adds no real synthesis --
+        # report.producer_synthesis's own prompt already instructs against
+        # this, but a real deterministic gate here catches it regardless
+        # of prompt compliance, exactly like _is_redundant already gates
+        # a news snippet that merely restates its own headline.
+        if any(_is_redundant(enriched["what_is_moving"], ev["summary"]) for ev in enriched["evidence"]):
+            continue
         resolved.append(enriched)
+    if not resolved:
+        return {"state": "UNAVAILABLE", "insights": []}
     return {"state": "NORMAL", "insights": resolved}
 
 
@@ -883,7 +1396,10 @@ def _safe_parse_music_trend_intelligence(output_text):
     empty state instead of crashing the whole dashboard. Returns
     (lists_by_field, evidence_by_ref) -- lists_by_field always has all 4
     keys (each an empty list if missing/malformed), never a KeyError for
-    a caller that reads any of the 4 categories independently."""
+    a caller that reads any of the 4 categories independently.
+    evidence_by_ref values are {"summary", "event_key"} dicts -- see
+    _resolved_evidence_entry / report.music_trend_synthesis.
+    build_evidence_catalog's own MUSIC EVENT-LEVEL IDENTITY docstring."""
     try:
         parsed = json.loads(output_text)
     except (ValueError, TypeError):
@@ -905,9 +1421,119 @@ def _safe_parse_music_trend_intelligence(output_text):
     if isinstance(catalog, list):
         for entry in catalog:
             if isinstance(entry, dict) and "ref" in entry and "summary" in entry:
-                evidence_by_ref[entry["ref"]] = entry["summary"]
+                evidence_by_ref[entry["ref"]] = {"summary": entry["summary"], "event_key": entry.get("event_key")}
 
     return lists_by_field, evidence_by_ref
+
+
+# PROFESSIONAL EDITORIAL QUALITY PASS: Genre Radar must actually identify
+# genre/style movement (a real genre or subgenre name), never an artist-
+# discovery programme, a single tour/stadium booking, or an AI-tool launch
+# mislabeled as a "genre trend" -- and Production Radar must actually
+# describe production/composition characteristics (tempo, groove, sound
+# palette, arrangement, ...), never licensing/business news. Deliberately
+# a real, deterministic, narrow keyword check -- not a semantic judgment
+# call this module is meant to avoid making; a genuine genre/production
+# signal upstream (report/music_trend_synthesis.py's own prompt already
+# instructs the LLM to name a real genre/production characteristic
+# explicitly) will always surface at least one of these real terms, so a
+# real day whose evidence can't support that specific kind of conclusion
+# simply shows fewer items -- never relabeled, never forced to fit.
+_GENRE_KEYWORDS = (
+    "k-pop", "케이팝", "j-pop", "제이팝", "r&b", "알앤비", "hip-hop", "hip hop", "힙합", "랩",
+    "dance-pop", "댄스팝", "electropop", "일렉트로팝", "synth-pop", "신스팝", "edm",
+    "house", "하우스", "techno", "테크노", "garage", "개러지", "2-step", "투스텝",
+    "jersey club", "저지 클럽", "afrobeats", "아프로비트", "drum and bass", "드럼앤베이스", "d&b",
+    "trap", "트랩", "disco", "디스코", "lo-fi", "로파이", "country", "컨트리",
+    "indie", "인디", "alt-r&b", "얼터너티브 r&b", "reggaeton", "레게톤", "dancehall", "댄스홀",
+    "amapiano", "아마피아노", "hyperpop", "하이퍼팝", "city pop", "시티팝", "bedroom pop",
+    "trot", "트로트", "drill", "드릴", "afro-pop", "afropop", "bossa nova", "보사노바",
+    "jazz", "재즈", "soul", "소울", "gospel", "가스펠", "latin pop", "라틴팝",
+    "regional mexican", "corrido", "발라드", "ballad", "punk", "펑크(음악)", "metal", "메탈",
+    "subgenre", "하위 장르", "장르 트렌드", "genre trend",
+    "bedroom-pop", "hip house", "힙 하우스",
+)
+# NEWSLETTER x MUSIC INTELLIGENCE PRODUCT UPGRADE (confirmed real defect,
+# reversing a prior pass's call): "tiktok pop" was previously treated as
+# a valid genre/format label -- but the real evidence behind it (a
+# platform-run artist-discovery program, a viral-TikTok-sample credit, an
+# artist profiled as a "TikTok icon") is platform marketing and virality,
+# NOT an actual observed genre/subgenre/hybrid/rhythm/sonic-movement
+# signal. Deliberately excluded from _GENRE_KEYWORDS now -- an item whose
+# only "genre" evidence is TikTok-platform framing correctly fails this
+# gate and is never shown as a genre signal.
+_PRODUCTION_KEYWORDS = (
+    "bpm", "템포", "tempo", "groove", "그루브", "drum pattern", "드럼 패턴", "드럼",
+    "bass line", "베이스라인", "harmonic", "화성", "chord progression", "코드 진행",
+    "sound palette", "사운드 팔레트", "vocal production", "보컬 프로덕션", "보컬 처리",
+    "arrangement", "편곡", "intro length", "인트로", "hook", "훅", "song structure",
+    "곡 구조", "dynamics", "다이내믹", "mix character", "믹싱", "믹스",
+    "sample", "샘플링", "샘플 사용", "synth", "신스 사운드", "instrumentation", "악기 편성",
+    "rhythm", "리듬", "mastering", "마스터링", "reverb", "리버브", "melody line", "멜로디 라인",
+)
+
+
+def _text_contains_keyword(text, keywords):
+    lowered = (text or "").lower()
+    return any(keyword in lowered for keyword in keywords)
+
+
+# STRICT GENRE/PRODUCTION RADAR (FAST COMPLETION product pass, confirmed
+# real gap): the positive keyword gate above requires a real genre/
+# production TERM somewhere in the text, but a real term can still appear
+# purely as platform-marketing/virality framing or an ordinary product-
+# feature/release announcement (e.g. "새 템포 조절 기능을 출시" mentions
+# "템포" as a UI control label, not an observed sonic characteristic; a
+# "틱톡에서 화제" story can literally name a genre while being pure
+# virality, not a real stylistic-movement signal). Checked FIRST, same
+# real "down-rank/reject before the positive class check" precedent
+# report.web_data_v2._MUSIC_INDUSTRY_DOWNRANK_KEYWORDS already
+# establishes for Music Industry ranking -- never removes a genuinely
+# distinct real signal, only rejects the specific marketing/popularity/
+# announcement framing this section must never surface as if it were
+# real musical-movement intelligence.
+_MUSIC_TREND_REJECT_KEYWORDS = (
+    "틱톡에서", "on tiktok", "바이럴 챌린지", "viral challenge", "화제가 되고 있다",
+    "trending on", "조회수를 기록", "조회수가", "인기가 급상승",
+    "기능을 출시", "신기능을 공개", "launches a new feature", "unveiled a new tool",
+    "새 도구를 공개", "앱을 출시", "기능을 추가했다", "업데이트를 출시",
+    "컴백을 예고", "발매를 예고", "선공개했다", "티저를 공개", "발매 소식을 전했다",
+    "팔로워 수", "구독자 수",
+    # PRODUCTION RADAR DOMAIN PURITY (EDITORIAL INTEGRITY PASS, confirmed
+    # real defect): a creator-tool/product VERSION launch (e.g. "Suno
+    # Studio 2.0을 출시했다") is a business/creator-workflow event, never
+    # an observed musical/sonic/arrangement characteristic of an actual
+    # song -- even when its own real interpretation text speculates about
+    # downstream workflow consequences using real production vocabulary
+    # ("편곡", "믹싱"), that speculation is not itself an observed
+    # production trait. Real tool-news value still surfaces via Music
+    # Industry's own real AI-music priority class -- never lost, only
+    # kept out of Genre/Production Radar specifically.
+    "studio 2.0", "스튜디오 2.0", "출시했다고 보도", "챗 바를 추가", "챗 바를 넣",
+)
+
+
+def _is_marketing_or_popularity_framing(observed, interpretation):
+    combined = f"{observed or ''} {interpretation or ''}"
+    return _text_contains_keyword(combined, _MUSIC_TREND_REJECT_KEYWORDS)
+
+
+def _is_genre_signal(observed, interpretation):
+    if _is_marketing_or_popularity_framing(observed, interpretation):
+        return False
+    return _text_contains_keyword(observed, _GENRE_KEYWORDS) or _text_contains_keyword(interpretation, _GENRE_KEYWORDS)
+
+
+def _is_production_signal(observed, interpretation):
+    if _is_marketing_or_popularity_framing(observed, interpretation):
+        return False
+    return _text_contains_keyword(observed, _PRODUCTION_KEYWORDS) or _text_contains_keyword(interpretation, _PRODUCTION_KEYWORDS)
+
+
+_MUSIC_TREND_SEMANTIC_CHECKS = {
+    "genre_signals": _is_genre_signal,
+    "production_notes": _is_production_signal,
+}
 
 
 def _music_trend_intelligence_section(conn, report_date_kst):
@@ -930,21 +1556,356 @@ def _music_trend_intelligence_section(conn, report_date_kst):
         return {"state": "UNAVAILABLE", **empty}
 
     lists_by_field, evidence_by_ref = _safe_parse_music_trend_intelligence(row["output_text"])
+    provider = build_translation_provider()
 
-    def _resolve(items):
+    def _resolve(items, semantic_check=None):
         resolved = []
         for item in items:
             enriched = dict(item)
-            enriched["evidence"] = [
-                {"ref": ref, "summary": evidence_by_ref.get(ref, ref)} for ref in item["evidence_refs"]
-            ]
+            enriched["observed"] = _translate_synthesis_field(conn, provider, item.get("observed"))
+            enriched["interpretation"] = _translate_synthesis_field(conn, provider, item.get("interpretation"))
+            if not _passes_editorial_gate(enriched["observed"], enriched["interpretation"]):
+                continue
+            # PROFESSIONAL EDITORIAL QUALITY PASS: Genre Radar must
+            # actually be about genre movement, Production Radar must
+            # actually be about production/composition characteristics --
+            # see _is_genre_signal/_is_production_signal. A real day whose
+            # evidence can't support a genuine conclusion in that specific
+            # sense simply shows fewer items here; it is never relabeled
+            # or forced to fit.
+            if semantic_check is not None and not semantic_check(enriched["observed"], enriched["interpretation"]):
+                continue
+            enriched["evidence"] = [_resolved_evidence_entry(ref, evidence_by_ref) for ref in item["evidence_refs"]]
             resolved.append(enriched)
         return resolved
 
-    resolved_by_field = {field: _resolve(lists_by_field[field]) for field in _MUSIC_TREND_LIST_FIELDS}
+    resolved_by_field = {
+        field: _resolve(lists_by_field[field], semantic_check=_MUSIC_TREND_SEMANTIC_CHECKS.get(field))
+        for field in _MUSIC_TREND_LIST_FIELDS
+    }
     if not any(resolved_by_field.values()):
         return {"state": "UNAVAILABLE", **empty}
     return {"state": "NORMAL", **resolved_by_field}
+
+
+# MAJOR IA REBUILD (music-primary product phase): MUSIC is the product's
+# primary intelligence domain -- these two constants bound the two new
+# cross-cutting curation surfaces (MUSIC TODAY, TODAY'S MUSIC INTELLIGENCE)
+# built below. Display caps only, never a quality threshold -- a thin real
+# day legitimately returns fewer items than these maximums; nothing is
+# ever padded to reach them.
+_MUSIC_TODAY_MAX_ITEMS = 6
+# CATEGORY-CONTIGUOUS IA REFINEMENT: the hero is now MUSIC-only (AI/
+# ECONOMY/SOCIETY are never mixed into it -- a reader must never be
+# pulled out of MUSIC and back in at the very top of the page either).
+_TODAY_MUSIC_INTELLIGENCE_MAX_SIGNALS = 5
+
+
+def _music_track_label(entry):
+    return f'{entry["canonical_artist"]} - {entry["canonical_title"]}'
+
+
+def _collect_music_signal_candidates(data):
+    """Real, already-computed music facts/analyses, in real editorial
+    priority order (real editorial news first, then real mechanical chart
+    facts, then real already-validated AI analysis/insight text) -- feeds
+    BOTH MUSIC TODAY and TODAY'S INTELLIGENCE's music slots from the SAME
+    single real selection, never two independently-maintained notions of
+    "what's the top music signal today." Never fabricates: a candidate
+    exists only when its own real underlying data exists; an empty/
+    unavailable capability contributes zero candidates, never a
+    placeholder.
+
+    Each candidate: {"type": str, "mode": "FACT"|"ANALYSIS", "headline_
+    item": dict|None (a real news item -- the renderer's own Korean-first
+    display-title logic applies to it; INDUSTRY_NEWS only), "fact_text":
+    str|None (a real, mechanical, non-judgmental description built only
+    from already-computed numbers/labels -- set whenever headline_item is
+    None), "why_it_matters": str|None (real, already-validated text, never
+    invented here), "producer_implication": str|None (real, already-
+    validated text, only when the SAME real evidence directly supports
+    it), "source_url": str|None}."""
+    candidates = []
+
+    # NEWSLETTER x MUSIC INTELLIGENCE PRODUCT UPGRADE (confirmed real
+    # cross-section event-exposure defect): report.music_trend_synthesis.
+    # build_evidence_catalog cites a real news item's own real `title`
+    # text verbatim as an evidence-catalog summary -- so a real news item
+    # and a genre/production/kpop_ar_notes evidence entry describing the
+    # SAME real article share the exact same real title text. That exact
+    # (never fuzzy) match is what lets an INDUSTRY_NEWS candidate here
+    # register its own real evidence-ref fingerprint too, so the
+    # overlap-dedup below can catch the case a raw earlier version of
+    # this pass missed: the same real event surfacing once as the raw
+    # INDUSTRY_NEWS pick AND AGAIN as a Genre/Production/K-pop synthesis
+    # card in this same Hero/Music Today pool.
+    trend_for_refs = data.get("music_trend_intelligence") or {}
+
+    def _evidence_refs_for_title(title):
+        if not title:
+            return set()
+        refs = set()
+        for field in ("genre_signals", "production_notes", "producer_references", "kpop_ar_notes"):
+            for entry in trend_for_refs.get(field) or []:
+                for ev in entry.get("evidence", []):
+                    summary = ev.get("summary", "")
+                    if summary == title or summary.startswith(title + " — "):
+                        refs.add(ev["ref"])
+        return refs
+
+    for category in ("SPOTIFY", "TIKTOK"):
+        # PROFESSIONAL EDITORIAL QUALITY PASS: the hero/Music Today's own
+        # "top" industry-news pick must be the highest real USER-IMPACT
+        # story, not whichever one happened to sort first upstream (which
+        # could be pure celebrity lifestyle/health news) -- same real
+        # ranking Music Industry's own section already applies.
+        items = rank_music_industry_items(data["news"][category]["items"])
+        if items:
+            top = items[0]
+            evidence_refs = _evidence_refs_for_title(top.get("title"))
+            why_it_matters, producer_implication, extra_refs = resolve_producer_enrichment(
+                top, data.get("producer_intelligence")
+            )
+            # Absorbing a real matching insight's own content into the
+            # Lead means MUSIC EVENT EXPOSURE BUDGET must also see them as
+            # the SAME real evidence, so the insight is correctly
+            # suppressed from independently re-appearing as its own
+            # separate Producer/A&R card (never the same real
+            # interpretation shown twice).
+            evidence_refs = evidence_refs | extra_refs
+            candidates.append({
+                "type": "INDUSTRY_NEWS", "mode": "ANALYSIS" if why_it_matters else "FACT",
+                "headline_item": top, "fact_text": None,
+                "why_it_matters": why_it_matters, "producer_implication": producer_implication,
+                "source_url": top.get("source_url"),
+                "_evidence_refs": evidence_refs,
+            })
+
+    spotify_chart = data["spotify_chart"]
+    if spotify_chart["state"] == "NORMAL":
+        hot = select_viral_hot(spotify_chart["top10"])
+        if hot:
+            top = hot[0]
+            candidates.append({
+                "type": "VIRAL_HOT", "mode": "FACT", "headline_item": None,
+                "fact_text": (
+                    f'{_music_track_label(top)} — 오늘 가장 큰 검증된 상승폭 ▲{top["rank_delta"]} '
+                    f'(최고 {top["peak_rank"]}위 · {top["days_on_chart"]}일째 차트인)'
+                ),
+                "why_it_matters": None, "producer_implication": None, "source_url": None,
+            })
+        notable_new = select_viral_new(spotify_chart["new_entries"])
+        if notable_new:
+            top = notable_new[0]
+            candidates.append({
+                "type": "VIRAL_NEW", "mode": "FACT", "headline_item": None,
+                "fact_text": f'{_music_track_label(top)} — TOP10 {top["rank"]}위로 이례적 데뷔',
+                "why_it_matters": None, "producer_implication": None, "source_url": None,
+            })
+
+    intelligence = data["intelligence"]
+    cross_platform = intelligence.get("cross_platform") or []
+    if cross_platform:
+        top = cross_platform[0]
+        candidates.append({
+            "type": "CROSS_PLATFORM", "mode": "FACT", "headline_item": None,
+            "fact_text": f'{_music_track_label(top)} — {len(top["sources"])}개 플랫폼에서 동시 상승 확인',
+            "why_it_matters": None, "producer_implication": None, "source_url": None,
+        })
+    for source_name in sorted(intelligence.get("catalog_revival", {}).keys()):
+        revival = intelligence["catalog_revival"][source_name]
+        if revival:
+            top = revival[0]
+            candidates.append({
+                "type": "CATALOG_REVIVAL", "mode": "FACT", "headline_item": None,
+                "fact_text": f'{_music_track_label(top)} — {top["gap_days"]}일 공백 후 재부상 (최초 관측 {top["age_days"]}일 전)',
+                "why_it_matters": None, "producer_implication": None, "source_url": None,
+            })
+            break
+
+    # PROFESSIONAL EDITORIAL QUALITY PASS (semantic deduplication): the
+    # SAME real underlying event can legitimately get its own distinct
+    # analytical lens in Genre Radar vs Production Radar vs Producer
+    # Intelligence further down the page (see this module's own "distinct
+    # lens" contract) -- but it must not ALSO monopolize the Hero/Music
+    # Today highlights reel two or three times over. Real evidence_refs
+    # (the same "E1"/"E11" labels the underlying evidence catalog assigns)
+    # are the real, deterministic event fingerprint: a candidate whose
+    # refs overlap an already-added candidate's refs is skipped here --
+    # never dropped from its own real section further down, only kept out
+    # of this shared cross-cutting pool a second time.
+    used_evidence_refs = set()
+    for candidate in candidates:
+        if candidate.get("_evidence_refs"):
+            used_evidence_refs |= candidate["_evidence_refs"]
+
+    trend = data["music_trend_intelligence"]
+    if trend["state"] == "NORMAL":
+        for field, ctype in (
+            ("genre_signals", "GENRE_SIGNAL"), ("production_notes", "PRODUCTION_SIGNAL"),
+            ("kpop_ar_notes", "KPOP_AR"),
+        ):
+            for top in trend.get(field) or []:
+                refs = {ev["ref"] for ev in top.get("evidence", [])}
+                if refs and refs & used_evidence_refs:
+                    continue
+                candidates.append({
+                    "type": ctype, "mode": "ANALYSIS", "headline_item": None,
+                    "fact_text": top["observed"], "why_it_matters": top["interpretation"],
+                    "producer_implication": None, "source_url": None, "_evidence_refs": refs,
+                    # MUSIC EVENT EXPOSURE BUDGET: the entry's own real
+                    # evidence citations (ref + real summary TEXT, not
+                    # just the ref label) -- needed only when THIS
+                    # candidate becomes the Lead, to resolve its real
+                    # event_key via report.web_render_v2._resolve_entry_
+                    # event_key (title-matches the summary against a real
+                    # news item, the SAME real article an INDUSTRY_NEWS
+                    # candidate would already carry event_key on
+                    # directly).
+                    "_evidence": top.get("evidence", []),
+                })
+                used_evidence_refs |= refs
+                break  # still at most one candidate per field, just the first NON-duplicate one
+
+    producer = data["producer_intelligence"]
+    if producer["state"] == "NORMAL" and producer["insights"]:
+        for top in producer["insights"]:
+            refs = {ev["ref"] for ev in top.get("evidence", [])}
+            if refs and refs & used_evidence_refs:
+                continue
+            candidates.append({
+                "type": "PRODUCER_INSIGHT", "mode": "ANALYSIS", "headline_item": None,
+                "fact_text": top["what_is_moving"], "why_it_matters": top["why_it_matters"],
+                "producer_implication": top.get("what_could_i_make_now"), "source_url": None, "_evidence_refs": refs,
+                "_evidence": top.get("evidence", []),
+            })
+            used_evidence_refs |= refs
+            break
+
+    # NOTE: `_evidence_refs` (present on INDUSTRY_NEWS/GENRE_SIGNAL/
+    # PRODUCTION_SIGNAL/KPOP_AR/PRODUCER_INSIGHT candidates) and
+    # `_evidence` (the same real evidence citations in FULL -- ref +
+    # real summary TEXT, present on the GENRE_SIGNAL/PRODUCTION_SIGNAL/
+    # KPOP_AR/PRODUCER_INSIGHT candidates that don't already carry a real
+    # event_key via a real headline_item) are intentionally NOT stripped
+    # here -- MUSIC EVENT EXPOSURE BUDGET (see report.web_render_v2's own
+    # _resolve_entry_event_key/render_dashboard_html_v2) reuses them, when
+    # the candidate becomes the Lead, to resolve its real TRUE event-level
+    # identity (event_key when resolvable, else the real evidence-ref set)
+    # and suppress an ordinary duplicate of that SAME real event from
+    # independently resurfacing in Today in Music/Music Industry/Genre
+    # Radar/Production Radar/Producer sections. Neither is ever rendered
+    # directly (internal keys, ignored by every renderer that only reads
+    # known display fields).
+    return candidates
+
+
+def _candidate_key(candidate):
+    """Stable identity for a music-signal candidate, used only to avoid
+    showing the EXACT same real item back-to-back in TODAY'S INTELLIGENCE
+    and then again as MUSIC TODAY's own first card (a real usability
+    issue: a reader scrolling past the teaser strip straight into the
+    next section saw the identical headline twice in one screen, with no
+    new information in between). For a real news item, its own real `id`
+    (or title, if a fallback item has none) is unique; every other
+    candidate type contributes at most ONE real candidate per
+    _collect_music_signal_candidates call, so (type, fact_text) is
+    already unique for those."""
+    item = candidate.get("headline_item")
+    if item is not None:
+        return ("INDUSTRY_NEWS", item.get("id") or item.get("title"))
+    return (candidate["type"], candidate.get("fact_text"))
+
+
+def _build_music_today(data, exclude_keys=None):
+    """MUSIC TODAY: up to _MUSIC_TODAY_MAX_ITEMS highest-value real
+    observations NOT already shown in TODAY'S MUSIC INTELLIGENCE's own
+    Lead + secondary cards, in the same real editorial-priority order
+    _collect_music_signal_candidates already establishes -- never padded,
+    never invented; a thin real day simply returns fewer items, honestly
+    down to zero (never a fallback to re-showing an already-displayed
+    card just to fill the section -- confirmed real defect from actual
+    generated-report QA: on a thin real day this previously re-rendered
+    the SAME 3 cards the hero just showed, immediately below it, reading
+    as literal duplicate content -- "max 3/6 means maximum, not
+    mandatory", never padding, per SUPER_NEWS_SPEC.md's own product
+    principle)."""
+    candidates = _collect_music_signal_candidates(data)
+    if not exclude_keys:
+        return candidates[:_MUSIC_TODAY_MAX_ITEMS]
+    fresh = [c for c in candidates if _candidate_key(c) not in exclude_keys]
+    return fresh[:_MUSIC_TODAY_MAX_ITEMS]
+
+
+def _build_today_music_intelligence(data):
+    """TODAY'S MUSIC INTELLIGENCE hero: up to
+    _TODAY_MUSIC_INTELLIGENCE_MAX_SIGNALS real MUSIC signals, MUSIC ONLY --
+    CATEGORY-CONTIGUOUS IA REFINEMENT: AI/ECONOMY/SOCIETY are never mixed
+    into the hero (a reader must never be forced to switch category and
+    then return -- the whole page is grouped into contiguous per-category
+    blocks, and the hero is itself part of the MUSIC block, not a cross-
+    category summary anymore). Never padded: a data-sparse real day
+    simply returns fewer than 5, never forced to a minimum.
+
+    The single top candidate gets elevated treatment and may additionally
+    carry its own real deeper analysis (why_it_matters/producer_
+    implication) -- but ONLY when that is genuinely distinct information
+    from its own one-line `meaning` (an ANALYSIS-mode candidate's real
+    `observed` fact becomes the meaning line; its own real, separate
+    `interpretation`/implication becomes the expanded why/watch box --
+    never the same real text shown twice). Every other candidate type
+    (FACT-mode chart movements, INDUSTRY_NEWS with no separate analysis
+    field) simply has no expanded box, which is correct, not a gap.
+
+    Returns (signals, used_keys) -- used_keys lets _build_music_today
+    deprioritize (never drop) whichever real candidates already appeared
+    here, so a reader scrolling straight from this hero into MUSIC TODAY
+    sees new real information first instead of the identical top headline
+    twice in a row."""
+    candidates = _collect_music_signal_candidates(data)
+    chosen = candidates[:_TODAY_MUSIC_INTELLIGENCE_MAX_SIGNALS]
+
+    signals = []
+    used_keys = set()
+    for index, candidate in enumerate(chosen):
+        is_top = index == 0
+        # NEWSLETTER x MUSIC INTELLIGENCE PRODUCT UPGRADE (confirmed real
+        # defect): the headline itself is ALWAYS candidate["fact_text"]
+        # whenever there's no real headline_item (see report.web_render_v2.
+        # _signal_headline_html) -- `meaning` must never repeat that same
+        # fact_text as a second line right under it. The real, separate
+        # interpretation (`why_it_matters` -- a genuine reason/analysis
+        # text, distinct from the observed fact) is the only honest
+        # candidate for a one-line "meaning" subtitle; when no real
+        # interpretation exists (FACT-mode chart candidates), there is
+        # nothing real left to show, so meaning is simply absent rather
+        # than falling back to repeating the headline.
+        meaning = candidate["why_it_matters"] if not is_top else None
+        why_it_matters = None
+        watch_next = None
+        if is_top:
+            # The lead story's own real interpretation appears exactly
+            # ONCE, as its own labeled WHY IT MATTERS row (never also
+            # duplicated into `meaning` above).
+            why_it_matters = candidate["why_it_matters"]
+            watch_next = candidate.get("producer_implication")
+        signals.append({
+            "type": candidate["type"], "is_strongest": is_top,
+            "headline_item": candidate["headline_item"], "fact_text": candidate["fact_text"],
+            "meaning": meaning, "why_it_matters": why_it_matters, "watch_next": watch_next,
+            # MUSIC EVENT EXPOSURE BUDGET: carried through so the renderer
+            # can resolve this signal's real TRUE event-level identity
+            # (event_key when resolvable via `_evidence`'s real citation
+            # text, else the real `_evidence_refs` set) and suppress an
+            # ordinary duplicate of that SAME real event from independently
+            # resurfacing elsewhere when this signal becomes the Lead --
+            # neither is ever rendered directly.
+            "_evidence_refs": candidate.get("_evidence_refs"),
+            "_evidence": candidate.get("_evidence"),
+        })
+        used_keys.add(_candidate_key(candidate))
+
+    return signals, used_keys
 
 
 def build_dashboard_data_v2(conn, report_date_kst):
@@ -980,7 +1941,7 @@ def build_dashboard_data_v2(conn, report_date_kst):
         for category in NEWS_CATEGORIES
     }
 
-    return {
+    data = {
         "report_date_kst": report_date_kst,
         "news": news,
         "tiktok_chart": _tiktok_chart_section(),
@@ -989,3 +1950,10 @@ def build_dashboard_data_v2(conn, report_date_kst):
         "producer_intelligence": _producer_intelligence_section(conn, report_date_kst),
         "music_trend_intelligence": _music_trend_intelligence_section(conn, report_date_kst),
     }
+    # MAJOR IA REBUILD (music-primary product phase): both curated purely
+    # by re-selecting from the dict already assembled above -- neither
+    # reads the DB again or calls an LLM.
+    data["today_music_intelligence"], used_music_keys = _build_today_music_intelligence(data)
+    data["music_today"] = _build_music_today(data, exclude_keys=used_music_keys)
+    data["spotify_watch_candidates"] = spotify_watch_candidates(data)
+    return data

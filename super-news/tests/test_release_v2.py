@@ -312,15 +312,15 @@ def _insert_run(conn, run_id, run_date="2026-08-15"):
 
 def _insert_producer_intelligence(conn, run_row_id):
     output = {"insights": [{
-        "what_is_moving": "Signal observed", "why_it_matters": "grounded reasoning",
-        "what_to_watch": "next observation", "what_could_i_make_now": "a concrete idea",
+        "what_is_moving": "관측된 신호", "why_it_matters": "근거가 되는 합리적인 해석",
+        "what_to_watch": "다음 관찰 포인트", "what_could_i_make_now": "구체적인 아이디어",
         "evidence_refs": ["E1"], "confidence": "MEDIUM",
     }]}
     conn.execute(
         """INSERT INTO llm_interpretations
            (run_id, category, model_used, prompt_version, input_hash, output_text, confidence, created_at)
            VALUES (?, 'MUSIC_PRODUCER_INTELLIGENCE', 'm', 'v1', 'h', ?, 'MEDIUM', 'x')""",
-        (run_row_id, json.dumps(output)),
+        (run_row_id, json.dumps(output, ensure_ascii=False)),
     )
     conn.commit()
 

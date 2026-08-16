@@ -110,6 +110,12 @@ def test_build_translation_provider_defaults_to_null(monkeypatch):
 
 
 def test_build_translation_provider_unsupported_value_raises(monkeypatch):
+    # Defensive delenv: a sibling script module (e.g. scripts/generate_
+    # daily_web_report_v2.py) may have already forced this into the REAL
+    # os.environ at its own import time earlier in this pytest session --
+    # that mutation isn't monkeypatch-scoped, so this test must clear it
+    # itself to test normal (non-cost-gated) provider-selection behavior.
+    monkeypatch.delenv("SUPER_NEWS_NO_PAID_API", raising=False)
     monkeypatch.setenv("TRANSLATION_PROVIDER", "deepl")
     with pytest.raises(ValueError):
         build_translation_provider()
@@ -119,12 +125,114 @@ def test_build_translation_provider_anthropic_constructs_without_key(monkeypatch
     """Missing ANTHROPIC_API_KEY must not crash construction -- it degrades
     to is_configured()==False, never a construction-time crash that would
     take down page generation."""
+    monkeypatch.delenv("SUPER_NEWS_NO_PAID_API", raising=False)
     monkeypatch.setenv("TRANSLATION_PROVIDER", "anthropic")
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     from report.translation_anthropic import AnthropicTranslationProvider
     provider = build_translation_provider()
     assert isinstance(provider, AnthropicTranslationProvider)
     assert provider.is_configured() is False
+
+
+# ---- SUPER_NEWS_NO_PAID_API cost-gate override -------------------------
+
+
+def test_no_paid_api_override_forces_null_even_with_anthropic_configured(monkeypatch):
+    """The cost-gate override must win even when TRANSLATION_PROVIDER=
+    anthropic AND a real ANTHROPIC_API_KEY is set -- this is the guard a
+    dry run relies on to guarantee zero outbound API calls regardless of
+    the environment's normal production translation config."""
+    monkeypatch.setenv("SUPER_NEWS_NO_PAID_API", "1")
+    monkeypatch.setenv("TRANSLATION_PROVIDER", "anthropic")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-fake-not-real")
+    from report.translation import NullTranslationProvider
+    provider = build_translation_provider()
+    assert isinstance(provider, NullTranslationProvider)
+    assert provider.is_configured() is False
+
+
+def test_no_paid_api_null_provider_carries_anthropic_cache_lookup_hint(monkeypatch):
+    """PERMANENT ZERO-PAYG SAFETY: the NullTranslationProvider returned
+    under NO_PAID_API=1 + TRANSLATION_PROVIDER=anthropic carries a
+    (provider_name, model) hint matching exactly what a real
+    AnthropicTranslationProvider would use as its own cache-key identity
+    -- so an existing, already-paid-for cache entry can still be read,
+    without ever importing/constructing that class."""
+    monkeypatch.setenv("SUPER_NEWS_NO_PAID_API", "1")
+    monkeypatch.setenv("TRANSLATION_PROVIDER", "anthropic")
+    monkeypatch.setenv("ANTHROPIC_TRANSLATION_MODEL", "claude-haiku-4-5-20251001")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-fake-not-real")
+    provider = build_translation_provider()
+    assert provider.cache_lookup_hint == ("AnthropicTranslationProvider", "claude-haiku-4-5-20251001")
+
+
+def test_no_paid_api_null_provider_no_hint_when_translation_provider_not_anthropic(monkeypatch):
+    monkeypatch.setenv("SUPER_NEWS_NO_PAID_API", "1")
+    monkeypatch.setenv("TRANSLATION_PROVIDER", "none")
+    provider = build_translation_provider()
+    assert provider.cache_lookup_hint is None
+
+
+def test_no_paid_api_cache_hit_reused_without_constructing_anthropic_provider(conn, monkeypatch):
+    """The exact real-world scenario this pass fixes: an existing
+    TRANSLATED cache row (as if produced by a real, prior, paid
+    AnthropicTranslationProvider call) is served under NO_PAID_API=1
+    with ZERO provider construction and ZERO network call."""
+    monkeypatch.setenv("SUPER_NEWS_NO_PAID_API", "1")
+    monkeypatch.setenv("TRANSLATION_PROVIDER", "anthropic")
+    monkeypatch.setenv("ANTHROPIC_TRANSLATION_MODEL", "claude-haiku-4-5-20251001")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-fake-not-real")
+
+    # Seed the cache exactly as a real, prior AnthropicTranslationProvider
+    # call would have (same provider_name/model cache-key identity) --
+    # a direct DB insert, never a live network call.
+    import report.translation as translation_module
+    key = translation_module._cache_key(
+        "headline text", "ko", "AnthropicTranslationProvider", "claude-haiku-4-5-20251001",
+        translation_module.TRANSLATION_PROMPT_VERSION,
+    )
+    now_iso = datetime(2026, 8, 16, tzinfo=timezone.utc).isoformat()
+    conn.execute(
+        """INSERT INTO translation_cache
+           (cache_key, target_lang, original_text, translated_text, status, provider, created_at, updated_at)
+           VALUES (?, 'ko', ?, ?, 'TRANSLATED', 'AnthropicTranslationProvider', ?, ?)""",
+        (key, "headline text", "번역된 헤드라인", now_iso, now_iso),
+    )
+    conn.commit()
+
+    provider = build_translation_provider()
+    from report.translation import NullTranslationProvider
+    assert isinstance(provider, NullTranslationProvider)
+
+    result = translate_and_cache(conn, provider, "headline text")
+    assert result["status"] == STATUS_TRANSLATED
+    assert result["translated_text"] == "번역된 헤드라인"
+
+
+def test_no_paid_api_cache_miss_degrades_safely_zero_network(conn, monkeypatch):
+    monkeypatch.setenv("SUPER_NEWS_NO_PAID_API", "1")
+    monkeypatch.setenv("TRANSLATION_PROVIDER", "anthropic")
+    monkeypatch.setenv("ANTHROPIC_TRANSLATION_MODEL", "claude-haiku-4-5-20251001")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-fake-not-real")
+
+    provider = build_translation_provider()
+    result = translate_and_cache(conn, provider, "never before seen headline text")
+    assert result["status"] == STATUS_UNAVAILABLE
+    # Never persisted per-text (matches the existing UNAVAILABLE contract).
+    assert get_cached_translation(
+        conn, "never before seen headline text", "ko", "AnthropicTranslationProvider", "claude-haiku-4-5-20251001",
+    ) is None
+
+
+def test_no_paid_api_override_unset_or_falsy_does_not_affect_normal_behavior(monkeypatch):
+    monkeypatch.delenv("SUPER_NEWS_NO_PAID_API", raising=False)
+    monkeypatch.setenv("TRANSLATION_PROVIDER", "anthropic")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    from report.translation_anthropic import AnthropicTranslationProvider
+    assert isinstance(build_translation_provider(), AnthropicTranslationProvider)
+
+    monkeypatch.setenv("SUPER_NEWS_NO_PAID_API", "0")
+    assert isinstance(build_translation_provider(), AnthropicTranslationProvider)
 
 
 def test_anthropic_provider_missing_key_raises_unavailable_not_crash(monkeypatch):

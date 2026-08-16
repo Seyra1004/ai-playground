@@ -108,8 +108,12 @@ def validate_producer_insights(parsed_output, valid_refs, evidence_by_ref=None):
     insights = parsed_output["insights"]
     if not isinstance(insights, list):
         raise ProducerValidationError(f"'insights' must be a list, got {type(insights).__name__}")
-    if len(insights) > MAX_PRODUCER_INSIGHTS:
-        raise ProducerValidationError(f"{len(insights)} insights exceeds max {MAX_PRODUCER_INSIGHTS}")
+    # The prompt asks for at most MAX_PRODUCER_INSIGHTS, ordered strongest
+    # first -- a real model occasionally overshoots the count despite that
+    # instruction. Truncating here (rather than rejecting the whole day's
+    # output) still enforces the hard cap deterministically, and every kept
+    # insight is still individually validated below exactly like any other.
+    insights = insights[:MAX_PRODUCER_INSIGHTS]
     for insight in insights:
         if not isinstance(insight, dict):
             raise ProducerValidationError(f"malformed insight: {insight!r}")
@@ -175,10 +179,12 @@ def validate_music_trend_signals(parsed_output, valid_refs, evidence_by_ref=None
         items = parsed_output[field]
         if not isinstance(items, list):
             raise MusicTrendValidationError(f"{field!r} must be a list, got {type(items).__name__}")
-        if len(items) > MAX_MUSIC_TREND_ITEMS_PER_LIST:
-            raise MusicTrendValidationError(
-                f"{field!r}: {len(items)} items exceeds max {MAX_MUSIC_TREND_ITEMS_PER_LIST}"
-            )
+        # Same truncate-rather-than-reject discipline as
+        # validate_producer_insights above -- the prompt asks for at most
+        # MAX_MUSIC_TREND_ITEMS_PER_LIST per field, ordered strongest first;
+        # a real model occasionally overshoots despite that instruction.
+        items = items[:MAX_MUSIC_TREND_ITEMS_PER_LIST]
+        parsed_output[field] = items
         for item in items:
             if not isinstance(item, dict):
                 raise MusicTrendValidationError(f"{field!r}: malformed item: {item!r}")

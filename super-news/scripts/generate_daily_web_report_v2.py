@@ -6,12 +6,23 @@ resolution, Producer Intelligence).
 
 Reuses report.web_data_v2.build_dashboard_data_v2() (read-only, structured
 -- reads Producer Intelligence and cross-platform results that Stage 3b/
-the music pipeline already persisted; computes nothing new here, never
-calls an LLM) and report.web_render_v2.render_dashboard_html_v2()
+the music pipeline already persisted; computes no NEW news/music selection
+or synthesis here) and report.web_render_v2.render_dashboard_html_v2()
 (presentation-only, no LLM call, no second content path, no DB access).
 This script only orchestrates those two calls plus file I/O -- it never
 reimplements news selection, music calculations, entity resolution,
 cross-platform logic, or Producer Intelligence.
+
+COST NOTE (corrects a prior stale claim here): build_dashboard_data_v2()
+DOES call report.translation.translate_and_cache() for non-Korean titles/
+snippets, which -- only when TRANSLATION_PROVIDER=anthropic and a real
+ANTHROPIC_API_KEY are both configured in the environment -- makes a real
+paid Anthropic API call for any text not already cached. This is a
+legitimate cached, additive translation feature (see report/translation.py
+module docstring), not a bug, but it means this script is NOT
+unconditionally free to run. Set SUPER_NEWS_NO_PAID_API=1 in the process
+environment to force NullTranslationProvider and guarantee zero outbound
+API calls for a given run, regardless of TRANSLATION_PROVIDER.
 
 Writes docs/v2/index.html (latest) and docs/v2/reports/<date>.html
 (archive) -- a namespace SEPARATE from V1's docs/index.html / docs/
@@ -50,6 +61,17 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+# PERMANENT ZERO-PAYG SAFETY: forced BEFORE any other import, same pattern
+# as scripts/run_daily_full_pipeline_v2.py's own cost guard. A real PAYG
+# violation happened once because this script was run manually without the
+# operator remembering to set this -- safety must never depend on that.
+# report.translation.build_translation_provider() never imports/constructs
+# report.translation_anthropic.AnthropicTranslationProvider while this is
+# set, regardless of TRANSLATION_PROVIDER/ANTHROPIC_API_KEY; an existing,
+# already-paid-for translation_cache entry can still be reused (zero cost),
+# see build_translation_provider()'s own docstring.
+os.environ["SUPER_NEWS_NO_PAID_API"] = "1"
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import logging_setup
@@ -57,7 +79,7 @@ from config import DB_PATH
 from db.database import connect
 from report.source_metadata import SourceMetadataValidationError, validate_active_source_metadata
 from report.web_data_v2 import build_dashboard_data_v2
-from report.web_render_v2 import render_dashboard_html_v2
+from report.web_render_v2 import render_daily_page_html_v2, render_dashboard_html_v2, render_music_page_html_v2
 
 logger = logging.getLogger(__name__)
 
@@ -147,6 +169,17 @@ def main(argv=None):
         archive_path = docs_dir / "reports" / f"{report_date_kst}.html"
         _atomic_write_text(index_path, html_content)
         _atomic_write_text(archive_path, html_content)
+
+        # REFERENCE DESIGN PRODUCT SPLIT: SUPER NEWS MUSIC and SUPER NEWS
+        # DAILY are two genuinely separate product pages (see report.
+        # web_render_v2's module docstring) -- written ADDITIONALLY here,
+        # alongside the existing combined index.html/archive above, which
+        # stay unchanged so report.release_v2's existing docs/v2/index.html
+        # release-gate contract is untouched.
+        music_path = docs_dir / "music.html"
+        daily_path = docs_dir / "daily.html"
+        _atomic_write_text(music_path, render_music_page_html_v2(dashboard_data))
+        _atomic_write_text(daily_path, render_daily_page_html_v2(dashboard_data))
     except Exception:
         logger.error("V2.1 web dashboard generation failed unexpectedly.", exc_info=True)
         print("V2.1 web dashboard generation failed due to an unexpected error. See the log for details.")
@@ -155,6 +188,8 @@ def main(argv=None):
     print(f"report_date={report_date_kst}")
     print(f"wrote {index_path}")
     print(f"wrote {archive_path}")
+    print(f"wrote {music_path}")
+    print(f"wrote {daily_path}")
     return EXIT_OK
 
 

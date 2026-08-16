@@ -9,7 +9,11 @@ from db.database import connect, init_db
 from report.web_data_v2 import (
     MUSIC_TREND_INTELLIGENCE_CATEGORY,
     PRODUCER_INTELLIGENCE_CATEGORY,
+    _collect_music_signal_candidates,
     build_dashboard_data_v2,
+    music_industry_priority_rank,
+    rank_economy_society_items,
+    rank_music_industry_items,
 )
 
 
@@ -90,6 +94,31 @@ def test_spotify_chart_reflects_real_data(conn):
     assert data["spotify_chart"]["top10"][0]["status"] == "FIRST_OBSERVED"
     assert data["spotify_chart"]["top10"][0]["is_new"] is False
     assert data["spotify_chart"]["top10"][0]["is_first_observation"] is True
+    assert data["spotify_chart"]["chart_date"] == "2026-08-13T00:00:00+00:00"
+
+
+# ---- CHART PULSE REAL-DATE CONTRACT: chart_date is the real Spotify
+# source observation date -- NEVER the same field/value as
+# report_date_kst just because they're usually close in practice. ----
+
+
+def test_spotify_chart_date_can_differ_from_report_date_on_collector_lag(conn):
+    """A real-world case this pipeline must handle honestly: the chart
+    source's most recent snapshot was observed a day before the SUPER
+    NEWS report_date_kst (collector lag) -- _latest_snapshot_on_or_before
+    still finds and uses that real earlier snapshot, and chart_date must
+    reflect its REAL observed_at, not silently become report_date_kst."""
+    _insert_spotify_observation(conn, 1, "2026-08-15T00:00:00+00:00", spotify_id="1")
+    data = build_dashboard_data_v2(conn, "2026-08-16")
+    assert data["report_date_kst"] == "2026-08-16"
+    assert data["spotify_chart"]["chart_date"] == "2026-08-15T00:00:00+00:00"
+    assert data["spotify_chart"]["chart_date"] != data["report_date_kst"]
+
+
+def test_spotify_chart_date_is_none_when_chart_unavailable(conn):
+    data = build_dashboard_data_v2(conn, "2026-08-13")
+    assert data["spotify_chart"]["state"] == "UNAVAILABLE"
+    assert data["spotify_chart"]["chart_date"] is None
 
 
 def test_intelligence_forecast_outlook_is_insufficient_history_when_thin(conn):
@@ -152,12 +181,13 @@ def _insert_run(conn, run_id="run-1", run_date="2026-08-13"):
 
 
 def _insert_normalized_item(conn, key, category, title, snippet=None, source_name="s1",
-                             collected_at="2026-08-13T01:00:00+00:00", event_key=None, published_at=None):
+                             collected_at="2026-08-13T01:00:00+00:00", event_key=None, published_at=None,
+                             extra_json=None):
     conn.execute(
         """INSERT INTO raw_items
-           (source_name, source_item_key, source_type, source_url, title, snippet, published_at, collected_at)
-           VALUES (?, ?, 'rss', ?, ?, ?, ?, ?)""",
-        (source_name, key, f"https://example.com/{key}", title, snippet, published_at, collected_at),
+           (source_name, source_item_key, source_type, source_url, title, snippet, published_at, collected_at, extra_json)
+           VALUES (?, ?, 'rss', ?, ?, ?, ?, ?, ?)""",
+        (source_name, key, f"https://example.com/{key}", title, snippet, published_at, collected_at, extra_json),
     )
     raw_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
     conn.execute(
@@ -255,6 +285,48 @@ def test_snippet_kept_when_distinct_from_reason(conn):
     assert data["news"]["AI"]["items"][0]["snippet"] == "A much longer original summary from the RSS feed"
 
 
+# ---- MUSIC EDITORIAL IMAGERY: image_url is read back from the SAME
+# raw_items.extra_json ingestion/adapters/rss.py already populates from
+# real feed image metadata -- never a new column/duplicate semantics. ----
+
+
+def test_item_image_url_reads_real_trustworthy_url_from_extra_json(conn):
+    run_row_id = _insert_run(conn)
+    item_id = _insert_normalized_item(
+        conn, "a1", "AI", "Story with a real image",
+        extra_json=json.dumps({"image_url": "https://cdn.example.com/real-article-image.jpg"}),
+    )
+    _insert_reports_marker(conn, run_row_id)
+    _insert_category_status(conn, run_row_id, "AI", "REPORT_GENERATED", 1, 1)
+    for cat in ("ECONOMY", "SOCIETY", "TIKTOK", "SPOTIFY"):
+        _insert_category_status(conn, run_row_id, cat, "NOT_READY", 0, 0)
+    _insert_interpretation(conn, run_row_id, {
+        "AI": [{"id": item_id, "reason": "r1"}],
+        "ECONOMY": [], "SOCIETY": [], "TIKTOK": [], "SPOTIFY": [],
+    })
+    data = build_dashboard_data_v2(conn, "2026-08-13")
+    assert data["news"]["AI"]["items"][0]["image_url"] == "https://cdn.example.com/real-article-image.jpg"
+
+
+def test_item_image_url_is_none_when_extra_json_has_no_image():
+    from report.web_data_v2 import _extract_trustworthy_image_url
+    assert _extract_trustworthy_image_url(None) is None
+    assert _extract_trustworthy_image_url("") is None
+    assert _extract_trustworthy_image_url(json.dumps({})) is None
+    assert _extract_trustworthy_image_url(json.dumps({"image_url": None})) is None
+    assert _extract_trustworthy_image_url("not valid json") is None
+
+
+def test_item_image_url_rejects_non_http_values():
+    from report.web_data_v2 import _extract_trustworthy_image_url
+    assert _extract_trustworthy_image_url(json.dumps({"image_url": "javascript:alert(1)"})) is None
+    assert _extract_trustworthy_image_url(json.dumps({"image_url": "/relative/path.jpg"})) is None
+    assert _extract_trustworthy_image_url(json.dumps({"image_url": "data:image/png;base64,xxx"})) is None
+    assert _extract_trustworthy_image_url(json.dumps({"image_url": 12345})) is None
+    assert _extract_trustworthy_image_url(json.dumps({"image_url": "https://cdn.example.com/real.jpg"})) == \
+        "https://cdn.example.com/real.jpg"
+
+
 def test_source_count_reflects_distinct_outlets_same_day(conn):
     run_row_id = _insert_run(conn)
     # Two raw_items from two different outlets, same event_key, same day.
@@ -309,20 +381,45 @@ def test_producer_intelligence_normal_when_valid_row_exists(conn):
     )
     run_row_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
     output = {"insights": [{
-        "what_is_moving": "Test hook-first intro", "why_it_matters": "signals agree",
-        "what_to_watch": "next observation", "what_could_i_make_now": "a demo hook",
+        "what_is_moving": "훅 중심 인트로가 확산되는 중", "why_it_matters": "여러 신호가 일치함",
+        "what_to_watch": "다음 관찰 포인트", "what_could_i_make_now": "데모 훅 제작",
         "evidence_refs": ["E1"], "confidence": "MEDIUM",
     }]}
     conn.execute(
         """INSERT INTO llm_interpretations
            (run_id, category, model_used, prompt_version, input_hash, output_text, confidence, created_at)
            VALUES (?, ?, 'm', 'v1', 'h', ?, 'MEDIUM', 'x')""",
-        (run_row_id, PRODUCER_INTELLIGENCE_CATEGORY, json.dumps(output)),
+        (run_row_id, PRODUCER_INTELLIGENCE_CATEGORY, json.dumps(output, ensure_ascii=False)),
     )
     conn.commit()
     data = build_dashboard_data_v2(conn, "2026-08-13")
     assert data["producer_intelligence"]["state"] == "NORMAL"
-    assert data["producer_intelligence"]["insights"][0]["what_is_moving"] == "Test hook-first intro"
+    assert data["producer_intelligence"]["insights"][0]["what_is_moving"] == "훅 중심 인트로가 확산되는 중"
+
+
+# ---- PRODUCER/A&R FINAL QUALITY PASS: reject an insight that merely
+# restates its own cited evidence, no real synthesis added ----
+
+
+def test_producer_intelligence_rejects_insight_that_merely_restates_its_own_evidence(conn):
+    run_row_id = _insert_run(conn, run_id="pi-restate")
+    output = {
+        "insights": [{
+            "what_is_moving": "Spotify signs new licensing agreement",  # verbatim = its own cited evidence summary
+            "why_it_matters": "여러 신호가 일치함", "what_to_watch": "다음 관찰 포인트",
+            "what_could_i_make_now": "데모 훅 제작", "evidence_refs": ["E1"], "confidence": "MEDIUM",
+        }],
+        "catalog": [{"ref": "E1", "type": "MUSIC_INDUSTRY_NEWS", "summary": "Spotify signs new licensing agreement"}],
+    }
+    conn.execute(
+        """INSERT INTO llm_interpretations
+           (run_id, category, model_used, prompt_version, input_hash, output_text, confidence, created_at)
+           VALUES (?, ?, 'm', 'v1', 'h', ?, 'MEDIUM', 'x')""",
+        (run_row_id, PRODUCER_INTELLIGENCE_CATEGORY, json.dumps(output, ensure_ascii=False)),
+    )
+    conn.commit()
+    data = build_dashboard_data_v2(conn, "2026-08-13")
+    assert data["producer_intelligence"] == {"state": "UNAVAILABLE", "insights": []}
 
 
 def test_producer_intelligence_resolves_evidence_refs_to_readable_summaries(conn):
@@ -332,8 +429,8 @@ def test_producer_intelligence_resolves_evidence_refs_to_readable_summaries(conn
     run_row_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
     stored = {
         "insights": [{
-            "what_is_moving": "Test hook-first intro", "why_it_matters": "signals agree",
-            "what_to_watch": "next observation", "what_could_i_make_now": "a demo hook",
+            "what_is_moving": "훅 중심 인트로가 확산되는 중", "why_it_matters": "여러 신호가 일치함",
+            "what_to_watch": "다음 관찰 포인트", "what_could_i_make_now": "데모 훅 제작",
             "evidence_refs": ["E1"], "confidence": "MEDIUM",
         }],
         "catalog": [{"ref": "E1", "type": "EARLY_SIGNAL", "summary": "[spotify_chart] Artist - Title (+8 rank)"}],
@@ -347,7 +444,9 @@ def test_producer_intelligence_resolves_evidence_refs_to_readable_summaries(conn
     conn.commit()
     data = build_dashboard_data_v2(conn, "2026-08-13")
     evidence = data["producer_intelligence"]["insights"][0]["evidence"]
-    assert evidence == [{"ref": "E1", "summary": "[spotify_chart] Artist - Title (+8 rank)"}]
+    # event_key is None here: an EARLY_SIGNAL catalog entry is a real
+    # chart fact, not a real article -- honestly no event_key to resolve.
+    assert evidence == [{"ref": "E1", "summary": "[spotify_chart] Artist - Title (+8 rank)", "event_key": None}]
 
 
 def test_producer_intelligence_evidence_falls_back_to_bare_ref_when_catalog_missing(conn):
@@ -356,19 +455,19 @@ def test_producer_intelligence_evidence_falls_back_to_bare_ref_when_catalog_miss
     )
     run_row_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
     stored = {"insights": [{
-        "what_is_moving": "x", "why_it_matters": "y", "what_to_watch": "z", "what_could_i_make_now": "w",
+        "what_is_moving": "가나", "why_it_matters": "다라", "what_to_watch": "마바", "what_could_i_make_now": "사아",
         "evidence_refs": ["E1"], "confidence": "LOW",
     }]}
     conn.execute(
         """INSERT INTO llm_interpretations
            (run_id, category, model_used, prompt_version, input_hash, output_text, confidence, created_at)
            VALUES (?, ?, 'm', 'v1', 'h', ?, 'MEDIUM', 'x')""",
-        (run_row_id, PRODUCER_INTELLIGENCE_CATEGORY, json.dumps(stored)),
+        (run_row_id, PRODUCER_INTELLIGENCE_CATEGORY, json.dumps(stored, ensure_ascii=False)),
     )
     conn.commit()
     data = build_dashboard_data_v2(conn, "2026-08-13")
     evidence = data["producer_intelligence"]["insights"][0]["evidence"]
-    assert evidence == [{"ref": "E1", "summary": "E1"}]
+    assert evidence == [{"ref": "E1", "summary": "E1", "event_key": None}]
 
 
 def test_producer_intelligence_degrades_safely_on_malformed_row(conn):
@@ -430,19 +529,19 @@ def test_music_trend_intelligence_normal_when_valid_row_has_a_signal(conn):
     )
     run_row_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
     output = _music_trend_output(genre_signals=[{
-        "observed": "Article names the genre explicitly", "interpretation": "real listener interest",
+        "observed": "기사에서 하우스 장르를 명시적으로 언급함", "interpretation": "실제 청취자 관심 반영",
         "evidence_refs": ["E1"], "confidence": "MEDIUM",
     }])
     conn.execute(
         """INSERT INTO llm_interpretations
            (run_id, category, model_used, prompt_version, input_hash, output_text, confidence, created_at)
            VALUES (?, ?, 'm', 'v1', 'h', ?, 'MEDIUM', 'x')""",
-        (run_row_id, MUSIC_TREND_INTELLIGENCE_CATEGORY, json.dumps(output)),
+        (run_row_id, MUSIC_TREND_INTELLIGENCE_CATEGORY, json.dumps(output, ensure_ascii=False)),
     )
     conn.commit()
     data = build_dashboard_data_v2(conn, "2026-08-13")
     assert data["music_trend_intelligence"]["state"] == "NORMAL"
-    assert data["music_trend_intelligence"]["genre_signals"][0]["observed"] == "Article names the genre explicitly"
+    assert data["music_trend_intelligence"]["genre_signals"][0]["observed"] == "기사에서 하우스 장르를 명시적으로 언급함"
     assert data["music_trend_intelligence"]["production_notes"] == []
 
 
@@ -455,14 +554,14 @@ def test_music_trend_intelligence_each_category_independently_honest(conn):
     )
     run_row_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
     output = _music_trend_output(producer_references=[{
-        "observed": "Article states X produced the track", "interpretation": "a real, named credit",
+        "observed": "기사에서 X가 해당 트랙을 프로듀싱했다고 명시함", "interpretation": "실제로 이름이 명시된 크레딧",
         "evidence_refs": ["E2"], "confidence": "HIGH",
     }])
     conn.execute(
         """INSERT INTO llm_interpretations
            (run_id, category, model_used, prompt_version, input_hash, output_text, confidence, created_at)
            VALUES (?, ?, 'm', 'v1', 'h', ?, 'MEDIUM', 'x')""",
-        (run_row_id, MUSIC_TREND_INTELLIGENCE_CATEGORY, json.dumps(output)),
+        (run_row_id, MUSIC_TREND_INTELLIGENCE_CATEGORY, json.dumps(output, ensure_ascii=False)),
     )
     conn.commit()
     data = build_dashboard_data_v2(conn, "2026-08-13")
@@ -478,7 +577,7 @@ def test_music_trend_intelligence_resolves_evidence_refs_to_readable_summaries(c
     )
     run_row_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
     stored = _music_trend_output(genre_signals=[{
-        "observed": "x", "interpretation": "y", "evidence_refs": ["E1"], "confidence": "MEDIUM",
+        "observed": "하우스 장르 확산", "interpretation": "청취자 반응 증가", "evidence_refs": ["E1"], "confidence": "MEDIUM",
     }])
     stored["catalog"] = [{"ref": "E1", "type": "MUSIC_INDUSTRY_NEWS", "summary": "Real article title — real snippet"}]
     conn.execute(
@@ -490,7 +589,10 @@ def test_music_trend_intelligence_resolves_evidence_refs_to_readable_summaries(c
     conn.commit()
     data = build_dashboard_data_v2(conn, "2026-08-13")
     evidence = data["music_trend_intelligence"]["genre_signals"][0]["evidence"]
-    assert evidence == [{"ref": "E1", "summary": "Real article title — real snippet"}]
+    # event_key is None: this catalog entry predates MUSIC EVENT-LEVEL
+    # IDENTITY propagation (no event_key key on it at all) -- a real
+    # legacy row, handled safely, never a crash.
+    assert evidence == [{"ref": "E1", "summary": "Real article title — real snippet", "event_key": None}]
 
 
 def test_music_trend_intelligence_evidence_falls_back_to_bare_ref_when_catalog_missing(conn):
@@ -499,18 +601,74 @@ def test_music_trend_intelligence_evidence_falls_back_to_bare_ref_when_catalog_m
     )
     run_row_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
     stored = _music_trend_output(kpop_ar_notes=[{
-        "observed": "x", "interpretation": "y", "evidence_refs": ["E1"], "confidence": "LOW",
+        "observed": "가나", "interpretation": "다라", "evidence_refs": ["E1"], "confidence": "LOW",
     }])
     conn.execute(
         """INSERT INTO llm_interpretations
            (run_id, category, model_used, prompt_version, input_hash, output_text, confidence, created_at)
            VALUES (?, ?, 'm', 'v1', 'h', ?, 'MEDIUM', 'x')""",
-        (run_row_id, MUSIC_TREND_INTELLIGENCE_CATEGORY, json.dumps(stored)),
+        (run_row_id, MUSIC_TREND_INTELLIGENCE_CATEGORY, json.dumps(stored, ensure_ascii=False)),
     )
     conn.commit()
     data = build_dashboard_data_v2(conn, "2026-08-13")
     evidence = data["music_trend_intelligence"]["kpop_ar_notes"][0]["evidence"]
-    assert evidence == [{"ref": "E1", "summary": "E1"}]
+    assert evidence == [{"ref": "E1", "summary": "E1", "event_key": None}]
+
+
+# ---- TRUE MUSIC EVENT-LEVEL IDENTITY (SECOND CORRECTIVE PASS): a
+# MUSIC_INDUSTRY_NEWS evidence catalog entry now carries the real
+# event_key DIRECTLY, propagated from the originating real news item at
+# catalog-build time -- title-text matching is no longer the primary
+# identity bridge, only a last backward-compatible fallback (see report.
+# web_render_v2._resolve_entry_event_key) ----
+
+
+def test_music_industry_news_evidence_carries_real_event_key_even_when_summary_is_paraphrased(conn):
+    """A. the persisted evidence catalog carries the real event_key
+    DIRECTLY, so a genre_signal's own evidence resolves to the real
+    event_key even when its real summary text is a COMPLETELY DIFFERENT
+    (paraphrased) sentence than the source article's title -- title-text
+    matching is no longer required for a normal, article-backed
+    citation."""
+    from report.music_trend_synthesis import build_evidence_catalog
+    industry_news = [{"title": "Spotify signs new licensing agreement", "snippet": None, "event_key": "ev-real-1"}]
+    catalog = build_evidence_catalog({"state": "UNAVAILABLE"}, {"state": "UNAVAILABLE"}, industry_news)
+    assert catalog[0]["event_key"] == "ev-real-1"
+
+    run_row_id = _insert_run(conn, run_id="mt-run-paraphrase")
+    output = {
+        "genre_signals": [{
+            "observed": "하우스 장르 라이선스 구조가 창작자 수익 배분에 영향을 준다",
+            "interpretation": "장기적으로 수익 구조 변화가 예상된다",
+            "evidence_refs": ["E1"], "confidence": "MEDIUM",
+        }],
+        "production_notes": [], "producer_references": [], "kpop_ar_notes": [],
+        "catalog": catalog,
+    }
+    conn.execute(
+        """INSERT INTO llm_interpretations
+           (run_id, category, model_used, prompt_version, input_hash, output_text, confidence, created_at)
+           VALUES (?, ?, 'm', 'v1', 'h', ?, 'MEDIUM', 'x')""",
+        (run_row_id, MUSIC_TREND_INTELLIGENCE_CATEGORY, json.dumps(output, ensure_ascii=False)),
+    )
+    conn.commit()
+    data = build_dashboard_data_v2(conn, "2026-08-13")
+    evidence = data["music_trend_intelligence"]["genre_signals"][0]["evidence"]
+    # note: "새 라이선스 구조가..." never appears anywhere in "Spotify signs
+    # new licensing agreement" -- exact/prefix title matching would fail
+    # here; direct event_key propagation still resolves it correctly.
+    assert evidence[0]["event_key"] == "ev-real-1"
+
+
+def test_producer_synthesis_evidence_also_carries_real_event_key_directly():
+    """Same real propagation in report.producer_synthesis's own catalog
+    builder -- both synthesis modules independently propagate the SAME
+    real event_key from the SAME real industry_news item."""
+    from report.producer_synthesis import build_evidence_catalog
+    empty_intel = {"early_signal": {}, "catalog_revival": {}, "cross_platform": []}
+    industry_news = [{"title": "Label announces catalog acquisition", "event_key": "ev-real-2"}]
+    catalog = build_evidence_catalog(empty_intel, {"state": "UNAVAILABLE"}, industry_news)
+    assert catalog[0]["event_key"] == "ev-real-2"
 
 
 def test_music_trend_intelligence_degrades_safely_on_malformed_row(conn):
@@ -781,6 +939,34 @@ def test_fallback_items_are_deterministically_ranked_by_source_count(conn):
     assert items[0]["source_count"] == 2
 
 
+# ---- MUSIC EVENT EXPOSURE BUDGET: real event_key carried on every news
+# item (both the LLM-selected and no-LLM fallback paths) -- the smallest
+# safe field addition, reusing the SAME real event_key already computed
+# at selection time, needed downstream to suppress an ordinary duplicate
+# of the LEAD's own real event from Music Industry (see
+# report.web_render_v2._merge_music_industry_items) ----
+
+
+def test_news_section_item_carries_real_event_key_llm_selected_path(conn):
+    run_row_id = _insert_run(conn)
+    item_id = _insert_normalized_item(conn, "a1", "SPOTIFY", "실제 헤드라인", event_key="ev-real-1")
+    _insert_reports_marker(conn, run_row_id)
+    _insert_category_status(conn, run_row_id, "SPOTIFY", "REPORT_GENERATED", 1, 1)
+    for cat in ("AI", "ECONOMY", "SOCIETY", "TIKTOK"):
+        _insert_category_status(conn, run_row_id, cat, "NOT_READY", 0, 0)
+    _insert_interpretation(conn, run_row_id, {
+        "SPOTIFY": [{"id": item_id, "reason": "r"}], "AI": [], "ECONOMY": [], "SOCIETY": [], "TIKTOK": [],
+    })
+    data = build_dashboard_data_v2(conn, "2026-08-13")
+    assert data["news"]["SPOTIFY"]["items"][0]["event_key"] == "ev-real-1"
+
+
+def test_news_section_item_carries_real_event_key_no_llm_fallback_path(conn):
+    _insert_raw_candidate(conn, "a1", "SPOTIFY_NEWS", "실제 폴백 헤드라인", source_name="outlet-solo", event_key="ev-real-2")
+    data = build_dashboard_data_v2(conn, "2026-08-13")
+    assert data["news"]["SPOTIFY"]["items"][0]["event_key"] == "ev-real-2"
+
+
 # ---- NEWS QUALITY: real near-duplicate-event suppression (report.web_data_v2._cluster_suppression) --
 
 
@@ -807,6 +993,63 @@ def test_near_duplicate_event_from_different_outlets_is_suppressed_not_listed_tw
     survivor = items[0]
     assert survivor["related_article_count"] == 2
     assert survivor["related_source_count"] == 2
+
+
+def test_google_news_aggregator_title_suffix_replaces_source_name_with_real_publisher(conn):
+    """EDITORIAL INTEGRITY FIX (source presentation): a real Google-News-
+    style aggregator feed (source_name containing "google") must never
+    display the aggregator's own ingestion identifier as the byline --
+    the real underlying publisher, safely extracted from the RSS
+    convention's own literal " - <Publisher>" title suffix, replaces it,
+    and the suffix itself is stripped from the displayed title."""
+    _insert_raw_candidate(
+        conn, "g1", "TIKTOK_NEWS", "TikTok Music returns to the stage - NJ.com",
+        source_name="tiktok_music_news_google",
+    )
+    data = build_dashboard_data_v2(conn, "2026-08-13")
+    item = data["news"]["TIKTOK"]["items"][0]
+    assert item["source_name"] == "NJ.com"
+    assert item["title"] == "TikTok Music returns to the stage"
+
+
+def test_direct_rss_feed_title_ending_in_dash_words_is_never_altered(conn):
+    """The publisher-suffix extraction is scoped ONLY to a known real
+    Google-News-style aggregator feed -- a direct RSS feed (e.g.
+    billboard_rss) that happens to have a real headline ending in
+    " - some words" must be completely unaffected."""
+    _insert_raw_candidate(
+        conn, "d1", "SPOTIFY_NEWS", "Spotify signs licensing deal - report",
+        source_name="billboard_rss",
+    )
+    data = build_dashboard_data_v2(conn, "2026-08-13")
+    item = data["news"]["SPOTIFY"]["items"][0]
+    assert item["source_name"] == "billboard_rss"
+    assert item["title"] == "Spotify signs licensing deal - report"
+
+
+def test_near_duplicate_from_same_aggregator_feed_now_clusters_via_extracted_real_publisher(conn):
+    """EDITORIAL INTEGRITY FIX (event cluster dedup), confirmed real
+    defect: many real articles about the SAME underlying event arriving
+    through one Google-News-style aggregator feed all previously shared
+    the identical raw source_name ("tiktok_music_news_google"), which
+    made report.story_clustering._sources_independent() reject every
+    pairwise merge regardless of title similarity -- even near-identical
+    headlines. Extracting the real per-article publisher from the title
+    suffix BEFORE clustering restores real source-independence, so this
+    near-duplicate pair (same real event, two different real real-world
+    publishers) now correctly collapses to one displayed item."""
+    _insert_raw_candidate(
+        conn, "n1", "TIKTOK_NEWS", "TikTok Music returns to the stage after ban - NJ.com",
+        source_name="tiktok_music_news_google", published_at="2026-08-13T10:00:00+00:00",
+    )
+    _insert_raw_candidate(
+        conn, "n2", "TIKTOK_NEWS", "TikTok Music returns to the stage after ban - Yahoo",
+        source_name="tiktok_music_news_google", published_at="2026-08-13T11:00:00+00:00",
+    )
+    data = build_dashboard_data_v2(conn, "2026-08-13")
+    items = data["news"]["TIKTOK"]["items"]
+    assert len(items) == 1
+    assert items[0]["related_article_count"] == 2
 
 
 def test_genuinely_different_articles_are_never_over_merged(conn):
@@ -923,13 +1166,15 @@ def test_news_intelligence_never_attached_for_tiktok_spotify(conn):
 # ---- Phase 3C: translation scoped to AI/ECONOMY/SOCIETY only --------------
 
 
-def test_translation_provider_never_constructed_for_tiktok_spotify(conn, monkeypatch):
-    """Production-pilot policy: real translation is scoped to AI/ECONOMY/
-    SOCIETY only. TIKTOK/SPOTIFY items must never even construct the real
-    provider (proves zero network-attempt risk, not just "happens to
-    return UNAVAILABLE") -- their items still carry the same additive
-    original_title/ko_title/translation_status fields (untouched, via
-    NullTranslationProvider), just always TRANSLATION_UNAVAILABLE."""
+def test_translation_provider_constructed_for_every_news_category(conn, monkeypatch):
+    """MAJOR IA REBUILD policy: Music Industry news (TIKTOK/SPOTIFY) must
+    read as an edited Korean briefing, so real translation is now scoped to
+    every news category, not just AI/ECONOMY/SOCIETY (see _TRANSLATION_
+    ELIGIBLE_CATEGORIES's own docstring for why this is now deliberately a
+    WIDER set than _NEWS_INTELLIGENCE_CATEGORIES). Every category's items
+    still carry the same additive original_title/ko_title/translation_
+    status fields, and real original text is always preserved regardless of
+    translation outcome."""
     import report.web_data_v2 as web_data_v2
 
     _insert_raw_candidate(conn, "ai1", "AI_NEWS", "A Real English AI Headline")
@@ -952,11 +1197,10 @@ def test_translation_provider_never_constructed_for_tiktok_spotify(conn, monkeyp
     # _news_section constructs a provider up front, then (pre-existing,
     # harmless -- no network call happens at construction time) falls
     # through to _raw_fallback_items, which constructs its own -- so each
-    # of the 3 translation-eligible categories (AI/ECONOMY/SOCIETY, no real
-    # LLM selection exists in this test) contributes 2 calls = 6 total.
-    # The real thing under test: TIKTOK/SPOTIFY contribute ZERO of those 6
-    # -- if either had, the total would exceed 6.
-    assert len(calls) == 6
+    # of the 5 translation-eligible categories (all of NEWS_CATEGORIES, no
+    # real LLM selection exists in this test) contributes 2 calls = 10
+    # total, TIKTOK/SPOTIFY included now.
+    assert len(calls) == 10
     ai_item = data["news"]["AI"]["items"][0]
     tk_item = data["news"]["TIKTOK"]["items"][0]
     sp_item = data["news"]["SPOTIFY"]["items"][0]
@@ -1085,3 +1329,514 @@ def test_corroborated_low_tier_source_can_still_become_lead(conn):
     item = data["news"]["AI"]["items"][0]
     assert item["tier"] == "LEAD"
     assert item["source_count"] == 2
+
+
+# ---- PROFESSIONAL EDITORIAL QUALITY PASS: Music Industry USER-IMPACT ranking ----
+
+
+def test_music_industry_priority_rank_rights_beats_celebrity_lifestyle():
+    rights_item = {"title": "Publisher signs new copyright deal", "ko_title": "", "snippet": "", "ko_snippet": ""}
+    lifestyle_item = {"title": "Singer spotted on red carpet", "ko_title": "", "snippet": "", "ko_snippet": ""}
+    assert music_industry_priority_rank(rights_item) < music_industry_priority_rank(lifestyle_item)
+
+
+def test_music_industry_priority_rank_touring_beats_unranked_generic_story():
+    touring_item = {"title": "Artist announces stadium tour dates", "ko_title": "", "snippet": "", "ko_snippet": ""}
+    generic_item = {"title": "An unrelated story with no priority keyword", "ko_title": "", "snippet": "", "ko_snippet": ""}
+    assert music_industry_priority_rank(touring_item) < music_industry_priority_rank(generic_item)
+
+
+def test_music_industry_priority_rank_downranks_gossip_below_unranked():
+    gossip_item = {"title": "Star gossip and rumor roundup", "ko_title": "", "snippet": "", "ko_snippet": ""}
+    generic_item = {"title": "An unrelated story with no priority keyword", "ko_title": "", "snippet": "", "ko_snippet": ""}
+    assert music_industry_priority_rank(gossip_item) > music_industry_priority_rank(generic_item)
+
+
+# ---- MUSIC EDITORIAL RANKING UPGRADE: SUPER_NEWS_SPEC.md section 8's
+# exact 1-8 priority order + the explicit legal/rights downrank exception ----
+
+
+def test_music_industry_priority_rank_licensing_beats_routine_artist_event():
+    """A. rights/publishing/licensing outranks a routine artist/event
+    story."""
+    licensing_item = {"title": "Label announces new licensing deal for its catalog", "ko_title": "", "snippet": "", "ko_snippet": ""}
+    routine_item = {"title": "Artist to perform at local weekend festival", "ko_title": "", "snippet": "", "ko_snippet": ""}
+    assert music_industry_priority_rank(licensing_item) == 1
+    assert music_industry_priority_rank(licensing_item) < music_industry_priority_rank(routine_item)
+
+
+def test_music_industry_priority_rank_ai_music_beats_routine_concert_announcement():
+    """B. AI-music/creator-workflow outranks a routine concert
+    announcement."""
+    ai_item = {"title": "New generative AI music creator tool launches for producers", "ko_title": "", "snippet": "", "ko_snippet": ""}
+    concert_item = {"title": "Artist announces concert dates for fall tour", "ko_title": "", "snippet": "", "ko_snippet": ""}
+    assert music_industry_priority_rank(ai_item) == 3
+    assert music_industry_priority_rank(ai_item) < music_industry_priority_rank(concert_item)
+
+
+def test_music_industry_priority_rank_copyright_litigation_not_penalized_by_legal_language():
+    """C. LEGAL/RIGHTS EXCEPTION: a real copyright/licensing lawsuit must
+    not be swept into the generic legal-language downrank bucket just
+    because it contains court/lawsuit language -- confirmed real defect,
+    since 'lawsuit against' was ALSO a generic downrank keyword."""
+    litigation_item = {
+        "title": "Songwriters group files copyright infringement lawsuit against AI startup",
+        "ko_title": "", "snippet": "", "ko_snippet": "",
+    }
+    assert music_industry_priority_rank(litigation_item) == 1
+
+
+def test_music_industry_priority_rank_personal_lawsuit_without_rights_terms_still_downranked():
+    """Regression guard: the legal/rights exception is scoped to REAL
+    rights/copyright/publishing/royalty/licensing keyword matches only --
+    an ordinary personal-life lawsuit with no rights-class term is still
+    correctly downranked."""
+    personal_item = {
+        "title": "Singer's ex-manager files lawsuit against him over an unpaid personal loan",
+        "ko_title": "", "snippet": "", "ko_snippet": "",
+    }
+    assert music_industry_priority_rank(personal_item) == 10
+
+
+def test_music_industry_priority_rank_consumption_chart_beats_touring():
+    """Priority 6 (consumption/chart/audience-behavior) outranks priority
+    7 (touring/ticketing/live-business) per SUPER_NEWS_SPEC.md section 8
+    -- confirmed real defect: these two classes were previously swapped."""
+    chart_item = {"title": "Streaming consumption patterns shift as chart behavior changes", "ko_title": "", "snippet": "", "ko_snippet": ""}
+    touring_item = {"title": "Artist announces stadium tour dates", "ko_title": "", "snippet": "", "ko_snippet": ""}
+    assert music_industry_priority_rank(chart_item) == 6
+    assert music_industry_priority_rank(touring_item) == 7
+    assert music_industry_priority_rank(chart_item) < music_industry_priority_rank(touring_item)
+
+
+def test_music_industry_ranking_unaffected_by_corrective_event_exposure_budget_pass():
+    """G. this corrective task touches ONLY MUSIC EVENT EXPOSURE BUDGET
+    (report.web_render_v2) -- the previous task's editorial priority
+    order + legal/rights exception (this module) are untouched and still
+    correct: licensing/rights stays priority 1, and a real copyright
+    lawsuit is still never incorrectly down-ranked."""
+    licensing_item = {"title": "Label announces new licensing deal for its catalog", "ko_title": "", "snippet": "", "ko_snippet": ""}
+    routine_item = {"title": "Artist to perform at local weekend festival", "ko_title": "", "snippet": "", "ko_snippet": ""}
+    litigation_item = {
+        "title": "Songwriters group files copyright infringement lawsuit against AI startup",
+        "ko_title": "", "snippet": "", "ko_snippet": "",
+    }
+    assert music_industry_priority_rank(licensing_item) == 1
+    assert music_industry_priority_rank(licensing_item) < music_industry_priority_rank(routine_item)
+    assert music_industry_priority_rank(litigation_item) == 1
+
+
+def test_rank_music_industry_items_sorts_by_real_priority_class():
+    items = [
+        {"title": "Star gossip and rumor roundup", "ko_title": "", "snippet": "", "ko_snippet": ""},
+        {"title": "Publisher signs new copyright deal", "ko_title": "", "snippet": "", "ko_snippet": ""},
+        {"title": "Artist announces stadium tour dates", "ko_title": "", "snippet": "", "ko_snippet": ""},
+    ]
+    ranked = rank_music_industry_items(items)
+    assert ranked[0]["title"] == "Publisher signs new copyright deal"
+    assert ranked[-1]["title"] == "Star gossip and rumor roundup"
+
+
+# ---- PROFESSIONAL EDITORIAL QUALITY PASS: Genre/Production Radar semantic gate ----
+
+
+def test_genre_radar_rejects_non_genre_signal_as_genre_trend(conn):
+    """An artist-discovery program or AI-tool launch mentioning no real
+    genre/subgenre term must never be surfaced as a genre trend -- the
+    section must show fewer items rather than mislabel it."""
+    run_row_id = _insert_run(conn)
+    output = _music_trend_output(genre_signals=[{
+        "observed": "레이블이 신인 발굴 프로그램을 시작했다", "interpretation": "새로운 아티스트 확보 전략으로 보인다",
+        "evidence_refs": ["E1"], "confidence": "MEDIUM",
+    }])
+    conn.execute(
+        """INSERT INTO llm_interpretations
+           (run_id, category, model_used, prompt_version, input_hash, output_text, confidence, created_at)
+           VALUES (?, ?, 'm', 'v1', 'h', ?, 'MEDIUM', 'x')""",
+        (run_row_id, MUSIC_TREND_INTELLIGENCE_CATEGORY, json.dumps(output, ensure_ascii=False)),
+    )
+    conn.commit()
+    data = build_dashboard_data_v2(conn, "2026-08-13")
+    assert data["music_trend_intelligence"]["genre_signals"] == []
+
+
+def test_production_radar_rejects_non_production_signal_as_production_note(conn):
+    """A creator-tool/licensing story with no real sonic/production
+    technique term belongs in Music Industry, never Production Radar."""
+    run_row_id = _insert_run(conn)
+    output = _music_trend_output(production_notes=[{
+        "observed": "AI 음악 생성 도구가 새로 출시되었다", "interpretation": "크리에이터 도구 시장이 확대되는 중",
+        "evidence_refs": ["E1"], "confidence": "MEDIUM",
+    }])
+    conn.execute(
+        """INSERT INTO llm_interpretations
+           (run_id, category, model_used, prompt_version, input_hash, output_text, confidence, created_at)
+           VALUES (?, ?, 'm', 'v1', 'h', ?, 'MEDIUM', 'x')""",
+        (run_row_id, MUSIC_TREND_INTELLIGENCE_CATEGORY, json.dumps(output, ensure_ascii=False)),
+    )
+    conn.commit()
+    data = build_dashboard_data_v2(conn, "2026-08-13")
+    assert data["music_trend_intelligence"]["production_notes"] == []
+
+
+def test_production_radar_accepts_real_production_technique_signal(conn):
+    run_row_id = _insert_run(conn)
+    output = _music_trend_output(production_notes=[{
+        "observed": "곡의 드럼 패턴과 베이스라인이 뚜렷하게 변화했다", "interpretation": "새로운 그루브 감각을 보여준다",
+        "evidence_refs": ["E1"], "confidence": "MEDIUM",
+    }])
+    conn.execute(
+        """INSERT INTO llm_interpretations
+           (run_id, category, model_used, prompt_version, input_hash, output_text, confidence, created_at)
+           VALUES (?, ?, 'm', 'v1', 'h', ?, 'MEDIUM', 'x')""",
+        (run_row_id, MUSIC_TREND_INTELLIGENCE_CATEGORY, json.dumps(output, ensure_ascii=False)),
+    )
+    conn.commit()
+    data = build_dashboard_data_v2(conn, "2026-08-13")
+    assert len(data["music_trend_intelligence"]["production_notes"]) == 1
+
+
+# ---- STRICT GENRE/PRODUCTION RADAR (FAST COMPLETION product pass):
+# marketing/virality/product-announcement framing rejected even when a
+# real genre/production keyword appears incidentally ----
+
+
+def test_genre_radar_rejects_tiktok_viral_framing_even_with_genre_keyword_present(conn):
+    """A real genre word appearing inside a pure TikTok-virality story is
+    NOT a real stylistic-movement signal -- must be rejected, not shown
+    as genre intelligence."""
+    run_row_id = _insert_run(conn)
+    output = _music_trend_output(genre_signals=[{
+        "observed": "이 하우스 트랙이 틱톡에서 화제가 되고 있다", "interpretation": "바이럴 챌린지로 조회수를 기록했다",
+        "evidence_refs": ["E1"], "confidence": "MEDIUM",
+    }])
+    conn.execute(
+        """INSERT INTO llm_interpretations
+           (run_id, category, model_used, prompt_version, input_hash, output_text, confidence, created_at)
+           VALUES (?, ?, 'm', 'v1', 'h', ?, 'MEDIUM', 'x')""",
+        (run_row_id, MUSIC_TREND_INTELLIGENCE_CATEGORY, json.dumps(output, ensure_ascii=False)),
+    )
+    conn.commit()
+    data = build_dashboard_data_v2(conn, "2026-08-13")
+    assert data["music_trend_intelligence"]["genre_signals"] == []
+
+
+def test_production_radar_rejects_tool_launch_mentioning_tempo_as_ui_label(conn):
+    """A production-sounding word (템포) inside an ordinary AI-tool
+    feature-launch announcement is not real observed production
+    evidence -- must be rejected."""
+    run_row_id = _insert_run(conn)
+    output = _music_trend_output(production_notes=[{
+        "observed": "이 앱이 새로운 템포 조절 기능을 출시했다", "interpretation": "크리에이터 도구 시장이 확대되는 중",
+        "evidence_refs": ["E1"], "confidence": "MEDIUM",
+    }])
+    conn.execute(
+        """INSERT INTO llm_interpretations
+           (run_id, category, model_used, prompt_version, input_hash, output_text, confidence, created_at)
+           VALUES (?, ?, 'm', 'v1', 'h', ?, 'MEDIUM', 'x')""",
+        (run_row_id, MUSIC_TREND_INTELLIGENCE_CATEGORY, json.dumps(output, ensure_ascii=False)),
+    )
+    conn.commit()
+    data = build_dashboard_data_v2(conn, "2026-08-13")
+    assert data["music_trend_intelligence"]["production_notes"] == []
+
+
+def test_production_radar_rejects_tool_version_launch_even_with_real_production_vocabulary_in_interpretation(conn):
+    """EDITORIAL INTEGRITY FIX, confirmed real defect: Suno Studio 2.0's
+    MIDI-support launch is a creator-tool/product VERSION announcement,
+    never an observed musical/sonic characteristic -- even though its own
+    real `interpretation` text speculates about downstream workflow
+    consequences using real production vocabulary (편곡/믹싱), that
+    speculation about a tool is not itself an observed production trait
+    of an actual song, and must not survive the reject gate just because
+    the earlier tempo/템포 pattern didn't literally match "출시했다"."""
+    run_row_id = _insert_run(conn)
+    output = _music_trend_output(production_notes=[{
+        "observed": "Suno가 MIDI 지원을 포함한 Studio 2.0을 출시했다고 보도되었다",
+        "interpretation": "프로듀서의 편곡과 믹싱 워크플로우에 영향을 줄 수 있다",
+        "evidence_refs": ["E1"], "confidence": "MEDIUM",
+    }])
+    conn.execute(
+        """INSERT INTO llm_interpretations
+           (run_id, category, model_used, prompt_version, input_hash, output_text, confidence, created_at)
+           VALUES (?, ?, 'm', 'v1', 'h', ?, 'MEDIUM', 'x')""",
+        (run_row_id, MUSIC_TREND_INTELLIGENCE_CATEGORY, json.dumps(output, ensure_ascii=False)),
+    )
+    conn.commit()
+    data = build_dashboard_data_v2(conn, "2026-08-13")
+    assert data["music_trend_intelligence"]["production_notes"] == []
+
+
+def test_genre_radar_still_accepts_real_genre_signal_without_marketing_framing(conn):
+    """Regression guard: the new reject gate must not falsely reject a
+    genuine, non-promotional genre signal."""
+    run_row_id = _insert_run(conn)
+    output = _music_trend_output(genre_signals=[{
+        "observed": "신곡이 아마피아노 리듬 구조를 채택했다", "interpretation": "장르 혼합 트렌드가 확산되는 중",
+        "evidence_refs": ["E1"], "confidence": "MEDIUM",
+    }])
+    conn.execute(
+        """INSERT INTO llm_interpretations
+           (run_id, category, model_used, prompt_version, input_hash, output_text, confidence, created_at)
+           VALUES (?, ?, 'm', 'v1', 'h', ?, 'MEDIUM', 'x')""",
+        (run_row_id, MUSIC_TREND_INTELLIGENCE_CATEGORY, json.dumps(output, ensure_ascii=False)),
+    )
+    conn.commit()
+    data = build_dashboard_data_v2(conn, "2026-08-13")
+    assert len(data["music_trend_intelligence"]["genre_signals"]) == 1
+
+
+# ---- PROFESSIONAL EDITORIAL QUALITY PASS: final editorial gate rejects internal-ID leaks ----
+
+
+def test_music_trend_intelligence_rejects_item_leaking_internal_evidence_ref(conn):
+    run_row_id = _insert_run(conn)
+    output = _music_trend_output(genre_signals=[{
+        "observed": "E11은 하우스 장르 확산과 관련된 근거다", "interpretation": "실제 청취자 관심 반영",
+        "evidence_refs": ["E11"], "confidence": "MEDIUM",
+    }])
+    conn.execute(
+        """INSERT INTO llm_interpretations
+           (run_id, category, model_used, prompt_version, input_hash, output_text, confidence, created_at)
+           VALUES (?, ?, 'm', 'v1', 'h', ?, 'MEDIUM', 'x')""",
+        (run_row_id, MUSIC_TREND_INTELLIGENCE_CATEGORY, json.dumps(output, ensure_ascii=False)),
+    )
+    conn.commit()
+    data = build_dashboard_data_v2(conn, "2026-08-13")
+    assert data["music_trend_intelligence"]["genre_signals"] == []
+
+
+# ---- PROFESSIONAL EDITORIAL QUALITY PASS: semantic/event-level dedup in the Hero/Music Today pool ----
+
+
+def _candidate_base():
+    return {
+        "news": {"SPOTIFY": {"items": []}, "TIKTOK": {"items": []}},
+        "spotify_chart": {"state": "UNAVAILABLE"},
+        "intelligence": {"cross_platform": [], "catalog_revival": {}},
+        "music_trend_intelligence": {
+            "state": "UNAVAILABLE", "genre_signals": [], "production_notes": [],
+            "producer_references": [], "kpop_ar_notes": [],
+        },
+        "producer_intelligence": {"state": "UNAVAILABLE", "insights": []},
+    }
+
+
+def test_collect_music_signal_candidates_skips_second_candidate_sharing_evidence_refs():
+    """The SAME underlying event (same evidence ref) analyzed through both
+    a Genre Radar and a Production Radar lens must only occupy ONE slot in
+    the shared Hero/Music Today candidate pool -- not two."""
+    data = _candidate_base()
+    data["music_trend_intelligence"] = {
+        "state": "NORMAL",
+        "genre_signals": [{
+            "observed": "하우스 신곡 확산", "interpretation": "청취자 반응 확인",
+            "confidence": "MEDIUM", "evidence": [{"ref": "E1", "summary": "same underlying article"}],
+        }],
+        "production_notes": [{
+            "observed": "곡의 드럼 패턴 변화", "interpretation": "그루브 감각 변화 확인",
+            "confidence": "MEDIUM", "evidence": [{"ref": "E1", "summary": "same underlying article"}],
+        }],
+        "producer_references": [], "kpop_ar_notes": [],
+    }
+    candidates = _collect_music_signal_candidates(data)
+    types = [c["type"] for c in candidates]
+    assert "GENRE_SIGNAL" in types
+    assert "PRODUCTION_SIGNAL" not in types  # skipped: same evidence ref already consumed
+
+
+def test_collect_music_signal_candidates_keeps_both_when_evidence_refs_distinct():
+    data = _candidate_base()
+    data["music_trend_intelligence"] = {
+        "state": "NORMAL",
+        "genre_signals": [{
+            "observed": "하우스 신곡 확산", "interpretation": "청취자 반응 확인",
+            "confidence": "MEDIUM", "evidence": [{"ref": "E1", "summary": "article A"}],
+        }],
+        "production_notes": [{
+            "observed": "곡의 드럼 패턴 변화", "interpretation": "그루브 감각 변화 확인",
+            "confidence": "MEDIUM", "evidence": [{"ref": "E2", "summary": "article B"}],
+        }],
+        "producer_references": [], "kpop_ar_notes": [],
+    }
+    candidates = _collect_music_signal_candidates(data)
+    types = [c["type"] for c in candidates]
+    assert "GENRE_SIGNAL" in types
+    assert "PRODUCTION_SIGNAL" in types
+
+
+def test_industry_news_candidate_enriched_from_matching_producer_insight_when_no_llm_reason():
+    """LEAD STORY INTELLIGENCE GAP fix (PREMIUM INTELLIGENCE UPGRADE
+    PASS): a no-LLM-fallback INDUSTRY_NEWS item (real reason=None) is
+    enriched with a matching real Producer Intelligence insight's own
+    why_it_matters/what_could_i_make_now -- never a new LLM call, never
+    invented text."""
+    data = _candidate_base()
+    data["news"]["SPOTIFY"] = {"items": [{
+        "title": "Spotify announces new licensing deal", "reason": None, "source_url": "https://example.com/a",
+        "source_count": 1, "event_key": "ev-1",
+    }]}
+    data["producer_intelligence"] = {
+        "state": "NORMAL",
+        "insights": [{
+            "what_is_moving": "라이선스 변화", "why_it_matters": "실제 왜 중요한가",
+            "what_to_watch": "실제 지켜볼 점", "what_could_i_make_now": "실제 시도해볼 것",
+            "confidence": "MEDIUM",
+            "evidence": [{"ref": "E1", "summary": "Spotify announces new licensing deal"}],
+        }],
+    }
+    candidates = _collect_music_signal_candidates(data)
+    industry_candidate = next(c for c in candidates if c["type"] == "INDUSTRY_NEWS")
+    assert industry_candidate["why_it_matters"] == "실제 왜 중요한가"
+    assert industry_candidate["producer_implication"] == "실제 시도해볼 것"
+
+
+def test_industry_news_candidate_enrichment_respects_low_confidence_watch_only():
+    data = _candidate_base()
+    data["news"]["SPOTIFY"] = {"items": [{
+        "title": "Spotify royalty change", "reason": None, "source_url": "https://example.com/a",
+        "source_count": 1, "event_key": "ev-1",
+    }]}
+    data["producer_intelligence"] = {
+        "state": "NORMAL",
+        "insights": [{
+            "what_is_moving": "로열티 변화", "why_it_matters": "실제 왜 중요한가",
+            "what_to_watch": "실제 지켜볼 점", "what_could_i_make_now": "실제 시도해볼 것",
+            "confidence": "LOW",
+            "evidence": [{"ref": "E1", "summary": "Spotify royalty change"}],
+        }],
+    }
+    candidates = _collect_music_signal_candidates(data)
+    industry_candidate = next(c for c in candidates if c["type"] == "INDUSTRY_NEWS")
+    assert industry_candidate["producer_implication"] == "실제 지켜볼 점"
+
+
+def test_music_today_never_pads_with_already_shown_hero_candidate():
+    """MUSIC TODAY (confirmed real defect from actual generated-report
+    QA): when the only real candidate today was already shown as TODAY'S
+    MUSIC INTELLIGENCE's own Lead, MUSIC TODAY must show fewer items --
+    down to zero -- never fall back to re-displaying that same
+    already-shown card just to fill the section (which read as literal
+    duplicate content immediately below the hero on an actual real thin
+    day)."""
+    from report.web_data_v2 import _build_music_today, _build_today_music_intelligence
+    data = _candidate_base()
+    data["news"]["SPOTIFY"] = {"items": [{
+        "title": "단독 실제 기사", "reason": "이유", "source_url": "https://example.com/a",
+        "source_count": 1, "event_key": "ev-1",
+    }]}
+    today_music_intelligence, used_keys = _build_today_music_intelligence(data)
+    music_today = _build_music_today(data, exclude_keys=used_keys)
+    assert today_music_intelligence  # the hero used the only real candidate
+    assert music_today == []  # never padded with the same already-shown candidate
+
+
+# ---- PROFESSIONAL EDITORIAL QUALITY PASS: ECONOMY/SOCIETY minor-story downrank ----
+
+
+def test_rank_economy_society_items_moves_recruitment_notice_after_real_stories():
+    items = [
+        {"title": "인턴 모집 공고", "ko_title": "", "snippet": "", "ko_snippet": ""},
+        {"title": "실질 GDP 성장률 발표", "ko_title": "", "snippet": "", "ko_snippet": ""},
+    ]
+    ranked = rank_economy_society_items(items)
+    assert ranked[0]["title"] == "실질 GDP 성장률 발표"
+    assert ranked[-1]["title"] == "인턴 모집 공고"
+
+
+def test_rank_economy_society_items_never_reorders_among_real_stories():
+    items = [
+        {"title": "물가 상승률 발표", "ko_title": "", "snippet": "", "ko_snippet": ""},
+        {"title": "기준 금리 동결", "ko_title": "", "snippet": "", "ko_snippet": ""},
+    ]
+    ranked = rank_economy_society_items(items)
+    assert [i["title"] for i in ranked] == [i["title"] for i in items]
+
+
+# ---- PROFESSIONAL EDITORIAL QUALITY PASS: known truncated publisher-name fix ----
+
+
+def test_news_section_fixes_known_truncated_publisher_suffix(conn):
+    run_row_id = _insert_run(conn)
+    id1 = _insert_normalized_item(
+        conn, "tw1", "AI", "Some AI headline - Music Wee",
+        snippet="A completely distinct real summary sentence - Music Wee",
+    )
+    _insert_reports_marker(conn, run_row_id)
+    _insert_category_status(conn, run_row_id, "AI", "REPORT_GENERATED", 1, 1)
+    for cat in ("ECONOMY", "SOCIETY", "TIKTOK", "SPOTIFY"):
+        _insert_category_status(conn, run_row_id, cat, "NOT_READY", 0, 0)
+    _insert_interpretation(conn, run_row_id, {
+        "AI": [{"id": id1, "reason": "why this matters"}],
+        "ECONOMY": [], "SOCIETY": [], "TIKTOK": [], "SPOTIFY": [],
+    })
+    data = build_dashboard_data_v2(conn, "2026-08-13")
+    item = data["news"]["AI"]["items"][0]
+    assert item["title"].endswith("Music Week")
+    assert item["snippet"].endswith("Music Week")
+
+
+def test_fix_known_truncated_publisher_suffix_handles_no_dash_variant():
+    from report.web_data_v2 import _fix_known_truncated_publisher_suffix
+    assert _fix_known_truncated_publisher_suffix(
+        "TikTok LIVE announces return of Music On Stage global music programme Music Wee"
+    ) == "TikTok LIVE announces return of Music On Stage global music programme Music Week"
+
+
+def test_music_industry_priority_rank_health_story_not_promoted_by_incidental_tour_mention():
+    """Confirmed real defect: a celebrity personal-health story that
+    happens to mention an unrelated tour date must not be promoted to a
+    real touring-economics priority class by that incidental word."""
+    health_story = {
+        "title": "", "ko_title": "NBA YoungBoy, 현재 한국에서 살고 있으며, 심장 질환을 밝히고 투어가 한 번 더 남아있다고 말해",
+        "snippet": "", "ko_snippet": "",
+    }
+    real_touring_story = {"title": "Artist announces stadium tour dates", "ko_title": "", "snippet": "", "ko_snippet": ""}
+    assert music_industry_priority_rank(health_story) > music_industry_priority_rank(real_touring_story)
+    assert music_industry_priority_rank(health_story) == 10
+
+
+def test_rank_economy_society_items_downranks_open_recruitment_announcement():
+    """Confirmed real defect: a real 공개채용 (open recruitment) announcement
+    did not match the narrower 채용공고-only keyword set and stayed in the
+    primary slots."""
+    items = [
+        {"title": "전력거래소, 하반기 공개채용 돌입··· 재생에너지·AI 전문인력 확보", "ko_title": "", "snippet": "", "ko_snippet": ""},
+        {"title": "빌 게이츠, 차세대 원자로 협력 논의 위해 한국 방문", "ko_title": "", "snippet": "", "ko_snippet": ""},
+    ]
+    ranked = rank_economy_society_items(items)
+    assert ranked[0]["title"].startswith("빌 게이츠")
+    assert ranked[-1]["title"].startswith("전력거래소")
+
+
+def test_fix_known_truncated_publisher_suffix_strips_trailing_source_artifact():
+    from report.web_data_v2 import _fix_known_truncated_publisher_suffix
+    assert _fix_known_truncated_publisher_suffix(
+        "Ticketmaster said eligible events are surfaced automatically. Source"
+    ) == "Ticketmaster said eligible events are surfaced automatically."
+
+
+def test_collect_music_signal_candidates_skips_synthesis_card_matching_industry_news_title():
+    """NEWSLETTER x MUSIC INTELLIGENCE PRODUCT UPGRADE (confirmed real
+    defect): a real event exposed once as the raw INDUSTRY_NEWS pick
+    must not ALSO surface via a Genre/Production/K-pop synthesis card
+    citing the exact same real article (matched by real title text
+    against the evidence catalog's own real summary) in the same
+    Hero/Music Today pool."""
+    data = _candidate_base()
+    data["news"]["TIKTOK"] = {"items": [{
+        "title": "TikTok's Music on Stage returns in 2026", "ko_title": "", "snippet": "", "ko_snippet": "",
+        "reason": None, "source_url": "https://example.com/a", "source_count": 1,
+    }]}
+    data["music_trend_intelligence"] = {
+        "state": "NORMAL",
+        "genre_signals": [{
+            "observed": "장르 관찰", "interpretation": "장르 해석", "confidence": "MEDIUM",
+            "evidence": [{"ref": "E1", "summary": "TikTok's Music on Stage returns in 2026"}],
+        }],
+        "production_notes": [], "producer_references": [], "kpop_ar_notes": [],
+    }
+    candidates = _collect_music_signal_candidates(data)
+    types = [c["type"] for c in candidates]
+    assert "INDUSTRY_NEWS" in types
+    assert "GENRE_SIGNAL" not in types

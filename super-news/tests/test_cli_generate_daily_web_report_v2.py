@@ -71,10 +71,10 @@ def _insert_producer_intelligence(db_path, report_date="2026-08-13"):
     run_row_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
     stored = {
         "insights": [{
-            "what_is_moving": "Artist X - Track Y rising per E1",
-            "why_it_matters": "grounded reasoning",
-            "what_to_watch": "whether the rise continues",
-            "what_could_i_make_now": "Test the hook-first intro next demo",
+            "what_is_moving": "아티스트 X의 트랙 Y가 차트에서 상승 중",
+            "why_it_matters": "근거가 되는 합리적인 해석",
+            "what_to_watch": "이 상승세가 계속되는지 여부",
+            "what_could_i_make_now": "훅 중심 인트로를 데모로 시도해볼 것",
             "evidence_refs": ["E1"], "confidence": "MEDIUM",
         }],
         "catalog": [{"ref": "E1", "type": "EARLY_SIGNAL", "summary": "[spotify_chart] Artist X - Track Y (+8 rank)"}],
@@ -108,6 +108,32 @@ def test_generates_index_and_archive_under_docs_v2_dir_override(tmp_path):
     assert archive_path.exists()
     assert index_path.read_text(encoding="utf-8") == archive_path.read_text(encoding="utf-8")
     assert "AI headline" in index_path.read_text(encoding="utf-8")
+
+
+def test_also_generates_separate_music_and_daily_product_pages(tmp_path):
+    """REFERENCE DESIGN PRODUCT SPLIT: alongside the existing combined
+    index.html/archive (unchanged, above), this CLI now additionally
+    writes standalone music.html/daily.html pages -- SUPER NEWS MUSIC and
+    SUPER NEWS DAILY as two genuinely separate products."""
+    db_path = tmp_path / "test.db"
+    docs_dir = tmp_path / "docs_v2_out"
+    _insert_run_and_report(db_path)
+
+    exit_code = cli.main([
+        "--db-path", str(db_path), "--report-date", "2026-08-13", "--docs-dir", str(docs_dir),
+    ])
+    assert exit_code == cli.EXIT_OK
+
+    music_path = docs_dir / "music.html"
+    daily_path = docs_dir / "daily.html"
+    assert music_path.exists()
+    assert daily_path.exists()
+    music_html = music_path.read_text(encoding="utf-8")
+    daily_html = daily_path.read_text(encoding="utf-8")
+    assert "SUPER NEWS MUSIC" in music_html
+    assert "SUPER NEWS DAILY" in daily_html
+    assert "AI headline" in daily_html
+    assert "AI headline" not in music_html
 
 
 def test_never_touches_real_repo_docs_v2_dir(tmp_path):
@@ -145,8 +171,21 @@ def test_producer_intelligence_persisted_before_generation_appears_in_output(tmp
     ])
     assert exit_code == cli.EXIT_OK
     content = (docs_dir / "index.html").read_text(encoding="utf-8")
-    assert "Test the hook-first intro next demo" in content
-    assert "[spotify_chart] Artist X - Track Y (+8 rank)" in content
+    # MUSIC EVENT EXPOSURE BUDGET (confirmed real defect this fixes): this
+    # fixture's persisted producer insight is the ONLY real MUSIC signal
+    # that day, so it correctly becomes today's LEAD STORY (its real
+    # content, including "훅 중심 인트로를 데모로 시도해볼 것", surfaces
+    # there) -- it must NOT ALSO independently re-appear as an ordinary,
+    # zero-new-information duplicate card in the separate Producer/A&R
+    # section below (see report.web_render_v2._render_producer_section's
+    # exclude_evidence_refs). The raw internal evidence-catalog citation
+    # string is real, collapsed "근거 보기" chip content that belonged ONLY
+    # to that now-correctly-suppressed duplicate card, not to the Lead's
+    # own prose -- report.web_data_v2's own targeted tests already cover
+    # that citation's DB-to-catalog wiring independently of this
+    # cross-section exposure-budget interaction.
+    assert "훅 중심 인트로를 데모로 시도해볼 것" in content
+    assert "[spotify_chart] Artist X - Track Y (+8 rank)" not in content
 
 
 def test_no_producer_intelligence_persisted_shows_honest_empty_state(tmp_path):
@@ -166,13 +205,20 @@ def test_no_producer_intelligence_persisted_shows_honest_empty_state(tmp_path):
 
 
 def test_generator_never_imports_or_calls_an_llm():
-    """Checks actual import statements, not prose -- the module's own
-    docstring legitimately explains it makes no LLM call, which would
-    otherwise false-positive a naive substring check."""
+    """Checks actual import statements, not prose. This script itself never
+    imports an LLM/translation SDK directly and never calls report.
+    llm_interface.build_llm -- it only orchestrates build_dashboard_data_v2
+    + render_dashboard_html_v2 + file I/O. NOTE: build_dashboard_data_v2
+    (a separate module) DOES call report.translation.translate_and_cache,
+    which -- only when TRANSLATION_PROVIDER=anthropic and a real
+    ANTHROPIC_API_KEY are configured -- makes a real paid Anthropic API
+    call; this script's own docstring accurately documents that cost path
+    in prose (see SUPER_NEWS_NO_PAID_API), so a literal 'anthropic'
+    substring ban on the whole file is no longer the right check here."""
     source = open(cli.__file__, encoding="utf-8").read()
-    assert "anthropic" not in source.lower()
     import_lines = [line for line in source.splitlines() if line.strip().startswith(("import ", "from "))]
-    assert not any("llm" in line.lower() for line in import_lines)
+    assert not any("llm" in line.lower() or "anthropic" in line.lower() for line in import_lines)
+    assert "build_llm(" not in source
 
 
 def test_generator_never_references_preview_seed_data():
@@ -206,7 +252,11 @@ def test_no_report_available_still_writes_an_honest_page(tmp_path):
     ])
     assert exit_code == cli.EXIT_OK
     content = (docs_dir / "index.html").read_text(encoding="utf-8")
-    assert "TikTok 차트 데이터 소스가 아직 연동되지 않았습니다" in content
+    # MAJOR IA REBUILD phase: TikTok's honest unavailable status is now a
+    # compact quiet line folded into Chart Pulse (never its own full
+    # section) -- still real, still never hidden, just no longer a giant
+    # empty section competing with sections that carry real content.
+    assert "TikTok" in content and "미연동" in content
     assert "Spotify 차트 데이터가 아직 수집되지 않았습니다" in content
 
 
@@ -322,3 +372,93 @@ def test_v1_cli_still_works_independently(tmp_path):
     exit_code = v1_cli.main(["--db-path", str(db_path), "--report-date", "2026-08-13", "--docs-dir", str(docs_dir)])
     assert exit_code == v1_cli.EXIT_OK
     assert (docs_dir / "index.html").exists()
+
+
+# ---- PERMANENT ZERO-PAYG SAFETY -------------------------------------------
+
+
+def test_module_import_forces_no_paid_api_env_var():
+    # Already imported at module load time above -- assert the guard the
+    # module docstring promises actually landed in os.environ.
+    import os
+    assert os.environ.get("SUPER_NEWS_NO_PAID_API") == "1"
+
+
+def test_never_constructs_anthropic_translation_provider_even_when_configured(tmp_path, monkeypatch):
+    """The exact real-world mistake this pass fixes: TRANSLATION_PROVIDER=
+    anthropic and a real-looking ANTHROPIC_API_KEY are both set (as .env
+    actually has them), yet running this CLI must never construct
+    report.translation_anthropic.AnthropicTranslationProvider -- the module-
+    level SUPER_NEWS_NO_PAID_API=1 guard must make that structurally
+    impossible, not merely conventionally discouraged."""
+    monkeypatch.setenv("TRANSLATION_PROVIDER", "anthropic")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-fake-not-real-looking-key")
+    db_path = tmp_path / "test.db"
+    docs_dir = tmp_path / "docs_v2_out"
+    _insert_run_and_report(db_path)
+
+    def _fail_if_constructed(*args, **kwargs):
+        raise AssertionError("AnthropicTranslationProvider must never be constructed under SUPER_NEWS_NO_PAID_API=1")
+
+    with patch("report.translation_anthropic.AnthropicTranslationProvider.__init__", side_effect=_fail_if_constructed):
+        exit_code = cli.main([
+            "--db-path", str(db_path), "--report-date", "2026-08-13", "--docs-dir", str(docs_dir),
+        ])
+
+    assert exit_code == cli.EXIT_OK  # never crashed -- degraded safely instead
+
+
+def test_never_makes_a_live_anthropic_network_call(tmp_path, monkeypatch):
+    """Belt-and-suspenders alongside the construction test above: even a
+    real anthropic.Anthropic().messages.create call must never happen."""
+    monkeypatch.setenv("TRANSLATION_PROVIDER", "anthropic")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-fake-not-real-looking-key")
+    db_path = tmp_path / "test.db"
+    docs_dir = tmp_path / "docs_v2_out"
+    _insert_run_and_report(db_path)
+
+    def _fail_if_called(*args, **kwargs):
+        raise AssertionError("No live Anthropic network call may happen under SUPER_NEWS_NO_PAID_API=1")
+
+    with patch("anthropic.Anthropic.__init__", side_effect=_fail_if_called):
+        exit_code = cli.main([
+            "--db-path", str(db_path), "--report-date", "2026-08-13", "--docs-dir", str(docs_dir),
+        ])
+
+    assert exit_code == cli.EXIT_OK
+
+
+def test_existing_cache_hit_still_reused_under_permanent_no_paid_api_guard(tmp_path, monkeypatch):
+    """The safety fix must not regress cache reuse: an existing TRANSLATED
+    row (as if from a real prior paid call) is still served."""
+    monkeypatch.setenv("TRANSLATION_PROVIDER", "anthropic")
+    monkeypatch.setenv("ANTHROPIC_TRANSLATION_MODEL", "claude-haiku-4-5-20251001")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-fake-not-real-looking-key")
+    db_path = tmp_path / "test.db"
+    docs_dir = tmp_path / "docs_v2_out"
+    _insert_run_and_report(db_path)
+
+    import report.translation as translation_module
+    from datetime import datetime, timezone
+    conn = connect(db_path=db_path)
+    key = translation_module._cache_key(
+        "AI headline", "ko", "AnthropicTranslationProvider", "claude-haiku-4-5-20251001",
+        translation_module.TRANSLATION_PROMPT_VERSION,
+    )
+    now_iso = datetime(2026, 8, 13, tzinfo=timezone.utc).isoformat()
+    conn.execute(
+        """INSERT INTO translation_cache
+           (cache_key, target_lang, original_text, translated_text, status, provider, created_at, updated_at)
+           VALUES (?, 'ko', ?, ?, 'TRANSLATED', 'AnthropicTranslationProvider', ?, ?)""",
+        (key, "AI headline", "AI 헤드라인 번역", now_iso, now_iso),
+    )
+    conn.commit()
+    conn.close()
+
+    exit_code = cli.main([
+        "--db-path", str(db_path), "--report-date", "2026-08-13", "--docs-dir", str(docs_dir),
+    ])
+    assert exit_code == cli.EXIT_OK
+    music_html = (docs_dir / "music.html").read_text(encoding="utf-8")
+    daily_html = (docs_dir / "daily.html").read_text(encoding="utf-8")
+    assert "AI 헤드라인 번역" in daily_html or "AI 헤드라인 번역" in music_html

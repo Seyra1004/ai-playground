@@ -59,6 +59,30 @@ _REFUSAL_MARKERS = (
     "i apologize", "let me know if", "i'm not able to", "i am not able to",
 )
 
+# PROFESSIONAL EDITORIAL QUALITY PASS: report/music_trend_synthesis.py and
+# report/producer_synthesis.py both hand the LLM an evidence catalog whose
+# entries are internally labeled "E1", "E2", ... (see build_evidence_
+# catalog) -- the model sometimes echoes those literal internal ref labels
+# into its own `observed`/`interpretation`/`why_it_matters` prose (e.g.
+# "E11은 Tinashe의 신곡..."), a real, confirmed defect: an internal
+# citation identifier is never user-facing content, only `evidence_refs`
+# (a separate, real, structured field the renderer resolves to a human-
+# readable summary) is meant to carry it. Deliberately REJECTS rather than
+# attempts to surgically rewrite the sentence around a removed token --
+# matching this module's own "reject, never partially degrade" contract;
+# a real day with too little clean evidence simply shows fewer items,
+# never a silently mangled sentence.
+_INTERNAL_ID_RE = re.compile(r"(?<![A-Za-z가-힣])E\d{1,3}(?:[/,]\s?E\d{1,3})*(?![A-Za-z0-9])")
+
+
+def has_internal_id_leak(text):
+    """True when `text` contains a literal internal evidence-ref label
+    (e.g. "E11", "E12/E15/E16") -- these must never appear in user-facing
+    prose."""
+    if not text:
+        return False
+    return bool(_INTERNAL_ID_RE.search(text))
+
 
 def _en_currency_values(text):
     """A missing magnitude suffix (a bare "$5" with no B/M/K) is real
@@ -142,15 +166,18 @@ def has_refusal_marker(text):
 def is_malformed_synthesis_text(text):
     """True (malformed -- reject or safely degrade, never persist/display
     as valid intelligence) when `text` is empty/whitespace, contains a
-    known raw refusal/meta-response marker, or is not plausibly Korean.
-    Reused across every LLM-native Korean synthesis field (News/Producer/
-    Music Trend Intelligence, news-selection `reason`) -- the same
-    deterministic malformed-output class report/translation_validation.py
-    already catches for translated text, applied here to text an LLM wrote
-    directly rather than translated."""
+    known raw refusal/meta-response marker, leaks a literal internal
+    evidence-ref label (see has_internal_id_leak), or is not plausibly
+    Korean. Reused across every LLM-native Korean synthesis field (News/
+    Producer/Music Trend Intelligence, news-selection `reason`) -- the
+    same deterministic malformed-output class report/translation_
+    validation.py already catches for translated text, applied here to
+    text an LLM wrote directly rather than translated."""
     if not text or not text.strip():
         return True
     if has_refusal_marker(text):
+        return True
+    if has_internal_id_leak(text):
         return True
     return not is_plausibly_korean_output(text)
 

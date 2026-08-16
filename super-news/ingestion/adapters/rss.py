@@ -86,6 +86,33 @@ def _entry_published_at(entry):
         return None
 
 
+def _entry_image_url(entry):
+    """MUSIC EDITORIAL IMAGERY: real, feed-provided image metadata only --
+    media:thumbnail, media:content (medium="image" or an image/* type), or
+    an image-typed RSS <enclosure> -- never fetched, scraped, or guessed.
+    Checked in that priority order (most to least image-specific feed
+    convention); the first candidate that is actually an http(s) URL
+    string wins. Returns None when the feed carries no trustworthy image
+    at all, same as if the field had been empty."""
+    candidates = []
+    for media in entry.get("media_thumbnail") or []:
+        if media.get("url"):
+            candidates.append(media["url"])
+    for media in entry.get("media_content") or []:
+        media_type = media.get("type") or ""
+        if media.get("url") and (media.get("medium") == "image" or media_type.startswith("image/")):
+            candidates.append(media["url"])
+    for enclosure in entry.get("enclosures") or []:
+        enclosure_type = enclosure.get("type") or ""
+        url = enclosure.get("href") or enclosure.get("url")
+        if url and enclosure_type.startswith("image/"):
+            candidates.append(url)
+    for candidate in candidates:
+        if isinstance(candidate, str) and candidate.startswith(("http://", "https://")):
+            return candidate
+    return None
+
+
 def _entry_guid(entry):
     """feedparser normalizes an entry's GUID into `id`. When the feed
     didn't provide a GUID distinct from the link, feedparser sets
@@ -106,6 +133,7 @@ def _entry_to_record(source_config, entry, collected_at):
     guid = _entry_guid(entry)
     title = entry.get("title")
     published_at = _entry_published_at(entry)
+    image_url = _entry_image_url(entry)
 
     source_item_key = resolve_source_item_key(
         source_name=source_config.source_name,
@@ -125,6 +153,12 @@ def _entry_to_record(source_config, entry, collected_at):
         published_at=published_at,
         collected_at=collected_at,
         region=source_config.region,
+        # Reuses IngestionRecord.extra (already persisted verbatim into
+        # raw_items.extra_json by ingestion/persistence.py) rather than
+        # adding a new column/dataclass field -- see report/web_data_v2.
+        # _extract_trustworthy_image_url, the single place this is read
+        # back out.
+        extra={"image_url": image_url} if image_url else None,
     )
 
 

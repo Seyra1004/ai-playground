@@ -33,7 +33,7 @@ credit detail that day must produce nothing, never a filler guess."""
 import hashlib
 import json
 
-PROMPT_VERSION = "v1"
+PROMPT_VERSION = "v2"
 CATEGORY = "MUSIC_TREND_INTELLIGENCE"
 
 MAX_GENRE_SIGNALS = 3
@@ -90,11 +90,23 @@ def build_evidence_catalog(spotify_chart, tiktok_chart, industry_news):
     since that is the only place this kind of detail is ever real here.
     Ref assignment is in a fixed, deterministic order so the same
     evidence always produces the same catalog (required for input_hash
-    reuse to actually trigger)."""
+    reuse to actually trigger).
+
+    MUSIC EVENT-LEVEL IDENTITY (TRUE lineage, not text matching): a
+    MUSIC_INDUSTRY_NEWS entry's `event_key` is the SAME real event_key
+    the originating `industry_news` item already carries (report.
+    web_data_v2's own news-item dict, see _news_section/_raw_fallback_
+    items) -- propagated here directly, at the one point this catalog is
+    actually built FROM that real item, so no downstream reader ever has
+    to re-derive it by matching text. None for every other evidence type
+    (chart/cross-platform/catalog-revival facts have no corresponding
+    real article at all -- never a fabricated event_key)."""
     catalog = []
 
-    def add(evidence_type, summary):
-        catalog.append({"ref": f"E{len(catalog) + 1}", "type": evidence_type, "summary": summary})
+    def add(evidence_type, summary, event_key=None):
+        catalog.append({
+            "ref": f"E{len(catalog) + 1}", "type": evidence_type, "summary": summary, "event_key": event_key,
+        })
 
     if spotify_chart.get("state") == "NORMAL":
         for entry in spotify_chart.get("top10", []):
@@ -118,7 +130,7 @@ def build_evidence_catalog(spotify_chart, tiktok_chart, industry_news):
             continue
         snippet = item.get("snippet")
         summary = title if not snippet else f"{title} — {snippet}"
-        add("MUSIC_INDUSTRY_NEWS", summary)
+        add("MUSIC_INDUSTRY_NEWS", summary, event_key=item.get("event_key"))
 
     return catalog
 
@@ -145,10 +157,29 @@ def find_reusable_interpretation(conn, input_hash):
 
 def _build_prompts(catalog):
     system_prompt = (
+        "CRITICAL LANGUAGE RULE, apply to every `observed` and `interpretation` "
+        "field you write below: they MUST be written entirely in natural, fluent "
+        "Korean (한국어). Never write them in English or mixed English/Korean, even "
+        "though the evidence catalog you are given is in English.\n\n"
+        "CRITICAL COUNT LIMIT, enforced by this system (not optional): "
+        f"genre_signals has a HARD MAXIMUM of {MAX_GENRE_SIGNALS} items, "
+        f"production_notes a HARD MAXIMUM of {MAX_PRODUCTION_NOTES}, "
+        f"producer_references a HARD MAXIMUM of {MAX_PRODUCER_REFERENCES}, and "
+        f"kpop_ar_notes a HARD MAXIMUM of {MAX_KPOP_AR_NOTES}. If the evidence "
+        "supports more genuine signals than a limit allows, return only the "
+        "strongest ones up to that limit -- never exceed it, and it is always "
+        "fine to return fewer (including zero) if the evidence doesn't support "
+        "that many.\n\n"
         "You are a music-industry trend analyst producing a short internal briefing, "
         "based ONLY on the evidence catalog you are given -- never on outside "
-        "knowledge, never on anything not in the catalog. Each evidence item has a "
-        "`ref` label. You are looking for FOUR distinct kinds of real signal:\n"
+        "knowledge, never on anything not in the catalog. This applies even to facts "
+        "you personally recognize as true about a well-known track or artist (e.g. a "
+        "song's real release year) -- if that specific fact is not literally present "
+        "in the evidence text for the ref(s) you cite, DO NOT state it, even as an "
+        "aside in parentheses. Describe only what the evidence catalog itself says "
+        "(e.g. current chart position, article text) -- never supplement it from your "
+        "own training knowledge. Each evidence item has a `ref` label. You are "
+        "looking for FOUR distinct kinds of real signal:\n"
         f"1. genre_signals (max {MAX_GENRE_SIGNALS}): a real genre, style, or format "
         "trend explicitly evidenced in the catalog (e.g. an article that names a "
         "genre, or a chart pattern across multiple same-genre entries). Never invent "
@@ -178,7 +209,22 @@ def _build_prompts(catalog):
         "labels that support it -- NEVER invent a ref that isn't in the catalog, and "
         "never leave this empty), and `confidence` (LOW/MEDIUM/HIGH). If a category has "
         "no genuine real support in the evidence, return an empty list for it -- never "
-        "pad any list with a weak, generic, or speculative entry just to fill it."
+        "pad any list with a weak, generic, or speculative entry just to fill it.\n\n"
+        "Write `observed` and `interpretation` in natural, fluent Korean (한국어) -- "
+        "the evidence catalog itself is in English, but your output text is read "
+        "directly by a Korean audience and must never be English or a mix of "
+        "English and Korean. Translate/paraphrase the English evidence into clear "
+        "Korean prose yourself; do not leave any English sentence untranslated.\n\n"
+        "Two more hard rules for `observed` and `interpretation` text: (1) NEVER write "
+        "an evidence `ref` label (e.g. \"E1\", \"E11\") as literal text inside `observed` "
+        "or `interpretation` -- that citation belongs ONLY in the separate structured "
+        "`evidence_refs` field; readers never see ref labels, so a sentence like \"E11 "
+        "shows...\" is a defect, write \"The article shows...\" instead. (2) Keep "
+        "`interpretation` a SUPPORTED interpretation, never a leap: if the evidence only "
+        "supports a general claim (e.g. a stadium booking supports \"large-scale demand\"), "
+        "do not extend it into a specific unsupported claim (e.g. a specific production "
+        "technique) the evidence never actually establishes -- when in doubt, state the "
+        "weaker, better-supported claim."
     )
     user_prompt = canonical_json({"evidence_catalog": catalog})
     return system_prompt, user_prompt

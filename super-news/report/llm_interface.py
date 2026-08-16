@@ -41,12 +41,39 @@ class StructuredLLM(ABC):
 
 def build_llm():
     """Factory: LLM_PROVIDER (env, default 'anthropic') selects the
-    implementation. Only 'anthropic' is supported in V1 -- any other value
-    is a configuration error, raised loudly rather than silently falling
-    back to a default provider."""
+    implementation. 'anthropic' (direct Anthropic Python SDK,
+    ANTHROPIC_API_KEY, paid/PAYG) and 'claude_cli' (report.llm_claude_cli's
+    subscription-authenticated `claude -p` subprocess adapter, no API key,
+    no direct api.anthropic.com call) are supported. Any other value is a
+    configuration error, raised loudly rather than silently falling back to
+    a default provider.
+
+    SUPER_NEWS_NO_PAID_API (env, same guard report.translation.
+    build_translation_provider() already checks) is enforced HERE too: if
+    it's truthy and the resolved provider is 'anthropic', this refuses to
+    construct a paid client at all -- raises rather than silently spending.
+    This is defense in depth on top of any caller (e.g. scripts/run_daily_
+    full_pipeline_v2.py) that forces LLM_PROVIDER=claude_cli into its own
+    subprocess environment: even a stray direct call into this factory
+    while the guard is active can never reach a paid provider."""
+    no_paid_api = (get_optional_env("SUPER_NEWS_NO_PAID_API", "") or "").strip().lower() in ("1", "true", "yes")
     provider = get_optional_env("LLM_PROVIDER", "anthropic")
+
+    if provider == "claude_cli":
+        from report.llm_claude_cli import ClaudeCLIStructuredLLM
+
+        return ClaudeCLIStructuredLLM()
+
     if provider == "anthropic":
+        if no_paid_api:
+            raise RuntimeError(
+                "SUPER_NEWS_NO_PAID_API=1 is set but LLM_PROVIDER='anthropic' (paid, direct "
+                "api.anthropic.com) -- refusing to construct a paid LLM client. Set "
+                "LLM_PROVIDER=claude_cli to use the authenticated Claude Code subscription "
+                "CLI instead, or unset SUPER_NEWS_NO_PAID_API to allow paid calls."
+            )
         from report.llm_anthropic import AnthropicStructuredLLM
 
         return AnthropicStructuredLLM()
-    raise ValueError(f"Unsupported LLM_PROVIDER={provider!r}; only 'anthropic' is supported in V1.")
+
+    raise ValueError(f"Unsupported LLM_PROVIDER={provider!r}; only 'anthropic'/'claude_cli' are supported in V1.")

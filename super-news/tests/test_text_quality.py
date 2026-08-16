@@ -4,6 +4,7 @@ text (report.translation_validation) and LLM-native synthesis text
 (report.validation, report.news_intelligence_synthesis)."""
 
 from report.text_quality import (
+    has_internal_id_leak,
     has_refusal_marker,
     is_malformed_synthesis_text,
     is_plausibly_korean_output,
@@ -46,6 +47,27 @@ def test_is_malformed_synthesis_text_accepts_real_korean_synthesis():
     assert not is_malformed_synthesis_text(
         "이번 발표는 업계 전반의 투자 심리에 영향을 줄 것으로 보인다."
     )
+
+
+def test_has_internal_id_leak_true_for_bare_ref():
+    assert has_internal_id_leak("E11은 Tinashe의 신곡과 관련된 근거다.")
+
+
+def test_has_internal_id_leak_true_for_multiple_refs():
+    assert has_internal_id_leak("근거 E12/E15/E16을 종합하면 이렇게 해석된다.")
+
+
+def test_has_internal_id_leak_false_for_real_korean_without_ref_label():
+    assert not has_internal_id_leak("이번 발매는 스트리밍 지표에 뚜렷한 변화를 보였다.")
+
+
+def test_has_internal_id_leak_false_for_empty():
+    assert not has_internal_id_leak("")
+    assert not has_internal_id_leak(None)
+
+
+def test_is_malformed_synthesis_text_rejects_internal_id_leak_even_with_real_korean():
+    assert is_malformed_synthesis_text("E11은 Tinashe의 신곡 확산과 관련된 근거다.")
 
 
 def test_unsupported_fact_tokens_year_grounded():

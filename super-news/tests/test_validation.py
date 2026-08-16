@@ -213,13 +213,14 @@ def test_invalid_confidence_rejected():
         pass
 
 
-def test_max_producer_insights_enforcement():
-    insights = [_insight() for _ in range(MAX_PRODUCER_INSIGHTS + 1)]
-    try:
-        validate_producer_insights({"insights": insights}, VALID_REFS)
-        assert False, "expected ProducerValidationError"
-    except ProducerValidationError as exc:
-        assert str(MAX_PRODUCER_INSIGHTS + 1) in exc.reason
+def test_over_max_producer_insights_truncated_not_rejected():
+    # A real model occasionally overshoots MAX_PRODUCER_INSIGHTS despite the
+    # prompt's explicit cap -- truncating to the limit (keeping the
+    # strongest-first ordering the prompt asks for) still enforces the hard
+    # cap without discarding an otherwise-valid day's intelligence.
+    insights = [_insight() for _ in range(MAX_PRODUCER_INSIGHTS + 3)]
+    result = validate_producer_insights({"insights": insights}, VALID_REFS)
+    assert len(result) == MAX_PRODUCER_INSIGHTS
 
 
 def test_exactly_max_producer_insights_allowed():
@@ -338,14 +339,13 @@ def test_invalid_confidence_rejected():
         pass
 
 
-def test_max_items_per_list_enforced_independently():
+def test_over_max_items_per_list_truncated_not_rejected():
+    # Same truncate-rather-than-reject discipline as
+    # test_over_max_producer_insights_truncated_not_rejected above.
     payload = _all_empty_lists()
-    payload["genre_signals"] = [_trend_item() for _ in range(MAX_MUSIC_TREND_ITEMS_PER_LIST + 1)]
-    try:
-        validate_music_trend_signals(payload, VALID_REFS)
-        assert False, "expected MusicTrendValidationError"
-    except MusicTrendValidationError as exc:
-        assert "genre_signals" in exc.reason
+    payload["genre_signals"] = [_trend_item() for _ in range(MAX_MUSIC_TREND_ITEMS_PER_LIST + 3)]
+    result = validate_music_trend_signals(payload, VALID_REFS)
+    assert len(result["genre_signals"]) == MAX_MUSIC_TREND_ITEMS_PER_LIST
 
 
 def test_one_bad_list_never_invalidates_a_well_grounded_item_check_is_atomic():

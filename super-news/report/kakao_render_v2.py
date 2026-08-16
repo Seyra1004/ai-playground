@@ -214,6 +214,63 @@ def _future_radar_line(intelligence):
     return f"퓨처 레이더: 데이터 부족 ({days}/{required}일)"
 
 
+# =============================================================================
+# SUPER NEWS MUSIC / SUPER NEWS DAILY -- independent single-message products
+# (Kakao delivery split phase). render_kakao_digest() above stays as-is
+# (legacy combined teaser, still used nowhere new); these two are the real
+# production per-product messages report_delivery_v2.py sends independently,
+# each idempotent under its own REPORT_TYPE.
+# =============================================================================
+
+_MUSIC_CTA_LINE = "MUSIC 전체 브리핑 →"
+_DAILY_CTA_LINE = "DAILY 전체 브리핑 →"
+
+
+def _assemble_with_cta(lines, cta_line):
+    """Same budget-reserved CTA assembly as render_kakao_digest() -- content
+    is truncated to fit AROUND the CTA, never the other way around."""
+    body = "\n".join(lines).rstrip()
+    cta_block = "\n\n" + cta_line
+    body_budget = MAX_TEXT_LENGTH - len(cta_block)
+    if len(body) > body_budget:
+        body = body[: body_budget - 1].rstrip() + "…"
+    text = body + cta_block
+    assert len(text) <= MAX_TEXT_LENGTH  # invariant, not a runtime user-facing check
+    return text
+
+
+def render_music_kakao_digest(dashboard_data_v2):
+    """SUPER NEWS MUSIC -- single compact Kakao message, MUSIC content ONLY
+    (TikTok chart, Spotify chart, Early Signal, Music Industry news lead).
+    Never includes AI/ECONOMY/SOCIETY content -- that is exclusively
+    render_daily_kakao_digest()'s own product, sent/tracked independently."""
+    y, m, d = dashboard_data_v2["report_date_kst"].split("-")
+    news = dashboard_data_v2["news"]
+
+    lines = [f"SUPER NEWS MUSIC | {int(m)}월 {int(d)}일", ""]
+    lines.append(f"TikTok: {_tiktok_line(dashboard_data_v2['tiktok_chart'])}")
+    lines.append(f"Spotify: {_spotify_line(dashboard_data_v2['spotify_chart'])}")
+    lines.append(f"Signal: {_signal_line(dashboard_data_v2['intelligence'])}")
+    lines.append(f"Industry: {_music_industry_lines(news)[0]}")
+
+    return _assemble_with_cta(lines, _MUSIC_CTA_LINE)
+
+
+def render_daily_kakao_digest(dashboard_data_v2):
+    """SUPER NEWS DAILY -- single compact Kakao message, AI/ECONOMY/SOCIETY
+    content ONLY. Never includes any Music content -- that is exclusively
+    render_music_kakao_digest()'s own product, sent/tracked independently."""
+    y, m, d = dashboard_data_v2["report_date_kst"].split("-")
+    news = dashboard_data_v2["news"]
+
+    lines = [f"SUPER NEWS DAILY | {int(m)}월 {int(d)}일", ""]
+    for label, category in (("AI", "AI"), ("ECONOMY", "ECONOMY"), ("SOCIETY", "SOCIETY")):
+        line = _first_news_line(news[category])
+        lines.append(f"{label}: {line if line else '오늘 보고할 뉴스 없음'}")
+
+    return _assemble_with_cta(lines, _DAILY_CTA_LINE)
+
+
 def render_full_digest_text(dashboard_data_v2):
     """Returns ONE logical digest string (before splitting) covering: top
     news leads (AI/ECONOMY/SOCIETY), Music Industry news, Spotify/Apple

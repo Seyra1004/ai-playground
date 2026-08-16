@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SUPER NEWS DAILY — 2026.08.16</title>
+<style>
+:root {
+  color-scheme: light dark;
+  --bg: #f7f6f2;
+  --surface: #ffffff;
+  --ink: #17181c;
+  --ink-soft: rgba(23,24,28,0.66);
+  --ink-faint: rgba(23,24,28,0.44);
+  --rule: rgba(23,24,28,0.12);
+  --chip-bg: rgba(23,24,28,0.06);
+  --masthead: #1f3a5f;
+  --hue-music: #0f6e4f;
+  --hue-music-tint: rgba(15,110,79,0.055);
+  --hue-music-tint2: #0d7a72;
+  --hue-ai: #2f5aa8;
+  --hue-economy: #97730f;
+  --hue-society: #8b3a4a;
+  --hue-sources: #6b7280;
+  --bad-down: #b91c1c;
+  --good-up: #15803d;
+  --new-badge: #1d4ed8;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121317;
+    --surface: #191b20;
+    --ink: #eef0f3;
+    --ink-soft: rgba(238,240,243,0.72);
+    --ink-faint: rgba(238,240,243,0.5);
+    --rule: rgba(238,240,243,0.14);
+    --chip-bg: rgba(238,240,243,0.08);
+    --masthead: #7ea1d6;
+    --hue-music: #3ddc9a;
+    --hue-music-tint: rgba(61,220,154,0.09);
+    --hue-music-tint2: #4fd6c8;
+    --hue-ai: #7fa6e6;
+    --hue-economy: #d4b866;
+    --hue-society: #d98a9a;
+    --hue-sources: #9aa0aa;
+    --bad-down: #f87171;
+    --good-up: #4ade80;
+    --new-badge: #93c5fd;
+  }
+}
+* { box-sizing: border-box; }
+html { background: var(--bg); }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+  background: var(--bg); color: var(--ink);
+  margin: 0; padding: 0 0 64px; line-height: 1.7; font-size: 17px;
+}
+.num { font-family: Georgia, "Times New Roman", ui-serif, serif; font-variant-numeric: tabular-nums; }
+a { color: inherit; }
+
+.masthead { max-width: 1280px; margin: 0 auto; padding: 24px 20px 0; border-bottom: 1px solid var(--rule); padding-bottom: 16px; }
+.brand-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.brand { font-family: Georgia, "Times New Roman", ui-serif, serif; font-size: 0.82rem; font-weight: 700;
+  letter-spacing: 0.22em; color: var(--masthead); }
+.tagline { font-size: 0.72rem; letter-spacing: 0.08em; opacity: 0.5; text-transform: uppercase; }
+.meta-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 2px; }
+.date { font-family: Georgia, "Times New Roman", ui-serif, serif; font-size: clamp(1.5rem, 2.6vw, 2rem);
+  font-weight: 700; margin: 0; letter-spacing: -0.01em; }
+.read-time { font-size: 0.76rem; color: var(--ink-faint); letter-spacing: 0.02em; white-space: nowrap; }
+
+/* ---- thin horizontal publication nav, just under the masthead ---- */
+.pub-nav { max-width: 1280px; margin: 0 auto; padding: 10px 20px; display: flex; align-items: center;
+  gap: 18px; border-bottom: 1px solid var(--rule); overflow-x: auto; }
+.pub-nav-badge { flex: 0 0 auto; font-size: 0.64rem; font-weight: 800; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--hue-music); white-space: nowrap; }
+.pub-nav-links { display: flex; gap: 2px; flex-wrap: nowrap; white-space: nowrap; }
+.pub-nav-link { display: inline-block; padding: 5px 11px; font-size: 0.8rem; font-weight: 600;
+  color: var(--ink-soft); text-decoration: none; border-radius: 999px; }
+.pub-nav-link:hover, .pub-nav-link:focus-visible { color: var(--ink); background: var(--chip-bg); }
+
+/* ---- TODAY'S MUSIC INTELLIGENCE (Level 1, MUSIC ONLY) -- true newsletter
+   lead structure: a single full-width LEAD STORY, then a stacked TODAY IN
+   MUSIC list of at most 3 compact secondary signals underneath -- never a
+   side-by-side grid (that's the old dashboard-hero layout this rebuild
+   replaces, and the source of the large-blank-space defect it had). ---- */
+.today-intel { max-width: 900px; margin: 24px auto 0; padding: 0 20px; }
+.today-intel h1 { font-size: 0.78rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.12em;
+  color: var(--hue-music); margin: 0 0 16px; }
+
+/* ---- REFERENCE DESIGN: the lead story gets the same premium
+   rounded-white-card treatment as the ed-card article cards below it
+   (large radius, thin border, subtle shadow, generous padding) -- same
+   markup/classes as before (zero test impact), restyled only. ---- */
+.lead-story { background: var(--surface); border: 1px solid var(--rule); border-radius: 14px;
+  box-shadow: 0 1px 3px rgba(16,24,40,0.06), 0 1px 2px rgba(16,24,40,0.05);
+  padding: 28px; }
+.lead-kicker { display: inline-block; font-size: 0.74rem; font-weight: 700; letter-spacing: 0.02em;
+  color: var(--masthead); background: var(--chip-bg); padding: 4px 12px; border-radius: 999px; margin-bottom: 14px; }
+.lead-title { font-weight: 800; color: var(--masthead);
+  font-size: clamp(1.5rem, 3.4vw, 2.1rem); line-height: 1.3; margin: 0 0 14px; }
+.lead-title a { text-decoration: none; }
+.lead-title a:hover { text-decoration: underline; }
+/* Editorial imagery is for importance signaling, not decoration: fixed
+   aspect-ratio (no layout shift while it loads) and a hard max-height so
+   it reinforces the headline instead of overpowering WHY IT MATTERS /
+   PRODUCER IMPACT below it. */
+.lead-image-wrap { margin: 4px 0 18px; border-radius: 10px; overflow: hidden; aspect-ratio: 16 / 9;
+  max-height: 420px; background: var(--chip-bg); }
+.lead-image { display: block; width: 100%; height: 100%; object-fit: cover; }
+.lead-summary { font-size: 1.02rem; color: var(--ink-soft); line-height: 1.65; margin: 0 0 16px; max-width: 68ch; }
+.lead-why-row { display: flex; gap: 12px; align-items: flex-start; margin: 0; padding: 9px 0;
+  border-top: 1px dashed var(--rule); font-size: 0.95rem; }
+.lead-why-row:first-of-type { border-top: 1px solid var(--rule); }
+.lead-why-label { flex: 0 0 auto; width: 22px; height: 22px; margin-top: 1px; border-radius: 999px;
+  background: var(--masthead); color: #fff; font-size: 0; text-transform: none; text-align: center; }
+.lead-why-label::before { content: "¹3"; font-size: 0.68rem; font-weight: 800; line-height: 22px; }
+.lead-why-row p { margin: 0; }
+.lead-meta { margin-top: 18px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.lead-meta .item-byline { margin: 0; }
+.lead-meta .item-link { display: inline-flex; align-items: center; gap: 6px; background: var(--masthead);
+  color: #fff; font-weight: 700; font-size: 0.88rem; padding: 11px 22px; border-radius: 999px;
+  min-height: 0; line-height: 1.2; }
+.lead-meta .item-link:hover { opacity: 0.88; text-decoration: none; }
+
+.today-secondary { margin-top: 28px; border-top: 1px solid var(--rule); padding-top: 18px; }
+.today-secondary-head { font-size: 0.7rem; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--ink-faint); margin: 0 0 10px; }
+.today-secondary-list { display: flex; flex-direction: column; gap: 0; }
+.signal-card { display: flex; gap: 12px; align-items: flex-start; padding: 14px 0; border-top: 1px solid var(--rule); }
+.today-secondary-list .signal-card:first-child { border-top: none; padding-top: 0; }
+.signal-thumb { flex: 0 0 auto; width: 64px; height: 64px; border-radius: 4px; object-fit: cover; background: var(--chip-bg); }
+.signal-body { flex: 1 1 auto; min-width: 0; }
+.signal-kicker { display: block; font-size: 0.66rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--hue-music); margin-bottom: 4px; }
+.signal-title { font-weight: 700; font-size: 1rem; line-height: 1.4; margin: 0; }
+.signal-title a { text-decoration: none; }
+.signal-title a:hover { text-decoration: underline; }
+.signal-meaning { font-size: 0.88rem; color: var(--ink-soft); margin: 5px 0 0; }
+
+.main { max-width: 900px; margin: 0 auto; padding: 0 20px; }
+section.block { margin-bottom: 34px; padding-bottom: 24px; border-bottom: 1px solid var(--rule); }
+section.block:last-of-type { border-bottom: none; }
+.block-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px; }
+.block-head h2 { font-size: 0.98rem; font-weight: 800; margin: 0; letter-spacing: 0.01em; }
+.block-head .block-sub { font-size: 0.78rem; color: var(--ink-faint); }
+.block-MUSICTODAY .block-head h2, .block-CHARTPULSE .block-head h2, .block-INDUSTRY .block-head h2,
+.block-GENRE .block-head h2, .block-PRODUCTION .block-head h2, .block-PRODUCER .block-head h2,
+.block-SIGNALS .block-head h2, .block-OUTLOOK .block-head h2 { color: var(--hue-music); }
+.block-AI .block-head h2 { color: var(--hue-ai); }
+.block-ECONOMY .block-head h2 { color: var(--hue-economy); }
+.block-SOCIETY .block-head h2 { color: var(--hue-society); }
+.block-SOURCES .block-head h2 { color: var(--hue-sources); }
+/* MUSIC is the primary domain: its section headers stay Level-2/3 sized;
+   AI drops one notch; ECONOMY/SOCIETY drop further still (Level 5) -- see
+   this module's own docstring on the target visible-product ratio. */
+.block-AI .block-head h2 { font-size: 0.86rem; }
+.block-ECONOMY .block-head h2, .block-SOCIETY .block-head h2 { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.06em; }
+.block-SOURCES .block-head h2 { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; }
+.block-ECONOMY, .block-SOCIETY { margin-bottom: 24px; padding-bottom: 16px; }
+.block-SOURCES { margin-bottom: 0; }
+
+/* ---- category-transition divider: a reader scrolling out of MUSIC must
+   immediately register "I have left MUSIC" -- this is deliberately a
+   stronger visual break than an ordinary .block-head (bigger rule,
+   uppercase eyebrow, more surrounding air), placed ONCE before each
+   non-MUSIC category group, never repeated per-section within a group. */
+.category-transition { margin: 8px 0 26px; padding-top: 22px; border-top: 3px solid var(--divider-color, var(--ink)); }
+.category-transition .transition-label { display: block; font-size: 1.05rem; font-weight: 800; letter-spacing: 0.02em;
+  color: var(--divider-color, var(--ink)); margin: 0; }
+.category-transition .transition-sub { font-size: 0.8rem; color: var(--ink-faint); margin: 4px 0 0; }
+.category-transition.transition-AI { --divider-color: var(--hue-ai); }
+.category-transition.transition-ECONOMY { --divider-color: var(--hue-economy); }
+.category-transition.transition-SOCIETY { --divider-color: var(--hue-society); }
+
+/* ---- QUIET section variant: no real signal today, or a capability not
+   yet connected at all -- recedes instead of competing with sections
+   that carry real content. ---- */
+section.block.block-quiet { margin-bottom: 20px; padding-bottom: 14px; border-bottom: none; }
+section.block.block-quiet .block-head { margin-bottom: 6px; }
+section.block.block-quiet .block-head h2 { font-size: 0.72rem; font-weight: 700; color: var(--ink-faint) !important; }
+section.block.block-quiet .state-message { font-size: 0.86rem; }
+.quiet-line { font-size: 0.86rem; color: var(--ink-faint); padding: 2px 0; margin: 0; }
+
+/* ---- MUSIC TODAY ---- */
+.music-today-list { display: flex; flex-direction: column; gap: 0; }
+/* Editorial rule-separated treatment (not a filled box) -- "reduce
+   repeated card styling," boxes are reserved for Producer/A&R Takeaways
+   below, where a real actionable item benefits from stronger visual
+   separation. */
+.mt-card { padding: 14px 0 14px 16px; border-top: 1px solid var(--rule); border-left: 3px solid var(--hue-music); }
+.music-today-list .mt-card:first-child { border-top: none; }
+.mt-kicker-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.mt-type { font-size: 0.68rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--hue-music); }
+.mode-badge { font-size: 0.62rem; font-weight: 700; letter-spacing: 0.04em; padding: 1px 6px; border-radius: 3px; }
+.mode-FACT { background: var(--chip-bg); color: var(--ink-faint); }
+.mode-ANALYSIS { background: rgba(15,110,79,0.1); color: var(--hue-music); }
+.mt-headline { font-size: 1.05rem; font-weight: 700; margin: 0 0 6px; line-height: 1.4; }
+.mt-fact { font-size: 0.98rem; font-weight: 600; margin: 0 0 6px; line-height: 1.5; }
+.mt-why, .mt-implication { font-size: 0.9rem; color: var(--ink-soft); margin: 6px 0 0; padding-left: 12px; border-left: 2px solid var(--rule); }
+.mt-why b, .mt-implication b { color: var(--ink); font-weight: 700; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; display: block; margin-bottom: 2px; }
+
+/* ---- CHART PULSE: a light data terminal, not another article list --
+   monospace numerals, an explicit header row, generous letter-spacing on
+   labels -- deliberately reads as DATA, distinct from the newsletter
+   prose everywhere else on the page. ---- */
+.pulse-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.pulse-table thead th { text-align: left; font-size: 0.64rem; font-weight: 800; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--ink-faint); padding: 0 6px 8px; border-bottom: 1px solid var(--rule); }
+.pulse-table thead th.pulse-rank, .pulse-table thead th.pulse-delta-head { text-align: right; }
+.pulse-table thead th.pulse-status-head { text-align: right; }
+.pulse-table tbody tr { border-top: 1px solid var(--rule); }
+.pulse-table tbody tr:first-child { border-top: none; }
+.pulse-table td { padding: 9px 6px; vertical-align: baseline; }
+.pulse-rank { font-weight: 700; opacity: 0.55; font-size: 1rem; width: 2em; text-align: right; }
+.pulse-track { font-weight: 600; }
+.pulse-delta-cell { text-align: right; white-space: nowrap; }
+.pulse-delta { font-size: 0.86rem; font-weight: 700; color: var(--ink-faint); }
+.pulse-delta-up { color: var(--good-up); }
+.pulse-delta-down { color: var(--bad-down); }
+.pulse-badges { text-align: right; white-space: nowrap; }
+.pulse-badges .badge { margin-left: 4px; }
+.badge { font-size: 0.72rem; font-weight: 700; padding: 2px 7px; border-radius: 999px; white-space: nowrap; display: inline-block; }
+.badge-new { background: rgba(29,78,216,0.12); color: var(--new-badge); }
+.badge-first { background: var(--chip-bg); color: var(--ink-faint); }
+.badge-up { background: rgba(21,128,61,0.12); color: var(--good-up); }
+.badge-down { background: rgba(185,28,28,0.12); color: var(--bad-down); }
+.badge-flat { background: var(--chip-bg); color: var(--ink-faint); }
+.badge-cross { background: rgba(15,110,79,0.12); color: var(--hue-music); }
+.pulse-narrative { font-size: 0.9rem; color: var(--ink-soft); margin: 10px 0 0; }
+.pulse-status { font-size: 0.82rem; color: var(--ink-faint); margin: 8px 0 0; }
+
+/* ---- compact news cards (AI / ECONOMY / SOCIETY / MUSIC INDUSTRY) ---- */
+.news-list { display: flex; flex-direction: column; gap: 0; }
+.news-card { padding: 14px 0; border-top: 1px solid var(--rule); }
+.news-list .news-card:first-child { border-top: none; }
+.news-list .ed-card:first-child { border-top: 1px solid var(--rule); }
+
+/* ---- FINAL VISUAL PASS: premium bounded card, Music Industry ONLY --
+   AI/Economy/Society intentionally keep the lighter rule-separated
+   treatment above; this is a scoped addition, not a global redesign. ---- */
+#section-INDUSTRY .news-list { gap: 12px; }
+#section-INDUSTRY .news-card {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  padding: 16px;
+}
+.news-corrob { display: inline-block; font-size: 0.72rem; font-weight: 600; color: var(--ink-faint); margin-bottom: 4px; }
+.news-title { font-weight: 700; font-size: 0.98rem; line-height: 1.4; margin: 0 0 4px; }
+.item-byline { font-size: 0.78rem; color: var(--ink-faint); margin: 2px 0 6px; }
+.news-summary { font-size: 0.92rem; color: var(--ink-soft); margin: 0 0 4px; max-width: 68ch;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.news-why { font-size: 0.88rem; color: var(--ink-soft); margin: 4px 0 6px; max-width: 68ch;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.news-why b { color: var(--ink); font-weight: 700; }
+.item-link { display: inline-block; font-size: 0.85rem; color: var(--masthead); text-decoration: none; min-height: 26px; line-height: 26px; }
+.item-link:hover { text-decoration: underline; }
+
+/* ---- Semantic story-type chip (Music Industry only, EDITORIAL INTEGRITY FIX) ---- */
+.story-type-chip { display: inline-block; font-size: 0.62rem; font-weight: 800; letter-spacing: 0.06em;
+  text-transform: uppercase; padding: 2px 7px; border-radius: 3px; background: var(--chip-bg);
+  margin: 0 0 6px; }
+.story-type-emerald { color: var(--hue-music); }
+.story-type-teal { color: var(--hue-music-tint2, var(--hue-music)); }
+.story-type-cobalt { color: var(--hue-ai); }
+.story-type-amber { color: var(--hue-economy); }
+
+/* ---- Level C: COMPACT BRIEF (lower-priority, no summary, no container) ---- */
+.news-compact { padding: 9px 0; }
+.news-title-compact { font-size: 0.9rem; font-weight: 600; line-height: 1.4; margin: 0 0 2px; }
+.news-compact .item-byline { margin: 0 0 2px; }
+.news-compact .item-link { font-size: 0.78rem; min-height: 0; line-height: 1.4; }
+
+/* ---- Music Industry keeps compact (C) tier lighter than its A/B
+   editorial cards above. ---- */
+#section-INDUSTRY .news-compact { padding: 10px 14px; }
+
+/* ---- FINAL DENSITY PASS: ECONOMY/SOCIETY ultra-compact awareness row --
+   exactly two real lines (headline, then source · date · link), never a
+   card/box -- a real single flex row on desktop where the headline is
+   short enough to share space with its metadata, wrapping naturally
+   (never forced) when it isn't; always two stacked lines on mobile (see
+   the max-width:600px override below). Deliberately its own visual
+   contract, distinct from Level A/B/C, since ECONOMY/SOCIETY are a
+   peripheral awareness feed here, not a tiered newsletter section. ---- */
+.news-row-compact { padding: 7px 0; border-top: 1px solid var(--rule); display: flex; flex-wrap: wrap;
+  align-items: baseline; justify-content: space-between; column-gap: 16px; row-gap: 1px; }
+.news-list .news-row-compact:first-child { border-top: none; }
+.news-title-ultra { font-size: 0.92rem; font-weight: 600; line-height: 1.4; margin: 0; flex: 1 1 auto; min-width: 60%; }
+.news-meta-line { font-size: 0.76rem; color: var(--ink-faint); margin: 0; flex: 0 0 auto; white-space: nowrap; }
+.news-meta-line a { color: var(--masthead); text-decoration: none; }
+.news-meta-line a:hover { text-decoration: underline; }
+@media (max-width: 600px) {
+  .news-row-compact { flex-direction: column; align-items: flex-start; row-gap: 2px; }
+  .news-meta-line { white-space: normal; }
+}
+
+/* ---- REFERENCE EDITORIAL CARD (Level A/B: LEAD / IMPORTANT tiers) --
+   image left (desktop) / top (mobile), category pill, large headline,
+   summary, up to 3 real supported key points, prominent CTA button. See
+   module docstring's REFERENCE DESIGN note. Reuses --masthead (already
+   theme-aware light/dark) as the single navy accent -- no new color
+   tokens needed. ---- */
+.ed-card { background: var(--surface); border: 1px solid var(--rule); border-radius: 14px;
+  box-shadow: 0 1px 3px rgba(16,24,40,0.06), 0 1px 2px rgba(16,24,40,0.05);
+  padding: 24px; margin: 0 0 20px; display: flex; gap: 28px; align-items: flex-start; }
+.ed-card-media { flex: 0 0 42%; max-width: 420px; }
+.ed-card-media img { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover;
+  border-radius: 10px; background: var(--chip-bg); }
+.ed-card-body { flex: 1 1 auto; min-width: 0; }
+.ed-pill { display: inline-block; font-size: 0.74rem; font-weight: 700; padding: 4px 12px;
+  border-radius: 999px; background: var(--chip-bg); color: var(--masthead); margin: 0 0 12px; }
+.ed-headline { font-weight: 800; line-height: 1.35; color: var(--masthead); margin: 0 0 10px; }
+.ed-headline a { color: inherit; text-decoration: none; }
+.ed-headline a:hover { text-decoration: underline; }
+.ed-card-lead .ed-headline { font-size: clamp(1.35rem, 2.6vw, 1.85rem); }
+.ed-card-standard .ed-headline { font-size: clamp(1.1rem, 1.9vw, 1.35rem); }
+.ed-summary { font-size: 0.98rem; color: var(--ink-soft); line-height: 1.65; margin: 0 0 14px; max-width: 68ch; }
+.ed-divider { border: none; border-top: 1px solid var(--rule); margin: 0 0 14px; }
+.ed-bullets { list-style: none; margin: 0 0 18px; padding: 0; }
+.ed-bullet { display: flex; align-items: flex-start; gap: 12px; padding: 9px 0;
+  border-top: 1px dashed var(--rule); font-size: 0.92rem; color: var(--ink); line-height: 1.5; }
+.ed-bullet:first-child { border-top: none; }
+.ed-bullet-icon { flex: 0 0 auto; width: 22px; height: 22px; margin-top: 1px; border-radius: 999px;
+  background: var(--masthead); color: #fff; font-size: 0.68rem; font-weight: 800;
+  display: flex; align-items: center; justify-content: center; }
+.ed-cta { display: inline-flex; align-items: center; gap: 6px; background: var(--masthead);
+  color: #fff; font-weight: 700; font-size: 0.88rem; padding: 11px 22px; border-radius: 999px;
+  text-decoration: none; }
+.ed-cta:hover { opacity: 0.88; text-decoration: none; }
+.ed-byline { font-size: 0.78rem; color: var(--ink-faint); margin: 0 0 14px; }
+@media (max-width: 640px) {
+  .ed-card { flex-direction: column; padding: 16px; gap: 14px; }
+  .ed-card-media { flex: none; max-width: none; width: 100%; }
+  .ed-card-media img { aspect-ratio: 16 / 9; }
+  .ed-card-lead .ed-headline { font-size: 1.3rem; }
+  .ed-card-standard .ed-headline { font-size: 1.1rem; }
+  .ed-cta { width: 100%; justify-content: center; padding: 13px 22px; }
+}
+
+/* ---- progressive disclosure ---- */
+details.more-disclosure { margin-top: 10px; }
+details.more-disclosure > summary { cursor: pointer; font-size: 0.84rem; font-weight: 700; color: var(--masthead);
+  list-style: none; padding: 6px 0; }
+details.more-disclosure > summary::-webkit-details-marker { display: none; }
+details.more-disclosure > summary::before { content: "+ "; }
+details.more-disclosure[open] > summary::before { content: "− "; }
+details.more-disclosure > .news-list { margin-top: 4px; padding-top: 4px; border-top: 1px dashed var(--rule); }
+
+/* ---- Genre / Production Radar (editorial, rule-separated -- no box).
+   GENRE uses a solid emerald left rule (matches the rest of MUSIC's
+   intelligence modules); PRODUCTION uses a dashed teal-leaning rule +
+   monospace observed line, so the two radars read as visually distinct
+   real modules -- never by inventing a fake structured field grid
+   neither pipeline's synthesis actually produces. ---- */
+.radar-list { display: flex; flex-direction: column; gap: 0; }
+.radar-card { padding: 14px 0 14px 16px; border-top: 1px solid var(--rule); border-left: 3px solid var(--hue-music); }
+.radar-list .radar-card:first-child { border-top: none; }
+.radar-observed-label { display: inline-block; font-size: 0.64rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--hue-music); margin-bottom: 4px; margin-right: 8px; }
+/* FACT/OBSERVATION/SIGNAL/TREND/INTELLIGENCE evidence-level badge (see
+   report.web_render_v2._evidence_level_label) -- a small, restrained
+   inline marker, never a rainbow card background; SIGNAL (2+ real
+   independent citations) gets a faint teal tint, OBSERVATION (a single
+   real citation) stays neutral/muted -- color signals real evidence
+   strength, never decoration. */
+.evidence-level-badge { display: inline-block; font-size: 0.6rem; font-weight: 700; letter-spacing: 0.06em;
+  text-transform: uppercase; padding: 1px 6px; border-radius: 3px; vertical-align: middle; }
+.evidence-level-observation { color: var(--ink-faint); background: var(--chip-bg); }
+.evidence-level-signal { color: var(--hue-music-tint2, var(--hue-music)); background: var(--hue-music-tint); }
+.radar-observed { font-size: 0.98rem; font-weight: 600; margin: 0 0 8px; max-width: 68ch; }
+.radar-interp { font-size: 0.9rem; color: var(--ink-soft); margin: 0 0 8px; max-width: 68ch; padding-left: 12px; border-left: 2px solid var(--rule); }
+.radar-card-production { border-left-style: dashed; border-left-color: var(--hue-music-tint2, var(--hue-music)); }
+.radar-card-production .radar-observed-label { color: var(--hue-music-tint2, var(--hue-music)); }
+.radar-card-production .radar-observed { font-family: Georgia, "Times New Roman", ui-serif, serif; }
+
+/* ---- Producer / A&R Takeaways (a real box: highest-value actionable
+   items genuinely benefit from stronger separation -- "use boxes only
+   when they add information hierarchy") ---- */
+.takeaway-list { display: flex; flex-direction: column; gap: 10px; }
+.takeaway-card { padding: 14px 16px; background: var(--surface); border: 1px solid var(--rule); border-left: 3px solid var(--hue-music); }
+.takeaway-label { display: block; font-size: 0.64rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--hue-music); margin-bottom: 4px; }
+
+/* Evidence collapsed by default (native <details>, zero JS) -- a real
+   citation a reader can open, never forced into view by default. */
+details.evidence-disclosure { margin: 4px 0 8px; }
+details.evidence-disclosure > summary { cursor: pointer; font-size: 0.76rem; font-weight: 600; color: var(--ink-faint);
+  list-style: none; padding: 2px 0; }
+details.evidence-disclosure > summary::-webkit-details-marker { display: none; }
+details.evidence-disclosure > summary::before { content: "+ "; }
+details.evidence-disclosure[open] > summary::before { content: "− "; }
+.evidence-chip { display: block; font-size: 0.78rem; padding: 6px 9px; border-radius: 4px; background: var(--chip-bg); color: var(--ink-soft); line-height: 1.5; max-width: 68ch; margin: 4px 0 0; }
+.evidence-chip::before { content: "— "; opacity: 0.5; }
+.confidence-badge { font-size: 0.68rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+.confidence-HIGH { color: var(--good-up); }
+.confidence-MEDIUM { color: var(--hue-economy); }
+.confidence-LOW { color: var(--ink-faint); }
+.takeaway-action { font-size: 1rem; font-weight: 700; margin: 0 0 10px; }
+.takeaway-row { font-size: 0.88rem; color: var(--ink-soft); margin: 0 0 6px; max-width: 68ch; }
+.takeaway-row:last-of-type { margin-bottom: 8px; }
+.takeaway-row b { color: var(--ink); font-weight: 600; }
+
+/* ---- Spotify Watch (PREMIUM INTELLIGENCE UPGRADE PASS): one compact
+   real card, DSP/platform teal accent -- never a giant new module, never
+   a rainbow addition to the existing restrained palette. ---- */
+.spotify-watch-card { padding: 14px 16px; background: var(--surface); border: 1px solid var(--rule);
+  border-left: 3px solid var(--hue-music-tint2, var(--hue-music)); }
+.spotify-watch-label { display: block; font-size: 0.64rem; font-weight: 800; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--hue-music-tint2, var(--hue-music)); margin-bottom: 6px; }
+.spotify-watch-title { font-size: 1.05rem; font-weight: 700; margin: 0 0 6px; max-width: 68ch; }
+.spotify-watch-row { font-size: 0.88rem; color: var(--ink-soft); margin: 0 0 6px; max-width: 68ch; }
+.spotify-watch-row b { color: var(--ink); font-weight: 600; }
+
+/* ---- Cross-Platform Signals (compact) ---- */
+.signal-compact-list { list-style: none; margin: 0; padding: 0; }
+.signal-compact-row { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px; padding: 8px 0; border-top: 1px solid var(--rule); font-size: 0.9rem; }
+.signal-compact-row:first-child { border-top: none; }
+.signal-compact-track { font-weight: 600; }
+.signal-compact-meta { font-size: 0.8rem; color: var(--ink-faint); }
+.signal-compact-detail { flex-basis: 100%; font-size: 0.82rem; color: var(--ink-soft); }
+
+/* ---- Sources ---- */
+.source-status-list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.source-status-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 4px; background: var(--surface); border: 1px solid var(--rule); font-size: 0.8rem; color: var(--ink-soft); }
+.status-dot { display: inline-block; width: 6px; height: 6px; border-radius: 999px; }
+.status-active .status-dot { background: var(--good-up); }
+.status-unavailable .status-dot { background: var(--bad-down); }
+
+.state-message { max-width: 68ch; padding: 12px 14px; border-radius: 4px; background: var(--chip-bg); font-size: 0.92rem; color: var(--ink-soft); }
+.state-message.state-degraded, .state-message.state-unavailable { color: var(--bad-down); }
+
+footer { max-width: 1280px; margin: 40px auto 0; padding: 0 20px; font-size: 0.72rem; color: var(--ink-faint); }
+
+@media (max-width: 960px) {
+  .main { max-width: 100%; }
+}
+
+@media (max-width: 600px) {
+  body { font-size: 16px; }
+  .masthead { padding: 18px 16px 14px; }
+  /* MOBILE MASTHEAD CLIPPING FIX (confirmed real defect via true 390px
+     headless-Chrome QA): .brand-row/.meta-row's own space-between +
+     flex-wrap did not reliably wrap the tagline/read-time onto their own
+     line at real narrow widths -- both were rendering clipped/invisible
+     past the right edge instead. Forcing each onto its own full-width
+     line removes any ambiguity -- neither is ever cut off, real content
+     never lost, only re-flowed. */
+  .brand-row { flex-wrap: wrap; }
+  .tagline { flex-basis: 100%; }
+  .meta-row { flex-direction: column; align-items: flex-start; gap: 2px; }
+  .date { font-size: clamp(1.3rem, 6vw, 1.7rem); }
+  .pub-nav { padding: 8px 16px; gap: 12px; }
+  .today-intel { padding: 0 16px; margin-top: 16px; }
+  .lead-story { padding-top: 16px; }
+  .lead-image-wrap { max-height: 260px; }
+  .signal-thumb { width: 52px; height: 52px; }
+  .main { padding: 0 16px; }
+  section.block { margin-bottom: 26px; padding-bottom: 18px; }
+  footer { padding: 0 16px; }
+}
+</style>
+</head>
+<body>
+<div class="masthead">
+<div class="brand-row"><span class="brand">SUPER NEWS DAILY</span><span class="tagline">AI · 경제 · 사회</span></div>
+<div class="meta-row"><div class="date num">2026.08.16</div><span class="read-time num">읽는 시간 4분</span></div>
+</div>
+<nav class="pub-nav" aria-label="Section navigation"><span class="pub-nav-badge">SUPER NEWS DAILY</span><div class="pub-nav-links"><a class="pub-nav-link" href="#section-AI">AI</a><a class="pub-nav-link" href="#section-ECONOMY">경제</a><a class="pub-nav-link" href="#section-SOCIETY">사회</a></div></nav>
+<main class="main">
+<section class="block block-AI" id="section-AI"><div class="block-head"><h2>AI</h2></div><div class="news-list"><article class="news-card ed-card ed-card-lead"><div class="ed-card-body"><span class="ed-pill">TechCrunch</span><h2 class="ed-headline"><a class="headline-link" href="https://techcrunch.com/2026/08/15/woman-claims-her-stepfather-used-grok-to-transform-childhood-photo-into-explicit-imagery/" target="_blank" rel="noopener noreferrer">여성이 의붓아버지가 Grok을 이용해 어린 시절 사진을 노골적인 이미지로 변환했다고 주장</a></h2><p class="ed-summary">그 여성은 AI 도구들이 &quot;일상을 아동 성적 학대로 변모시키고 있다&quot;고 주장했다.</p><hr class="ed-divider"><ul class="ed-bullets"><li class="ed-bullet"><span class="ed-bullet-icon" aria-hidden="true">&#10003;</span><span>한 여성이 자신의 새아버지가 AI 이미지 생성 도구인 Grok을 이용해 자신의 어린 시절 사진을 성적으로 노골적인 이미지로 변조했다고 주장했다는 내용이 단일 출처를 통해 보도됐다.</span></li><li class="ed-bullet"><span class="ed-bullet-icon" aria-hidden="true">&#10003;</span><span>사실로 확인될 경우 생성형 AI 도구가 아동 성 착취물 제작에 악용될 수 있다는 우려를 뒷받침하는 구체적 피해 사례가 될 수 있어, AI 서비스의 안전장치와 오남용 방지 체계에 대한 문제 제기로 이어질 수 있다.</span></li><li class="ed-bullet"><span class="ed-bullet-icon" aria-hidden="true">&#10003;</span><span>이 주장이 수사기관이나 해당 AI 기업에 의해 사실로 확인되는지, 그리고 Grok 등 AI 도구 운영사가 이에 대해 어떤 조치나 해명을 내놓는지 지켜볼 필요가 있다.</span></li></ul><p class="item-byline ed-byline">TechCrunch · <span class="num">2026.08.16</span></p><a class="ed-cta" href="https://techcrunch.com/2026/08/15/woman-claims-her-stepfather-used-grok-to-transform-childhood-photo-into-explicit-imagery/" target="_blank" rel="noopener noreferrer">기사 보기 <span aria-hidden="true">&rarr;</span></a></div></article><article class="news-card ed-card ed-card-standard"><div class="ed-card-body"><span class="ed-pill">TechCrunch</span><h3 class="ed-headline"><a class="headline-link" href="https://techcrunch.com/2026/08/15/spacex-officially-closes-its-cursor-acquisition/" target="_blank" rel="noopener noreferrer">SpaceX가 Cursor 인수를 공식 마감</a></h3><p class="ed-summary">AI 코딩 스타트업 Cursor가 공식적으로 SpaceX의 일부가 되었다.</p><hr class="ed-divider"><ul class="ed-bullets"><li class="ed-bullet"><span class="ed-bullet-icon" aria-hidden="true">&#10003;</span><span>AI 코딩 스타트업 Cursor가 공식적으로 SpaceX의 일부가 되었다.</span></li><li class="ed-bullet"><span class="ed-bullet-icon" aria-hidden="true">&#10003;</span><span>스페이스X의 Cursor 인수 완료는 AI 코딩 도구 시장의 대형 M&amp;A로 업계 지형 변화를 시사.</span></li></ul><p class="item-byline ed-byline">TechCrunch · <span class="num">2026.08.16</span></p><a class="ed-cta" href="https://techcrunch.com/2026/08/15/spacex-officially-closes-its-cursor-acquisition/" target="_blank" rel="noopener noreferrer">기사 보기 <span aria-hidden="true">&rarr;</span></a></div></article><article class="news-card ed-card ed-card-standard"><div class="ed-card-body"><span class="ed-pill">TechCrunch</span><h3 class="ed-headline"><a class="headline-link" href="https://techcrunch.com/2026/08/15/anthropic-shares-more-details-about-how-claudes-new-watermarks-will-work/" target="_blank" rel="noopener noreferrer">Claude의 새로운 워터마크 작동 방식에 대해 Anthropic이 더 자세한 정보 공개</a></h3><p class="ed-summary">워터마킹은 실제로 어떻게 작동할까요? 편집으로 숨길 수 있을까요? 그리고 이것이 코드에 어떤 영향을 미칠까요?</p><hr class="ed-divider"><ul class="ed-bullets"><li class="ed-bullet"><span class="ed-bullet-icon" aria-hidden="true">&#10003;</span><span>워터마킹은 실제로 어떻게 작동할까요? 편집으로 숨길 수 있을까요? 그리고 이것이 코드에 어떤 영향을 미칠까요?</span></li><li class="ed-bullet"><span class="ed-bullet-icon" aria-hidden="true">&#10003;</span><span>앤트로픽의 워터마크 기술 공개는 AI 생성 콘텐츠 신뢰성 확보를 위한 업계 표준 논의에 영향.</span></li></ul><p class="item-byline ed-byline">TechCrunch · <span class="num">2026.08.16</span></p><a class="ed-cta" href="https://techcrunch.com/2026/08/15/anthropic-shares-more-details-about-how-claudes-new-watermarks-will-work/" target="_blank" rel="noopener noreferrer">기사 보기 <span aria-hidden="true">&rarr;</span></a></div></article><article class="news-card ed-card ed-card-standard"><div class="ed-card-body"><span class="ed-pill">MIT Technology Review</span><h3 class="ed-headline"><a class="headline-link" href="https://www.technologyreview.com/2026/08/13/1141904/flock-is-tightening-its-rules-in-response-to-a-growing-surveillance-backlash/" target="_blank" rel="noopener noreferrer">Flock은 증가하는 감시 반발에 대응해 규칙을 강화하고 있다</a></h3><p class="ed-summary">경찰 기술 대기업 Flock이 오늘 전국 번호판 인식 장치 네트워크에 대한 경찰관의 접근권을 변경할 것이라고 발표했다. 이는 대량 감시 및 경찰 남용 우려 속에서 잃어버린 계약을 되찾고 확산되는 반발을 잠재우기 위한 노력으로 보인다. 몇 가지 변경 사항은 최근 언론의 주목을 받은 문제를 직접적으로 겨냥하고 있다.</p><hr class="ed-divider"><ul class="ed-bullets"><li class="ed-bullet"><span class="ed-bullet-icon" aria-hidden="true">&#10003;</span><span>경찰 기술 대기업 Flock이 오늘 전국 번호판 인식 장치 네트워크에 대한 경찰관의 접근권을 변경할 것이라고 발표했다. 이는 대량 감시 및 경찰 남용 우려 속에서 잃어버린 계약을 되찾고 확산되는 반발을 잠재우기 위한 노력으로 보인다. 몇 가지 변경 사항은 최근 언론의 주목을 받은 문제를 직접적으로 겨냥하고 있다.</span></li><li class="ed-bullet"><span class="ed-bullet-icon" aria-hidden="true">&#10003;</span><span>Flock의 감시 정책 강화는 AI 기반 감시기술에 대한 사회적 반발과 규제 트렌드를 보여줌.</span></li></ul><p class="item-byline ed-byline">MIT Technology Review · <span class="num">2026.08.13</span></p><a class="ed-cta" href="https://www.technologyreview.com/2026/08/13/1141904/flock-is-tightening-its-rules-in-response-to-a-growing-surveillance-backlash/" target="_blank" rel="noopener noreferrer">기사 보기 <span aria-hidden="true">&rarr;</span></a></div></article><article class="news-card news-compact"><h4 class="news-title news-title-compact"><a class="headline-link" href="https://www.technologyreview.com/2026/08/13/1141410/how-kids-feel-about-ai-own-words/" target="_blank" rel="noopener noreferrer">아이들의 언어로 표현한 AI에 대한 생각</a></h4><p class="item-byline">MIT Technology Review · <span class="num">2026.08.13</span></p><a class="item-link" href="https://www.technologyreview.com/2026/08/13/1141410/how-kids-feel-about-ai-own-words/" target="_blank" rel="noopener noreferrer">원문 기사 보기 →</a></article></div></section><section class="block block-ECONOMY block-quiet" id="section-ECONOMY"><div class="block-head"><h2>경제</h2></div><p class="state-message state-degraded">현재 데이터 수집 문제로 이 섹션의 브리핑이 제한됩니다.</p></section><section class="block block-SOCIETY" id="section-SOCIETY"><div class="block-head"><h2>사회</h2></div><div class="news-list"><article class="news-card ed-card ed-card-lead"><div class="ed-card-media"><img src="https://file2.nocutnews.co.kr/newsroom/image/2026/08/15/202608151319239187_0.jpg" alt="서강대서 18만명 개인정보 유출…&quot;해외 서버서 비정상 접근&quot;" loading="lazy"></div><div class="ed-card-body"><span class="ed-pill">노컷뉴스</span><h2 class="ed-headline"><a class="headline-link" href="https://www.nocutnews.co.kr/news/6563459" target="_blank" rel="noopener noreferrer">서강대서 18만명 개인정보 유출…&quot;해외 서버서 비정상 접근&quot;</a></h2><p class="ed-summary">서강대학교 학생과 졸업생, 교직원 등 구성원 약 18만명의 개인정보가 유출되는 사고가 발생했다. 15일 서강대에 따르면 학교 측은 전날 통합 로그인 계정 정보에 신원 미상의 외부 공격이 발생해 일부 개인정보가 유출된 정황을 확인했다.</p><hr class="ed-divider"><ul class="ed-bullets"><li class="ed-bullet"><span class="ed-bullet-icon" aria-hidden="true">&#10003;</span><span>서강대학교에서 재학생, 졸업생, 교직원 등 약 18만명의 개인정보가 유출되는 사고가 발생했으며, 학교 측은 해외 서버를 통한 신원 미상의 외부 공격으로 통합 로그인 계정 정보가 침해된 정황을 확인했다고 밝혔다.</span></li><li class="ed-bullet"><span class="ed-bullet-icon" aria-hidden="true">&#10003;</span><span>대규모 교육기관 이용자의 개인정보가 유출된 사건으로, 유출된 정보가 2차 피해(피싱, 계정 도용 등)로 이어질 가능성과 함께 대학의 정보보안 체계 전반에 대한 점검 필요성을 제기한다.</span></li><li class="ed-bullet"><span class="ed-bullet-icon" aria-hidden="true">&#10003;</span><span>유출된 개인정보의 구체적 범위와 악용 여부, 그리고 학교 측과 수사기관이 공격 경로를 규명하고 재발 방지 대책을 마련할지 여부를 지켜볼 필요가 있다.</span></li></ul><p class="item-byline ed-byline">노컷뉴스</p><a class="ed-cta" href="https://www.nocutnews.co.kr/news/6563459" target="_blank" rel="noopener noreferrer">기사 보기 <span aria-hidden="true">&rarr;</span></a></div></article><article class="news-card ed-card ed-card-standard"><div class="ed-card-body"><span class="ed-pill">네이버뉴스</span><h3 class="ed-headline"><a class="headline-link" href="https://www.m-economynews.com/news/article.html?no=69808" target="_blank" rel="noopener noreferrer">구글, 지선 전 한국어 정치 유튜브 449개 대규모 폐쇄했다</a></h3><p class="ed-summary">구글은 이들 채널이 서로 다른 개인이나 매체가 운영하는 것처럼 보이지만, 실제로는 하나의 조직이 여러 계정과 채널을 관리하며 특정 정치·사회적 인식을 확산하려 한 것으로 판단했다. 폐쇄된 채널의 정치적...</p><hr class="ed-divider"><ul class="ed-bullets"><li class="ed-bullet"><span class="ed-bullet-icon" aria-hidden="true">&#10003;</span><span>구글은 이들 채널이 서로 다른 개인이나 매체가 운영하는 것처럼 보이지만, 실제로는 하나의 조직이 여러 계정과 채널을 관리하며 특정 정치·사회적 인식을 확산하려 한 것으로 판단했다. 폐쇄된 채널의 정치적...</span></li><li class="ed-bullet"><span class="ed-bullet-icon" aria-hidden="true">&#10003;</span><span>구글이 선거를 앞두고 여론조작 정황이 있는 한국 정치 유튜브 449개를 폐쇄한 것은 민주주의와 정보질서에 중대한 함의를 지님.</span></li></ul><p class="item-byline ed-byline">네이버뉴스 · <span class="num">2026.08.16</span></p><a class="ed-cta" href="https://www.m-economynews.com/news/article.html?no=69808" target="_blank" rel="noopener noreferrer">기사 보기 <span aria-hidden="true">&rarr;</span></a></div></article><article class="news-card news-compact"><h4 class="news-title news-title-compact"><a class="headline-link" href="https://www.newsis.com/view/NISX20260816_0003750849" target="_blank" rel="noopener noreferrer">연말 2기 친일재산조사위 가동…정성호 &quot;최소 325억원 환수 예상&quot;</a></h4><p class="item-byline">뉴시스 · <span class="num">2026.08.16</span></p><a class="item-link" href="https://www.newsis.com/view/NISX20260816_0003750849" target="_blank" rel="noopener noreferrer">원문 기사 보기 →</a></article><article class="news-card news-compact"><h4 class="news-title news-title-compact"><a class="headline-link" href="https://www.segye.com/newsView/20260816510880" target="_blank" rel="noopener noreferrer">종합특검 ‘尹 체포 방해’ 국힘 의원들 무더기 기소</a></h4><p class="item-byline">세계일보</p><a class="item-link" href="https://www.segye.com/newsView/20260816510880" target="_blank" rel="noopener noreferrer">원문 기사 보기 →</a></article><article class="news-card news-compact"><h4 class="news-title news-title-compact"><a class="headline-link" href="https://www.newsis.com/view/NISX20260814_0003749983" target="_blank" rel="noopener noreferrer">尹·오세훈, &#x27;명태균 게이트&#x27; 의혹 이번주 2심 시작…재판부 같아</a></h4><p class="item-byline">뉴시스 · <span class="num">2026.08.16</span></p><a class="item-link" href="https://www.newsis.com/view/NISX20260814_0003749983" target="_blank" rel="noopener noreferrer">원문 기사 보기 →</a></article></div></section><section class="block block-SOURCES" id="section-SOURCES"><div class="block-head"><h2>출처</h2></div><ul class="source-status-list"><li class="source-status-chip status-active"><span class="status-dot"></span>Apple Music 연동됨</li><li class="source-status-chip status-active"><span class="status-dot"></span>Spotify 연동됨</li><li class="source-status-chip status-unavailable"><span class="status-dot"></span>TikTok 미연동</li></ul></section>
+</main>
+<footer>이 페이지는 매일 자동으로 갱신됩니다.</footer>
+</body>
+</html>

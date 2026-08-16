@@ -116,7 +116,7 @@ def test_fresh_output_hallucinated_ref_fails_and_persists_nothing(conn):
 
 def _good_response(ref="E1"):
     genre_item = {
-        "observed": "기사 본문에 해당 장르가 명시적으로 언급되었다",
+        "observed": "기사 본문에 하우스 장르가 명시적으로 언급되었다",
         "interpretation": "실제 청취자 관심이 반영된 것으로 보인다",
         "evidence_refs": [ref], "confidence": "MEDIUM",
     }
@@ -185,13 +185,13 @@ def test_reused_output_with_hallucinated_ref_still_fails_validation(conn):
     """If a BAD row somehow already exists under an input_hash that a later
     day's evidence would also hash to, reuse must not bypass validation --
     the orchestrator revalidates every reused parse just like a fresh one."""
-    from report.music_trend_synthesis import CATEGORY, build_evidence_catalog, compute_input_hash
+    from report.music_trend_synthesis import CATEGORY, PROMPT_VERSION, build_evidence_catalog, compute_input_hash
 
     _insert_spotify_riser(conn, report_date_kst="2026-08-13")
     dashboard_data = build_dashboard_data_v2(conn, "2026-08-13")
     industry_news = dashboard_data["news"]["TIKTOK"]["items"] + dashboard_data["news"]["SPOTIFY"]["items"]
     catalog = build_evidence_catalog(dashboard_data["spotify_chart"], dashboard_data["tiktok_chart"], industry_news)
-    bad_hash = compute_input_hash("v1", catalog)
+    bad_hash = compute_input_hash(PROMPT_VERSION, catalog)
 
     conn.execute(
         "INSERT INTO runs (run_id, run_date, started_at, status) VALUES ('r-bad', '2026-08-12', 'x', 'completed')"
@@ -206,8 +206,8 @@ def test_reused_output_with_hallucinated_ref_still_fails_validation(conn):
     conn.execute(
         """INSERT INTO llm_interpretations
            (run_id, category, model_used, prompt_version, input_hash, output_text, confidence, created_at)
-           VALUES (?, ?, 'm', 'v1', ?, ?, 'MEDIUM', 'x')""",
-        (run_row_id, CATEGORY, bad_hash, bad_output_text),
+           VALUES (?, ?, 'm', ?, ?, ?, 'MEDIUM', 'x')""",
+        (run_row_id, CATEGORY, PROMPT_VERSION, bad_hash, bad_output_text),
     )
     conn.commit()
 
