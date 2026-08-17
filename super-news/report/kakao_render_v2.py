@@ -17,6 +17,8 @@ text -- the URL belongs in Kakao's native link/button_title fields
 characters of the 200-char text budget.
 """
 
+from report.validation import is_low_value_gossip_takeaway
+
 MAX_TEXT_LENGTH = 200
 _FIELD_BUDGET = 28
 
@@ -150,6 +152,24 @@ def _news_lead_line(news_section, label):
     return f"{label}: {line}" if line else f"{label}: 오늘 보고할 뉴스 없음"
 
 
+def _first_non_gossip_news_line(news_section):
+    """Same as _first_news_line, but skips any item report.validation.
+    is_low_value_gossip_takeaway would reject (a low-value fan/social-
+    comment gossip story -- e.g. a deleted-comment fandom spat -- with no
+    real songwriting/production/A&R/label-business/platform-policy/
+    rights-copyright/royalty-licensing/market signal). Used ONLY for the
+    MUSIC Industry line below -- report.web_render_v2's HTML Producer/A&R
+    section already applies this same helper; this closes the gap where
+    the Kakao digest's own separate Industry-line selection bypassed it.
+    _first_news_line itself (used by DAILY's AI/ECONOMY/SOCIETY lines) is
+    intentionally left unchanged."""
+    items = news_section.get("items") or []
+    for item in items:
+        if not is_low_value_gossip_takeaway(item.get("title")):
+            return _clip(item["title"])
+    return None
+
+
 def _music_industry_lines(news):
     # Same real definition report.music_trend_synthesis.build_evidence_
     # catalog already uses for "industry news": TikTok-category +
@@ -157,7 +177,7 @@ def _music_industry_lines(news):
     # buckets, distinct from the TikTok/Spotify CHART data sources below).
     lines = []
     for label, category in (("TikTok", "TIKTOK"), ("Spotify", "SPOTIFY")):
-        line = _first_news_line(news[category])
+        line = _first_non_gossip_news_line(news[category])
         if line:
             lines.append(f"{label}: {line}")
     return lines if lines else ["오늘 보고할 뮤직 인더스트리 뉴스 없음"]

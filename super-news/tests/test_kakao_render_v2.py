@@ -247,3 +247,33 @@ def test_music_and_daily_digest_deterministic_across_calls():
     data = _empty_dashboard()
     assert render_music_kakao_digest(data) == render_music_kakao_digest(data)
     assert render_daily_kakao_digest(data) == render_daily_kakao_digest(data)
+
+
+def test_music_digest_industry_line_skips_gossip_and_falls_back_to_next_item():
+    """Closes the real gap where the HTML Producer/A&R gossip filter
+    (report.web_render_v2, report.validation.is_low_value_gossip_takeaway)
+    didn't reach the Kakao MUSIC digest's own separate Industry-line
+    selection -- confirmed real: a "Chris Brown Allegedly Tells BTS Fan
+    ... in Deleted TikTok Comment" item still reached an actual sent Kakao
+    message even after the HTML page was already clean."""
+    data = _empty_dashboard()
+    data["news"]["TIKTOK"] = {"state": "NORMAL", "items": [
+        {"title": "Chris Brown Allegedly Tells BTS Fan 'Pray Bout It Hoe' in Deleted TikTok Comment",
+         "reason": "x", "source_url": "https://x"},
+        {"title": "TikTok Campaigns Shaping the Future of the Music Industry",
+         "reason": "x", "source_url": "https://x"},
+    ]}
+    text = render_music_kakao_digest(data)
+    assert "Chris Brown" not in text
+    assert "TikTok Campaigns Shaping" in text  # clipped by _FIELD_BUDGET, prefix still present
+
+
+def test_music_digest_industry_line_omits_rather_than_shows_only_gossip():
+    data = _empty_dashboard()
+    data["news"]["TIKTOK"] = {"state": "NORMAL", "items": [
+        {"title": "Chris Brown Allegedly Tells BTS Fan 'Pray Bout It Hoe' in Deleted TikTok Comment",
+         "reason": "x", "source_url": "https://x"},
+    ]}
+    text = render_music_kakao_digest(data)
+    assert "Chris Brown" not in text
+    assert "오늘 보고할 뮤직 인더스트리 뉴스 없음" in text
