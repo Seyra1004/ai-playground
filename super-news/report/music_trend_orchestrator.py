@@ -24,7 +24,7 @@ from ingestion.orchestrator import finalize_run, start_run
 from report.music_trend_synthesis import build_evidence_catalog, synthesize_music_trend_intelligence
 from report.persistence import persist_music_trend_intelligence
 from report.validation import MusicTrendValidationError, validate_music_trend_signals
-from report.web_data_v2 import build_dashboard_data_v2
+from report.web_data_v2 import _MUSIC_INDUSTRY_DOWNRANKED_PRIORITY, build_dashboard_data_v2, music_industry_priority_rank
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +45,14 @@ def run_daily_music_trend_intelligence(conn, run_id, report_date_kst, llm=None):
     runs_row_id = start_run(conn, run_id, report_date_kst, registry_hash=None)
 
     dashboard_data = build_dashboard_data_v2(conn, report_date_kst)
-    industry_news = dashboard_data["news"]["TIKTOK"]["items"] + dashboard_data["news"]["SPOTIFY"]["items"]
+    # FINAL MUSIC RECOVERY PASS (2026-08-18): same fix as report.
+    # producer_orchestrator's own -- exclude real DOWNRANKED items
+    # (gossip/lifestyle/CSR-donation/political-conflict) from the
+    # evidence catalog itself, not just at render time.
+    industry_news = [
+        item for item in (dashboard_data["news"]["TIKTOK"]["items"] + dashboard_data["news"]["SPOTIFY"]["items"])
+        if music_industry_priority_rank(item) != _MUSIC_INDUSTRY_DOWNRANKED_PRIORITY
+    ]
 
     catalog_preview = build_evidence_catalog(
         dashboard_data["spotify_chart"], dashboard_data["tiktok_chart"], industry_news

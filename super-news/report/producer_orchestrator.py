@@ -33,7 +33,7 @@ from ingestion.orchestrator import finalize_run, start_run
 from report.persistence import persist_producer_intelligence
 from report.producer_synthesis import build_evidence_catalog, synthesize_producer_intelligence
 from report.validation import ProducerValidationError, validate_producer_insights
-from report.web_data_v2 import build_dashboard_data_v2
+from report.web_data_v2 import _MUSIC_INDUSTRY_DOWNRANKED_PRIORITY, build_dashboard_data_v2, music_industry_priority_rank
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +56,20 @@ def run_daily_producer_intelligence(conn, run_id, report_date_kst, llm=None):
     runs_row_id = start_run(conn, run_id, report_date_kst, registry_hash=None)
 
     dashboard_data = build_dashboard_data_v2(conn, report_date_kst)
-    industry_news = dashboard_data["news"]["TIKTOK"]["items"] + dashboard_data["news"]["SPOTIFY"]["items"]
+    # FINAL MUSIC RECOVERY PASS (2026-08-18, confirmed real defect): this
+    # was the raw, UNFILTERED TIKTOK+SPOTIFY pool -- unlike report.
+    # web_render_v2._merge_music_industry_items (the Industry section's
+    # own real quality gate), it never excluded a real DOWNRANKED item
+    # (gossip/lifestyle/CSR-donation/political-conflict -- see report.
+    # web_data_v2._MUSIC_INDUSTRY_DOWNRANK_KEYWORDS), so the LLM's own
+    # evidence catalog could still cite e.g. a charity-donation story with
+    # no real A&R/business relevance and weave it into an otherwise-good
+    # insight. This is a synthesis-INPUT fix (the evidence never reaches
+    # the LLM at all), not a render-time text scrub.
+    industry_news = [
+        item for item in (dashboard_data["news"]["TIKTOK"]["items"] + dashboard_data["news"]["SPOTIFY"]["items"])
+        if music_industry_priority_rank(item) != _MUSIC_INDUSTRY_DOWNRANKED_PRIORITY
+    ]
 
     # Evidence-emptiness check BEFORE constructing an LLM client -- mirrors
     # report.orchestrator.run_daily_report's has_any_news_candidate gate.

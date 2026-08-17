@@ -1036,6 +1036,27 @@ _MUSIC_INDUSTRY_DOWNRANK_KEYWORDS = (
     # royalty/licensing business, since that check runs first.
     "삭제된 댓글", "deleted comment", "deleted tiktok comment", "deleted tweet",
     "팬덤 갈등", "fan feud", "trolled", "claps back at",
+    # EMERGENCY MUSIC QUALITY RECOVERY PASS (2026-08-18, confirmed real
+    # defect): a concert-cameo/surprise-guest-appearance story ("X brings
+    # out Y", "watch X join Y to perform", "watch X introduce Y on
+    # stage") is fan-facing concert coverage, not a real songwriting/
+    # production/A&R/business signal a composer could act on -- real
+    # examples seen the same day genuinely stronger P1-P6 stories (an AI-
+    # album Pitchfork-review backlash, a real Billboard chart record)
+    # existed but were outranked by this class of story. Still exempt
+    # whenever the LEGAL/RIGHTS EXCEPTION above already classified the
+    # story as real rights/copyright/publishing/royalty/licensing
+    # business, since that check runs first.
+    "brings out", "surprise live debut", "surprise appearance", "surprise guest",
+    "깜짝 라이브", "깜짝 등장", "무대에 함께 등장",
+    # FINAL MUSIC RECOVERY PASS (2026-08-18, confirmed real defect): a
+    # pure corporate-social-responsibility/charity-donation story (a
+    # label/company donating to disaster relief) is legitimate news but
+    # carries no songwriting/production/A&R/repertoire/rights/platform-
+    # strategy signal. Still exempt whenever the LEGAL/RIGHTS EXCEPTION
+    # above already classified the story as real rights/copyright/
+    # publishing/royalty/licensing business, since that check runs first.
+    "기부", "donation", "구호 성금", "재해 복구 성금",
 )
 _MUSIC_INDUSTRY_UNRANKED_PRIORITY = 9
 _MUSIC_INDUSTRY_DOWNRANKED_PRIORITY = 10
@@ -1938,10 +1959,65 @@ def _build_music_today(data, exclude_keys=None):
     mandatory", never padding, per SUPER_NEWS_SPEC.md's own product
     principle)."""
     candidates = _collect_music_signal_candidates(data)
-    if not exclude_keys:
-        return candidates[:_MUSIC_TODAY_MAX_ITEMS]
-    fresh = [c for c in candidates if _candidate_key(c) not in exclude_keys]
-    return fresh[:_MUSIC_TODAY_MAX_ITEMS]
+    fresh = candidates if not exclude_keys else [c for c in candidates if _candidate_key(c) not in exclude_keys]
+    fresh = fresh[:_MUSIC_TODAY_MAX_ITEMS]
+    if len(fresh) >= _MUSIC_TODAY_MAX_ITEMS:
+        return fresh
+
+    # FINAL MUSIC RECOVERY PASS (2026-08-18): DETERMINISTIC backfill, no
+    # second LLM call. On a thin real day the hero already consumes every
+    # candidate _collect_music_signal_candidates has, leaving Music Today
+    # empty even when real SPOTIFY/TIKTOK industry evidence still exists
+    # (the SAME real items Music Industry shows). Reusing the SAME real
+    # event here is allowed -- editorial DUPLICATION is about repeated
+    # PROSE, not repeated events (see this function's own module
+    # docstring for "what changed today" vs Industry's "what happened").
+    # Each backfilled candidate is rendered with headline_item=None and
+    # its own real `reason` text as fact_text -- never the bare headline
+    # Industry/Lead already show, so the visible sentence is always
+    # structurally distinct, never a copy-paste of another section.
+    # rank_music_industry_items is the SAME deterministic (non-LLM)
+    # ordering Industry itself uses, so the same input always yields the
+    # same backfill order.
+    already_fresh_keys = {_candidate_key(c) for c in fresh}
+    lead_event_key = None
+    if exclude_keys:
+        # Inlined copy of report.web_render_v2._lead_signal's own real
+        # rule (never imported here -- web_render_v2 already imports FROM
+        # this module, so importing back would be circular): the
+        # strongest signal, or the first one if none is marked strongest.
+        today_signals = data.get("today_music_intelligence") or []
+        lead_signal = next((s for s in today_signals if s.get("is_strongest")), None)
+        if lead_signal is None and today_signals:
+            lead_signal = today_signals[0]
+        if lead_signal and lead_signal.get("headline_item"):
+            lead_event_key = lead_signal["headline_item"].get("event_key")
+    ranked_industry = rank_music_industry_items(
+        (data["news"].get("SPOTIFY", {}).get("items") or []) + (data["news"].get("TIKTOK", {}).get("items") or [])
+    )
+    backfill_cap = min(_MUSIC_TODAY_MAX_ITEMS, len(fresh) + 3)
+    for item in ranked_industry:
+        if len(fresh) >= backfill_cap:
+            break
+        if item.get("event_key") == lead_event_key:
+            continue
+        if music_industry_priority_rank(item) == _MUSIC_INDUSTRY_DOWNRANKED_PRIORITY:
+            continue
+        reason = item.get("reason")
+        if not reason:
+            continue
+        backfill_candidate = {
+            "type": "INDUSTRY_NEWS", "mode": "FACT",
+            "headline_item": None, "fact_text": reason,
+            "why_it_matters": None, "producer_implication": None,
+            "source_url": item.get("source_url"),
+        }
+        key = _candidate_key(backfill_candidate)
+        if key in already_fresh_keys:
+            continue
+        already_fresh_keys.add(key)
+        fresh.append(backfill_candidate)
+    return fresh
 
 
 def _build_today_music_intelligence(data):

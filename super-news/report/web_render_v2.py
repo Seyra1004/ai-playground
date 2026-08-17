@@ -62,7 +62,7 @@ import re
 from datetime import datetime, timedelta, timezone
 
 from report.source_metadata import source_display_name
-from report.validation import is_content_creation_advice, is_low_value_gossip_takeaway
+from report.validation import is_content_creation_advice, is_low_value_gossip_takeaway, is_no_evidence_meta_statement
 from report.web_data_v2 import (
     _MUSIC_INDUSTRY_DOWNRANKED_PRIORITY,
     _MUSIC_INDUSTRY_UNRANKED_PRIORITY,
@@ -2012,12 +2012,20 @@ def _merge_music_industry_items(news, exclude_event_key=None):
     merged = rank_music_industry_items(spotify_items + tiktok_items)
 
     def _passes_quality_floor(item):
+        # CANDIDATE-SUPPLY BOTTLENECK FIX (2026-08-18, confirmed real
+        # defect): the source_count>=2 corroboration requirement for an
+        # UNRANKED item silently discarded genuinely useful P1-P3
+        # evidence (a TikTok platform-strategy announcement, a real
+        # Billboard-200 chart record, a Spotify product-feature launch)
+        # -- this pipeline's real MUSIC_INDUSTRY_NEWS sources (Billboard/
+        # NME/Rolling Stone/etc, one RSS feed each) essentially never
+        # independently cover the exact same story, so this floor was
+        # never actually reachable in practice and emptied Industry
+        # entirely on a real day with real evidence. The DOWNRANKED
+        # keyword filter below (gossip/lifestyle/PR/political -- already
+        # proven working) remains the real quality gate.
         priority = music_industry_priority_rank(item)
-        if priority == _MUSIC_INDUSTRY_DOWNRANKED_PRIORITY:
-            return False
-        if priority == _MUSIC_INDUSTRY_UNRANKED_PRIORITY and (item.get("source_count") or 1) < 2:
-            return False
-        return True
+        return priority != _MUSIC_INDUSTRY_DOWNRANKED_PRIORITY
 
     merged = [item for item in merged if _passes_quality_floor(item)]
     if exclude_event_key:
@@ -2300,9 +2308,21 @@ def _render_producer_section(producer_intelligence, trend):
     # downranked out of INDUSTRY/hero. Applied here, before the quality
     # cap below, so a rejected gossip item never counts as "the only
     # insight" that cap would otherwise fall back to keeping.
-    producer_insights = [i for i in producer_insights if not is_low_value_gossip_takeaway(i.get("what_is_moving"))]
-    reference_items = [i for i in reference_items if not is_low_value_gossip_takeaway(i.get("observed"))]
-    kpop_items = [i for i in kpop_items if not is_low_value_gossip_takeaway(i.get("observed"))]
+    producer_insights = [
+        i for i in producer_insights
+        if not is_low_value_gossip_takeaway(i.get("what_is_moving"))
+        and not is_no_evidence_meta_statement(i.get("what_is_moving"))
+    ]
+    reference_items = [
+        i for i in reference_items
+        if not is_low_value_gossip_takeaway(i.get("observed"))
+        and not is_no_evidence_meta_statement(i.get("observed"))
+    ]
+    kpop_items = [
+        i for i in kpop_items
+        if not is_low_value_gossip_takeaway(i.get("observed"))
+        and not is_no_evidence_meta_statement(i.get("observed"))
+    ]
     # PRODUCER/A&R QUALITY CAP (EDITORIAL INTEGRITY PASS): a quality
     # ceiling, not a quota -- a real LOW-confidence insight must not
     # survive merely to pad the count when genuinely stronger (MEDIUM/

@@ -90,6 +90,15 @@ CONTENT_CREATION_ADVICE_KEYWORDS = (
     "블로그", "blog post", "포스트를 작성", "recap", "리캡", "뉴스레터 섹션", "콘텐츠를 제작",
     "글을 작성", "글을 쓸", "정리 글", "요약 글", "리스티클",
     "분석 메모", "메모를 작성", "메모 작성", "정리 메모",
+    # EMERGENCY 2026-08-18 MUSIC PRODUCTION PASS (confirmed real gap): the
+    # model sometimes wedges a word ("지금", "바로") between "기사를" and
+    # "작성" ("~기사를 지금 작성할 수 있습니다"), which the exact "기사를
+    # 작성" substring above never matches. "작성할 수 있습니다" is the
+    # actual recurring completion phrase regardless of what precedes it --
+    # a real production/craft suggestion never phrases itself as "you can
+    # write X" in the first place, so this is a safe, low-false-positive
+    # catch-all for the same underlying pattern.
+    "작성할 수 있습니다",
 )
 
 
@@ -122,6 +131,11 @@ GOSSIP_MARKER_KEYWORDS = (
     "댓글 논란", "trolled", "claps back", "clapped back", "팬덤 갈등", "fan feud",
     "논란", "controversy", "가십", "gossip", "열애설", "dating rumor",
     "이혼", "divorce", "결별", "breakup", "루머", "rumor",
+    # EMERGENCY 2026-08-18 MUSIC PRODUCTION PASS: a celebrity-vs-political-
+    # figure story carries no songwriting/production/A&R/business signal
+    # -- still exempt whenever MUSIC_RELEVANCE_KEYWORDS below also matches
+    # (a real rights/business story that happens to mention politics).
+    "백악관", "white house", "트럼프", "trump",
 )
 MUSIC_RELEVANCE_KEYWORDS = (
     "프로듀싱", "production", "작곡", "songwriting", "편곡", "arrangement",
@@ -129,6 +143,15 @@ MUSIC_RELEVANCE_KEYWORDS = (
     "a&r", "레이블", "label", "저작권", "copyright", "라이선스", "licensing",
     "로열티", "royalty", "플랫폼 정책", "platform policy", "차트", "chart",
     "시장", "market", "장르", "genre", "발매", "release", "계약", "deal",
+    # FINAL MUSIC RECOVERY PASS (2026-08-18, confirmed real defect): a
+    # real Billboard/Grammy-adjacent chart/awards-structure story (e.g.
+    # "그래미가 BTS 스눕 논란 이후 '아시안 팝' 부문 신설을 검토") is
+    # genuine market/industry-structure signal, but incidentally using
+    # "논란"/controversy to describe the real institutional incident
+    # falsely triggered the gossip marker with no relevance keyword to
+    # exempt it. These institutional/chart terms are real music-market
+    # relevance, not decoration.
+    "빌보드", "billboard", "그래미", "grammy", "어워즈", "awards",
 )
 
 
@@ -148,6 +171,26 @@ def is_low_value_gossip_takeaway(text):
     has_gossip_marker = any(keyword in lowered for keyword in GOSSIP_MARKER_KEYWORDS)
     has_relevance = any(keyword in lowered for keyword in MUSIC_RELEVANCE_KEYWORDS)
     return has_gossip_marker and not has_relevance
+
+
+# FINAL MUSIC RECOVERY PASS (2026-08-18, confirmed real defect): the
+# model sometimes writes a self-referential "no real evidence exists"
+# statement (e.g. "특정 프로듀서... 이름이 명시적으로 언급된 사례가
+# 없음") AS IF it were itself a real observation -- structurally
+# well-formed (has observed/interpretation/evidence_refs/confidence) so
+# nothing else rejects it, and it then renders as if it were content,
+# violating the "no meta filler" rule. This is never legitimate insight
+# text; a real producer/A&R item never describes its own absence.
+_NO_EVIDENCE_META_MARKERS = (
+    "언급된 사례가 없", "언급된 바 없", "명시적으로 언급되지 않",
+    "파악할 수 없으며", "확인되지 않았", "데이터가 부족하여",
+)
+
+
+def is_no_evidence_meta_statement(text):
+    if not text:
+        return False
+    return any(marker in text for marker in _NO_EVIDENCE_META_MARKERS)
 
 
 def validate_producer_insights(parsed_output, valid_refs, evidence_by_ref=None):
