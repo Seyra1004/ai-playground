@@ -131,14 +131,30 @@ def _ko_currency_values(text):
     remaining = list(text)
     for match in _KO_COMPOUND_CURRENCY_RE.finditer(text):
         total = 0.0
+        valid = True
         for number_str, unit in _KO_SEGMENT_RE.findall(match.group(0)):
-            total += float(number_str.replace(",", "")) * _KO_MAGNITUDE[unit]
-        values.append(total)
+            try:
+                total += float(number_str.replace(",", "")) * _KO_MAGNITUDE[unit]
+            except ValueError:
+                # A real, confirmed edge case (2026-08-17): a number_str
+                # that's punctuation-only ("," or "." with no actual
+                # digit) can slip through [\d,]+(?:\.\d+)? on unusual real
+                # text -- same defensive discipline _en_currency_values
+                # already uses. Never crashes validation; the whole
+                # compound match is simply not counted as a currency
+                # value, exactly as if it hadn't matched at all.
+                valid = False
+                break
+        if valid:
+            values.append(total)
         start, end = match.span()
         for i in range(start, end):
             remaining[i] = " "
     for number_str, unit in _KO_BARE_CURRENCY_RE.findall("".join(remaining)):
-        values.append(float(number_str.replace(",", "")) * _KO_MAGNITUDE[unit])
+        try:
+            values.append(float(number_str.replace(",", "")) * _KO_MAGNITUDE[unit])
+        except ValueError:
+            continue
     return values
 
 

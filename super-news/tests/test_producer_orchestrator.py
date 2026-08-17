@@ -89,7 +89,12 @@ def test_no_evidence_persists_nothing_readable(conn):
 # ---- validation failure on a FRESH output: no persistence, no fallback -----
 
 
-def test_fresh_output_hallucinated_ref_fails_and_persists_nothing(conn):
+def test_fresh_output_hallucinated_ref_dropped_not_whole_run_failed(conn):
+    """EMERGENCY QUALITY RECOVERY PASS (2026-08-17): a single hallucinated-
+    ref insight is DROPPED, not a whole-run failure -- with nothing else
+    in this response, the persisted insights list is empty (still an
+    honest UNAVAILABLE render, never fabricated), but the run itself
+    completes normally rather than being marked failed."""
     _insert_spotify_riser(conn)
     bad_insight = {
         "what_is_moving": "test something", "why_it_matters": "because",
@@ -103,8 +108,7 @@ def test_fresh_output_hallucinated_ref_fails_and_persists_nothing(conn):
     )
     llm = FakeLLM(response=bad_response)
     result = run_daily_producer_intelligence(conn, "run-1", "2026-08-13", llm=llm)
-    assert result["status"] == "failed"
-    assert "E99" in result["reason"]
+    assert result["status"] == "completed_with_insights"
 
     data = build_dashboard_data_v2(conn, "2026-08-13")
     assert data["producer_intelligence"] == {"state": "UNAVAILABLE", "insights": []}
@@ -218,10 +222,13 @@ def _insert_spotify_riser_day2_identical_evidence(conn):
     conn.commit()
 
 
-def test_reused_output_with_hallucinated_ref_still_fails_validation(conn):
+def test_reused_output_with_hallucinated_ref_still_dropped_not_bypassed(conn):
     """If a BAD row somehow already exists under an input_hash that a later
     day's evidence would also hash to, reuse must not bypass validation --
-    the orchestrator revalidates every reused parse just like a fresh one."""
+    the orchestrator revalidates every reused parse just like a fresh one
+    (EMERGENCY QUALITY RECOVERY PASS, 2026-08-17: the bad item is dropped,
+    the reused run itself still completes, exactly like the fresh-output
+    case above)."""
     from report.producer_synthesis import PROMPT_VERSION, build_evidence_catalog, compute_input_hash, CATEGORY
 
     _insert_spotify_riser(conn, report_date_kst="2026-08-13")
@@ -248,5 +255,8 @@ def test_reused_output_with_hallucinated_ref_still_fails_validation(conn):
 
     llm = FakeLLM(response=_good_response())  # would never actually be called (reuse hits first)
     result = run_daily_producer_intelligence(conn, "run-2", "2026-08-13", llm=llm)
-    assert result["status"] == "failed"
+    assert result["status"] == "completed_reused"
     assert llm.calls == 0  # reuse path -- confirms this exercised the REUSED branch, not fresh
+
+    data = build_dashboard_data_v2(conn, "2026-08-13")
+    assert data["producer_intelligence"] == {"state": "UNAVAILABLE", "insights": []}

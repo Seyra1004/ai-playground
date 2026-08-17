@@ -94,7 +94,16 @@ def run_daily_producer_intelligence(conn, run_id, report_date_kst, llm=None):
     valid_refs = {e["ref"] for e in synthesis_result["catalog"]}
     evidence_by_ref = {e["ref"]: e.get("summary", "") for e in synthesis_result["catalog"]}
     try:
-        validate_producer_insights(synthesis_result["parsed"], valid_refs, evidence_by_ref)
+        # EMERGENCY QUALITY RECOVERY PASS (2026-08-17): the return value is
+        # now the FILTERED list of per-item-valid insights (a structural
+        # failure -- not an object, insights not a list, a non-dict entry
+        # -- still raises below; a per-item content-quality rejection no
+        # longer does, see validate_producer_insights' own docstring) --
+        # write it back so persistence below stores exactly what passed,
+        # never the original unfiltered list.
+        synthesis_result["parsed"]["insights"] = validate_producer_insights(
+            synthesis_result["parsed"], valid_refs, evidence_by_ref,
+        )
     except ProducerValidationError as exc:
         logger.error(
             "run_id=%s producer intelligence validation FAILED (reused=%s): %s",

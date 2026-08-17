@@ -89,6 +89,136 @@ def _looks_like_rate_limit(*texts):
     return any(marker in combined for marker in _RATE_LIMIT_MARKERS)
 
 
+# EMERGENCY QUALITY RECOVERY PASS (2026-08-17, confirmed real defect):
+# --json-schema is expected to populate the CLI envelope's own
+# structured_output field, but on a real (intermittent, non-deterministic
+# -- the SAME candidate pool succeeded on one call and failed on the next)
+# fraction of calls it doesn't, and the fallback text in payload["result"]
+# sometimes isn't bare JSON -- a ```json fenced block, or a short prose
+# sentence before/after the JSON. json.loads() on that raw text then
+# raises, and every downstream category (AI/ECONOMY/SOCIETY/Producer/
+# Music Trend all share this one CLI adapter) degrades to REPORT_FAILED/
+# raw-fallback for no reason a real schema violation would justify -- the
+# model DID produce the right facts, just not byte-perfect bare JSON.
+# This extractor is READ-ONLY text surgery: it never invents, edits, or
+# repairs JSON content, only locates the real JSON substring already
+# present in the model's own output. Never used to make an actually
+# invalid/incomplete JSON document parse -- if no balanced object/array is
+# found, or what's found still fails json.loads, this raises exactly like
+# the unwrapped case did, and the CALLER's own schema/business validators
+# (report/validation.py) are completely untouched -- this never weakens
+# what counts as valid, it only stops literal transport-formatting noise
+# from being mistaken for that.
+
+
+def _strip_markdown_fence(text):
+    """Removes a leading ```json / ``` fence and trailing ``` if present
+    -- the single most common wrapping a chat-tuned model adds around JSON
+    even when told not to. Returns text unchanged if no fence is found."""
+    stripped = text.strip()
+    if not stripped.startswith("```"):
+        return text
+    lines = stripped.splitlines()
+    if not lines:
+        return text
+    lines = lines[1:]  # drop the opening ``` or ```json line
+    if lines and lines[-1].strip() == "```":
+        lines = lines[:-1]
+    elif lines and lines[-1].strip().endswith("```"):
+        lines[-1] = lines[-1].rstrip("`").rstrip()
+    return "\n".join(lines)
+
+
+def _extract_balanced_json_span(text):
+    """Finds the FIRST balanced {...} or [...] span in `text`, scanning
+    character-by-character with a real bracket-depth counter (never a
+    regex, which can't correctly handle nested braces/brackets or braces
+    inside string literals) -- string literals and escape sequences are
+    tracked so a `}` or `{` inside a quoted JSON string value never
+    miscounts the depth. Returns the substring, or None if no balanced
+    span starting with { or [ exists at all."""
+    start = None
+    for i, ch in enumerate(text):
+        if ch in "{[":
+            start = i
+            open_ch, close_ch = ch, ("}" if ch == "{" else "]")
+            break
+    if start is None:
+        return None
+    depth = 0
+    in_string = False
+    escape = False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if in_string:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch == open_ch:
+            depth += 1
+        elif ch == close_ch:
+            depth -= 1
+            if depth == 0:
+                return text[start : i + 1]
+    return None
+
+
+def _parse_json_leniently(raw_text):
+    """Tries, in order: (1) the raw text as-is, (2) with a leading/trailing
+    markdown code fence stripped, (3) the first balanced JSON object/array
+    substring found anywhere in the text. Raises json.JSONDecodeError (the
+    first one encountered on the raw text) if none of these produce valid
+    JSON -- the caller's existing ClaudeCLIError wrapping is unchanged."""
+    try:
+        return json.loads(raw_text)
+    except json.JSONDecodeError as exc:
+        first_error = exc
+    unfenced = _strip_markdown_fence(raw_text)
+    if unfenced != raw_text:
+        try:
+            return json.loads(unfenced)
+        except json.JSONDecodeError:
+            pass
+    span = _extract_balanced_json_span(unfenced)
+    if span is not None:
+        return json.loads(span)
+    raise first_error
+
+
+_JSON_REPAIR_SYSTEM_PROMPT_SUFFIX = (
+    "\n\nIMPORTANT: Your previous response could not be parsed as valid JSON. "
+    "Return ONLY valid JSON matching the required schema. No markdown code "
+    "fences. No prose before or after the JSON. Use only the evidence you "
+    "were already given -- do not invent facts."
+)
+
+# MAX 1 repair retry -- transport/format failures only (the CLI's raw
+# output wasn't parseable JSON). Never retried: rate-limit/quota, non-zero
+# exit, timeout, or a genuinely malformed schema shape once parsed -- all
+# of those are report/validation.py's own business-rule rejections
+# (content-creation-advice, gossip, malformed/gibberish text, unsupported
+# facts) or CLI-level failures neither a repair prompt nor a second call
+# would fix, and retrying them risks giving the model repeated chances to
+# slip past a deliberate quality gate -- exactly what "validator를
+# 약화하지 마라" forbids.
+MAX_JSON_REPAIR_RETRIES = 1
+
+
+class _JSONParseFailure(Exception):
+    """Internal signal that THIS attempt's CLI output wasn't parseable
+    JSON (after the lenient fence/balanced-span extraction already
+    failed) -- distinct from ClaudeCLIError so generate_structured can
+    retry ONLY this failure class, never a rate-limit/exit-code/timeout
+    failure, which propagate as ClaudeCLIError/ClaudeCLIRateLimitError
+    immediately, unretried."""
+
+
 class ClaudeCLIStructuredLLM(StructuredLLM):
     def __init__(self, model=None, executable=None, timeout_seconds=None):
         self._model = model or get_optional_env("LLM_MODEL_CLAUDE_CLI", DEFAULT_MODEL)
@@ -97,13 +227,12 @@ class ClaudeCLIStructuredLLM(StructuredLLM):
             get_optional_env("CLAUDE_CLI_TIMEOUT_SECONDS", str(_DEFAULT_TIMEOUT_SECONDS))
         )
 
-    def generate_structured(self, system_prompt, user_prompt, schema):
-        # user_prompt is NEVER placed in argv -- for real synthesis calls it
-        # can be tens of KB, which exceeds Windows' CreateProcess command-line
-        # length limit (~32,767 chars total) and fails near-instantly with no
-        # useful error. `-p` with no positional prompt argument makes the
-        # Claude CLI print-mode read the prompt from stdin instead, which has
-        # no such length ceiling.
+    def _run_once(self, system_prompt, user_prompt, schema):
+        """One real CLI invocation + parse attempt. Returns (parsed, usage)
+        on success. Raises _JSONParseFailure for a retry-eligible
+        transport/format parse failure, or ClaudeCLIError/
+        ClaudeCLIRateLimitError for anything else (never retried by the
+        caller)."""
         cmd = [
             self._executable,
             "-p",
@@ -123,11 +252,6 @@ class ClaudeCLIStructuredLLM(StructuredLLM):
         # constructed directly by a test or future caller.
         env = os.environ.copy()
         env.pop("ANTHROPIC_API_KEY", None)
-
-        logger.info(
-            "claude_cli generate_structured STARTING model=%s prompt_chars=%d timeout_s=%d",
-            self._model, len(user_prompt), self._timeout_seconds,
-        )
 
         try:
             result = subprocess.run(
@@ -167,26 +291,63 @@ class ClaudeCLIStructuredLLM(StructuredLLM):
             # --json-schema is expected to populate structured_output --
             # fall back to parsing payload["result"] as raw JSON text if it
             # didn't (still a local parse, never a paid-API fallback).
+            # Real, confirmed intermittent failure mode: the SAME candidate
+            # pool succeeded on one call and produced a fenced/prose-
+            # wrapped result on the next -- _parse_json_leniently recovers
+            # the real JSON substring the model already wrote; it never
+            # invents or repairs content.
             raw_result_text = payload.get("result")
             if not isinstance(raw_result_text, str):
                 raise ClaudeCLIError("claude CLI response had neither structured_output nor a text result field.")
             try:
-                parsed = json.loads(raw_result_text)
+                parsed = _parse_json_leniently(raw_result_text)
             except json.JSONDecodeError as exc:
-                raise ClaudeCLIError(
+                raise _JSONParseFailure(
                     f"claude CLI result was not valid JSON matching the schema: {type(exc).__name__}: {exc}"
                 ) from exc
 
-        usage = payload.get("usage") or {}
+        return parsed, (payload.get("usage") or {})
+
+    def generate_structured(self, system_prompt, user_prompt, schema):
+        # user_prompt is NEVER placed in argv -- for real synthesis calls it
+        # can be tens of KB, which exceeds Windows' CreateProcess command-line
+        # length limit (~32,767 chars total) and fails near-instantly with no
+        # useful error. `-p` with no positional prompt argument makes the
+        # Claude CLI print-mode read the prompt from stdin instead, which has
+        # no such length ceiling.
         logger.info(
-            "claude_cli generate_structured SUCCESS model=%s input_tokens=%s output_tokens=%s",
-            self._model, usage.get("input_tokens"), usage.get("output_tokens"),
+            "claude_cli generate_structured STARTING model=%s prompt_chars=%d timeout_s=%d",
+            self._model, len(user_prompt), self._timeout_seconds,
         )
 
-        return LLMResponse(
-            parsed=parsed,
-            raw_text=json.dumps(parsed),
-            model_used=self._model,
-            input_tokens=usage.get("input_tokens", 0) or 0,
-            output_tokens=usage.get("output_tokens", 0) or 0,
-        )
+        last_error = None
+        for attempt in range(1, MAX_JSON_REPAIR_RETRIES + 2):
+            attempt_system_prompt = system_prompt
+            if attempt > 1:
+                attempt_system_prompt = (system_prompt or "") + _JSON_REPAIR_SYSTEM_PROMPT_SUFFIX
+                logger.warning(
+                    "claude_cli generate_structured JSON parse failed on attempt=%d, retrying once with repair prompt: %s",
+                    attempt - 1, last_error,
+                )
+            try:
+                parsed, usage = self._run_once(attempt_system_prompt, user_prompt, schema)
+            except _JSONParseFailure as exc:
+                last_error = exc
+                continue
+
+            logger.info(
+                "claude_cli generate_structured SUCCESS model=%s input_tokens=%s output_tokens=%s attempt=%d",
+                self._model, usage.get("input_tokens"), usage.get("output_tokens"), attempt,
+            )
+            return LLMResponse(
+                parsed=parsed,
+                raw_text=json.dumps(parsed),
+                model_used=self._model,
+                input_tokens=usage.get("input_tokens", 0) or 0,
+                output_tokens=usage.get("output_tokens", 0) or 0,
+            )
+
+        raise ClaudeCLIError(
+            f"claude CLI result was not valid JSON matching the schema after "
+            f"{MAX_JSON_REPAIR_RETRIES + 1} attempt(s): {last_error}"
+        ) from last_error

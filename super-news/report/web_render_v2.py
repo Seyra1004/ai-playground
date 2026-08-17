@@ -294,6 +294,23 @@ def _has_korean_title(item):
     return bool(_HANGUL_RE.search(_display_title(item)))
 
 
+def _has_displayable_korean_content(item):
+    """FINAL GOAL PASS (2026-08-17, confirmed real defect): the Korean-
+    readiness guard above only ever checked the TITLE -- a real AI item
+    whose title is an untranslated English headline (no free/non-paid
+    title-translation path exists) but whose News Intelligence bullets
+    (what_happened/why_it_matters/what_to_watch -- always real, LLM-
+    synthesized KOREAN text, see report.web_render_v2._ed_bullets_html)
+    were fully available still got forced to the bare compact tier,
+    silently throwing away real, already-generated Korean content and
+    leaving nothing but a raw English link -- worse than the guard's own
+    intent (never a raw-English-only card), not better. An item counts as
+    Korean-ready here when EITHER its title is Korean OR it has real
+    AI-intelligence-sourced Korean bullets to show -- only an item with
+    NEITHER is true raw fallback and stays compact-only."""
+    return _has_korean_title(item) or item.get("ai_intelligence_status") == "AVAILABLE"
+
+
 _RHETORICAL_QUESTION_ONLY_RE = re.compile(r"^(?:[^.!?]*[?？]\s*)+$")
 
 
@@ -1905,20 +1922,24 @@ def _render_compact_news_section(block_class, section_id, label, data, primary_c
         # list of equal-weight cards.
         #
         # DAILY KOREAN-READINESS GUARD (korean_lead_guard, AI/ECONOMY/
-        # SOCIETY only): Korean-ready items sort before untranslated
-        # English-only items for DISPLAY ONLY -- data["items"]/the real DB
-        # ordering is never mutated, only this local rendering-order list.
-        # An English-only item can never be Level A or B, only ever the
-        # compact Level C brief (headline + byline + link, no summary).
-        # Python's sort is stable, so relative order within each group is
-        # preserved.
+        # SOCIETY only): Korean-ready items sort before genuinely raw
+        # (no Korean title AND no Korean AI-intelligence bullets) items
+        # for DISPLAY ONLY -- data["items"]/the real DB ordering is never
+        # mutated, only this local rendering-order list. A genuinely raw
+        # item can never be Level A or B, only ever the compact Level C
+        # brief (headline + byline + link, no summary) -- see
+        # _has_displayable_korean_content's own docstring for why an
+        # English TITLE alone no longer forces this (a real Korean
+        # AI-intelligence summary/bullets must never be thrown away just
+        # because the headline itself wasn't translated). Python's sort
+        # is stable, so relative order within each group is preserved.
         ordered = (
-            sorted(primary, key=lambda item: not _has_korean_title(item))
+            sorted(primary, key=lambda item: not _has_displayable_korean_content(item))
             if korean_lead_guard else primary
         )
         cards = []
         for i, item in enumerate(ordered):
-            if korean_lead_guard and not _has_korean_title(item):
+            if korean_lead_guard and not _has_displayable_korean_content(item):
                 level = "C"
             elif featured and i == 0:
                 level = "A"

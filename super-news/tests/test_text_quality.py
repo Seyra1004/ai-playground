@@ -124,6 +124,16 @@ def test_ko_currency_values_ignores_article_number_reference():
     assert _ko_currency_values("제3조에 따르면 계약은 무효다.") == []
 
 
+def test_ko_currency_values_never_crashes_on_punctuation_only_number():
+    """EMERGENCY QUALITY RECOVERY PASS (2026-08-17, confirmed real defect):
+    a comma-only run with no actual digit (e.g. a stray ",조" from unusual
+    real text) satisfies [\\d,]+ but crashes float("") -- this must be
+    skipped, never raise, exactly like _en_currency_values already does
+    for its own equivalent case."""
+    assert _ko_currency_values(",조 이야기입니다") == []
+    assert _ko_currency_values("정상 문장에 ,,,억이 섞여 있어도 죽지 않아야 한다") == []
+
+
 def test_unsupported_fact_tokens_empty_evidence_flags_any_real_token():
     reasons = unsupported_fact_tokens("2026년 발표", "")
     assert any("year" in r for r in reasons)

@@ -173,7 +173,24 @@ def validate_producer_insights(parsed_output, valid_refs, evidence_by_ref=None):
     what_to_watch/what_could_i_make_now) instead of the older bare
     action/why pair -- see report.producer_synthesis's own schema/prompt
     docstring for which of the four is the OBSERVED FACT vs. AI
-    INFERENCE."""
+    INFERENCE.
+
+    EMERGENCY QUALITY RECOVERY PASS (2026-08-17): STRUCTURAL failures
+    (parsed_output isn't an object with an 'insights' list, or a single
+    list entry isn't even an object) still raise ProducerValidationError
+    immediately -- there is no partial-item recovery from a genuinely
+    unparseable shape. But a PER-ITEM content-quality rejection (content-
+    creation advice, malformed/gibberish text, an unsupported fact, a bad
+    evidence ref, an invalid confidence) no longer fails the entire day's
+    batch -- confirmed real defect: one bad insight among several good,
+    grounded ones threw away everything, including real Stray Kids/K-pop
+    A&R value alongside it. That offending item is DROPPED and every
+    other, independently-valid insight is still returned; the existing
+    guards themselves (is_content_creation_advice, is_malformed_synthesis_
+    text, unsupported_fact_tokens, ref-grounding) are completely
+    unchanged, still individually enforced per item -- "잘못된 JSON을
+    억지로 PASS시키지 마라" still holds: a bad item is never kept, it is
+    simply no longer allowed to also destroy the good ones next to it."""
     if not isinstance(parsed_output, dict) or "insights" not in parsed_output:
         raise ProducerValidationError(f"expected an object with an 'insights' key, got {parsed_output!r}")
     insights = parsed_output["insights"]
@@ -185,38 +202,49 @@ def validate_producer_insights(parsed_output, valid_refs, evidence_by_ref=None):
     # output) still enforces the hard cap deterministically, and every kept
     # insight is still individually validated below exactly like any other.
     insights = insights[:MAX_PRODUCER_INSIGHTS]
+    valid_insights = []
     for insight in insights:
         if not isinstance(insight, dict):
             raise ProducerValidationError(f"malformed insight: {insight!r}")
-        for field in _PRODUCER_INSIGHT_TEXT_FIELDS + ("evidence_refs", "confidence"):
-            if field not in insight:
-                raise ProducerValidationError(f"insight missing required field {field!r}: {insight!r}")
+        if _rejected_producer_insight_reason(insight, valid_refs, evidence_by_ref):
+            continue
+        valid_insights.append(insight)
+    parsed_output["insights"] = valid_insights
+    return valid_insights
+
+
+def _rejected_producer_insight_reason(insight, valid_refs, evidence_by_ref):
+    """Returns a human-readable rejection reason (logged, never raised) if
+    `insight` fails any per-item quality/grounding check, else None. Same
+    checks validate_producer_insights always enforced, just no longer
+    fatal to sibling items -- see that function's own docstring."""
+    for field in _PRODUCER_INSIGHT_TEXT_FIELDS + ("evidence_refs", "confidence"):
+        if field not in insight:
+            return f"insight missing required field {field!r}: {insight!r}"
+    for field in _PRODUCER_INSIGHT_TEXT_FIELDS:
+        if not isinstance(insight[field], str) or not insight[field].strip():
+            return f"empty {field}: {insight!r}"
+    if is_content_creation_advice(insight["what_could_i_make_now"]):
+        return (
+            f"what_could_i_make_now recommends editorial content creation, not a real "
+            f"music-making/A&R action: {insight['what_could_i_make_now']!r}"
+        )
+    if not isinstance(insight["evidence_refs"], list) or not insight["evidence_refs"]:
+        return f"evidence_refs must be a non-empty list: {insight!r}"
+    for ref in insight["evidence_refs"]:
+        if ref not in valid_refs:
+            return f"evidence ref {ref!r} is not in the evidence catalog"
+    if insight["confidence"] not in ("LOW", "MEDIUM", "HIGH"):
+        return f"invalid confidence: {insight.get('confidence')!r}"
+    if evidence_by_ref is not None:
+        evidence_text = " ".join(evidence_by_ref.get(ref, "") for ref in insight["evidence_refs"])
         for field in _PRODUCER_INSIGHT_TEXT_FIELDS:
-            if not isinstance(insight[field], str) or not insight[field].strip():
-                raise ProducerValidationError(f"empty {field}: {insight!r}")
-        if is_content_creation_advice(insight["what_could_i_make_now"]):
-            raise ProducerValidationError(
-                f"what_could_i_make_now recommends editorial content creation, not a real "
-                f"music-making/A&R action: {insight['what_could_i_make_now']!r}"
-            )
-        if not isinstance(insight["evidence_refs"], list) or not insight["evidence_refs"]:
-            raise ProducerValidationError(f"evidence_refs must be a non-empty list: {insight!r}")
-        for ref in insight["evidence_refs"]:
-            if ref not in valid_refs:
-                raise ProducerValidationError(f"evidence ref {ref!r} is not in the evidence catalog")
-        if insight["confidence"] not in ("LOW", "MEDIUM", "HIGH"):
-            raise ProducerValidationError(f"invalid confidence: {insight.get('confidence')!r}")
-        if evidence_by_ref is not None:
-            evidence_text = " ".join(
-                evidence_by_ref.get(ref, "") for ref in insight["evidence_refs"]
-            )
-            for field in _PRODUCER_INSIGHT_TEXT_FIELDS:
-                if is_malformed_synthesis_text(insight[field]):
-                    raise ProducerValidationError(f"malformed/gibberish {field}: {insight!r}")
-                unsupported = unsupported_fact_tokens(insight[field], evidence_text)
-                if unsupported:
-                    raise ProducerValidationError(f"{field} asserts unsupported fact(s) {unsupported}: {insight!r}")
-    return insights
+            if is_malformed_synthesis_text(insight[field]):
+                return f"malformed/gibberish {field}: {insight!r}"
+            unsupported = unsupported_fact_tokens(insight[field], evidence_text)
+            if unsupported:
+                return f"{field} asserts unsupported fact(s) {unsupported}: {insight!r}"
+    return None
 
 
 _MUSIC_TREND_LIST_FIELDS = ("genre_signals", "production_notes", "producer_references", "kpop_ar_notes")
@@ -260,35 +288,45 @@ def validate_music_trend_signals(parsed_output, valid_refs, evidence_by_ref=None
         # MAX_MUSIC_TREND_ITEMS_PER_LIST per field, ordered strongest first;
         # a real model occasionally overshoots despite that instruction.
         items = items[:MAX_MUSIC_TREND_ITEMS_PER_LIST]
-        parsed_output[field] = items
+        valid_items = []
         for item in items:
             if not isinstance(item, dict):
                 raise MusicTrendValidationError(f"{field!r}: malformed item: {item!r}")
-            for key in ("observed", "interpretation", "evidence_refs", "confidence"):
-                if key not in item:
-                    raise MusicTrendValidationError(f"{field!r}: item missing required field {key!r}: {item!r}")
-            if not isinstance(item["observed"], str) or not item["observed"].strip():
-                raise MusicTrendValidationError(f"{field!r}: empty observed: {item!r}")
-            if not isinstance(item["interpretation"], str) or not item["interpretation"].strip():
-                raise MusicTrendValidationError(f"{field!r}: empty interpretation: {item!r}")
-            if not isinstance(item["evidence_refs"], list) or not item["evidence_refs"]:
-                raise MusicTrendValidationError(f"{field!r}: evidence_refs must be a non-empty list: {item!r}")
-            for ref in item["evidence_refs"]:
-                if ref not in valid_refs:
-                    raise MusicTrendValidationError(f"{field!r}: evidence ref {ref!r} is not in the evidence catalog")
-            if item["confidence"] not in ("LOW", "MEDIUM", "HIGH"):
-                raise MusicTrendValidationError(f"{field!r}: invalid confidence: {item.get('confidence')!r}")
-            if evidence_by_ref is not None:
-                evidence_text = " ".join(evidence_by_ref.get(ref, "") for ref in item["evidence_refs"])
-                for key in ("observed", "interpretation"):
-                    if is_malformed_synthesis_text(item[key]):
-                        raise MusicTrendValidationError(f"{field!r}: malformed/gibberish {key}: {item!r}")
-                    unsupported = unsupported_fact_tokens(item[key], evidence_text)
-                    if unsupported:
-                        raise MusicTrendValidationError(
-                            f"{field!r}: {key} asserts unsupported fact(s) {unsupported}: {item!r}"
-                        )
+            if not _rejected_music_trend_item_reason(field, item, valid_refs, evidence_by_ref):
+                valid_items.append(item)
+        parsed_output[field] = valid_items
     return parsed_output
+
+
+def _rejected_music_trend_item_reason(field, item, valid_refs, evidence_by_ref):
+    """Returns a human-readable rejection reason (logged, never raised) if
+    `item` fails any per-item quality/grounding check, else None -- see
+    validate_music_trend_signals' own docstring (EMERGENCY QUALITY
+    RECOVERY PASS, 2026-08-17): a per-item rejection no longer fails the
+    whole field, only drops that one item."""
+    for key in ("observed", "interpretation", "evidence_refs", "confidence"):
+        if key not in item:
+            return f"{field!r}: item missing required field {key!r}: {item!r}"
+    if not isinstance(item["observed"], str) or not item["observed"].strip():
+        return f"{field!r}: empty observed: {item!r}"
+    if not isinstance(item["interpretation"], str) or not item["interpretation"].strip():
+        return f"{field!r}: empty interpretation: {item!r}"
+    if not isinstance(item["evidence_refs"], list) or not item["evidence_refs"]:
+        return f"{field!r}: evidence_refs must be a non-empty list: {item!r}"
+    for ref in item["evidence_refs"]:
+        if ref not in valid_refs:
+            return f"{field!r}: evidence ref {ref!r} is not in the evidence catalog"
+    if item["confidence"] not in ("LOW", "MEDIUM", "HIGH"):
+        return f"{field!r}: invalid confidence: {item.get('confidence')!r}"
+    if evidence_by_ref is not None:
+        evidence_text = " ".join(evidence_by_ref.get(ref, "") for ref in item["evidence_refs"])
+        for key in ("observed", "interpretation"):
+            if is_malformed_synthesis_text(item[key]):
+                return f"{field!r}: malformed/gibberish {key}: {item!r}"
+            unsupported = unsupported_fact_tokens(item[key], evidence_text)
+            if unsupported:
+                return f"{field!r}: {key} asserts unsupported fact(s) {unsupported}: {item!r}"
+    return None
 
 
 def validate_all_categories(parsed_output, candidates_by_category, snippet_by_id=None):

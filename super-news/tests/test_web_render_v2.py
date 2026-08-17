@@ -1689,6 +1689,29 @@ def test_untranslated_english_ai_item_never_becomes_lead_and_sorts_after_korean(
     assert data["news"]["AI"]["items"][0]["title"] == "Untranslated English Headline"  # real DB order untouched
 
 
+def test_english_title_with_real_korean_ai_intelligence_keeps_its_tier():
+    """FINAL GOAL PASS (2026-08-17, confirmed real defect): an item whose
+    TITLE is untranslated English but which HAS real, LLM-synthesized
+    Korean AI-intelligence bullets (why_it_matters/what_to_watch,
+    ai_intelligence_status="AVAILABLE") must NOT be forced to the bare
+    compact tier -- that used to throw away real, already-generated
+    Korean content and leave nothing but a raw English link, exactly the
+    "raw fallback" outcome the guard was supposed to prevent, not cause."""
+    data = _empty_dashboard()
+    data["news"]["AI"] = _news("NORMAL", [
+        _news_item(
+            "Untranslated English Headline With Real Korean Intelligence",
+            ai_intelligence_status="AVAILABLE",
+            why_it_matters="이 소식이 중요한 이유에 대한 실제 한국어 분석입니다.",
+            what_to_watch="앞으로 지켜봐야 할 점에 대한 실제 한국어 분석입니다.",
+        ),
+    ])
+    html_out = render_dashboard_html_v2(data)
+    section = _section(html_out, "section-AI")
+    assert 'class="news-card ed-card ed-card-lead' in section
+    assert "이 소식이 중요한 이유에 대한 실제 한국어 분석입니다." in section
+
+
 def test_all_english_ai_items_have_no_level_a_lead_at_all():
     """Never fabricate a Korean lead -- if genuinely nothing in the round
     is Korean-ready, there is simply no Level A card that round."""

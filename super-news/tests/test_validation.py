@@ -194,60 +194,33 @@ def test_valid_insight_passes():
     assert result == [_insight()]
 
 
-def test_hallucinated_evidence_ref_rejected():
-    try:
-        validate_producer_insights({"insights": [_insight(evidence_refs=["E99"])]}, VALID_REFS)
-        assert False, "expected ProducerValidationError"
-    except ProducerValidationError as exc:
-        assert "E99" in exc.reason
+def test_hallucinated_evidence_ref_dropped_not_whole_batch():
+    result = validate_producer_insights({"insights": [_insight(evidence_refs=["E99"])]}, VALID_REFS)
+    assert result == []
 
 
-def test_empty_evidence_refs_rejected():
-    try:
-        validate_producer_insights({"insights": [_insight(evidence_refs=[])]}, VALID_REFS)
-        assert False, "expected ProducerValidationError"
-    except ProducerValidationError:
-        pass
+def test_producer_empty_evidence_refs_dropped():
+    assert validate_producer_insights({"insights": [_insight(evidence_refs=[])]}, VALID_REFS) == []
 
 
-def test_empty_what_is_moving_rejected():
-    try:
-        validate_producer_insights({"insights": [_insight(what_is_moving="")]}, VALID_REFS)
-        assert False, "expected ProducerValidationError"
-    except ProducerValidationError:
-        pass
+def test_empty_what_is_moving_dropped():
+    assert validate_producer_insights({"insights": [_insight(what_is_moving="")]}, VALID_REFS) == []
 
 
-def test_empty_why_it_matters_rejected():
-    try:
-        validate_producer_insights({"insights": [_insight(why_it_matters="  ")]}, VALID_REFS)
-        assert False, "expected ProducerValidationError"
-    except ProducerValidationError:
-        pass
+def test_empty_why_it_matters_dropped():
+    assert validate_producer_insights({"insights": [_insight(why_it_matters="  ")]}, VALID_REFS) == []
 
 
-def test_empty_what_to_watch_rejected():
-    try:
-        validate_producer_insights({"insights": [_insight(what_to_watch="")]}, VALID_REFS)
-        assert False, "expected ProducerValidationError"
-    except ProducerValidationError:
-        pass
+def test_empty_what_to_watch_dropped():
+    assert validate_producer_insights({"insights": [_insight(what_to_watch="")]}, VALID_REFS) == []
 
 
-def test_empty_what_could_i_make_now_rejected():
-    try:
-        validate_producer_insights({"insights": [_insight(what_could_i_make_now="  ")]}, VALID_REFS)
-        assert False, "expected ProducerValidationError"
-    except ProducerValidationError:
-        pass
+def test_empty_what_could_i_make_now_dropped():
+    assert validate_producer_insights({"insights": [_insight(what_could_i_make_now="  ")]}, VALID_REFS) == []
 
 
-def test_invalid_confidence_rejected():
-    try:
-        validate_producer_insights({"insights": [_insight(confidence="EXTREME")]}, VALID_REFS)
-        assert False, "expected ProducerValidationError"
-    except ProducerValidationError:
-        pass
+def test_producer_invalid_confidence_dropped():
+    assert validate_producer_insights({"insights": [_insight(confidence="EXTREME")]}, VALID_REFS) == []
 
 
 def test_over_max_producer_insights_truncated_not_rejected():
@@ -274,22 +247,14 @@ def test_empty_insights_list_is_valid():
 # advice masquerading as producer/A&R action -----------------------------
 
 
-def test_newsletter_advice_rejected_not_real_producer_action():
+def test_newsletter_advice_dropped_not_real_producer_action():
     insight = _insight(what_could_i_make_now="이번 주 차트 무브를 요약한 짧은 뉴스레터 섹션을 바로 만들 수 있다")
-    try:
-        validate_producer_insights({"insights": [insight]}, VALID_REFS)
-        assert False, "expected ProducerValidationError"
-    except ProducerValidationError as exc:
-        assert "editorial content" in exc.reason.lower() or "music-making" in exc.reason.lower()
+    assert validate_producer_insights({"insights": [insight]}, VALID_REFS) == []
 
 
-def test_article_explainer_advice_rejected():
+def test_article_explainer_advice_dropped():
     insight = _insight(what_could_i_make_now="이 이슈를 타임라인 형태로 정리한 짧은 explainer 기사를 작성할 수 있다")
-    try:
-        validate_producer_insights({"insights": [insight]}, VALID_REFS)
-        assert False, "expected ProducerValidationError"
-    except ProducerValidationError:
-        pass
+    assert validate_producer_insights({"insights": [insight]}, VALID_REFS) == []
 
 
 def test_analysis_memo_advice_rejected():
@@ -298,11 +263,7 @@ def test_analysis_memo_advice_rejected():
     creation, not a real music-making/A&R action -- same rejection as
     newsletter/article/explainer advice."""
     insight = _insight(what_could_i_make_now="TikTok의 음악 산업 내 역할 축소가 마케팅에 미치는 영향을 짚는 짧은 분석 메모를 작성할 수 있다")
-    try:
-        validate_producer_insights({"insights": [insight]}, VALID_REFS)
-        assert False, "expected ProducerValidationError"
-    except ProducerValidationError as exc:
-        assert "editorial content" in exc.reason.lower() or "music-making" in exc.reason.lower()
+    assert validate_producer_insights({"insights": [insight]}, VALID_REFS) == []
 
 
 def test_real_music_making_advice_still_passes():
@@ -327,14 +288,10 @@ def test_root_not_object_rejected():
         pass
 
 
-def test_missing_required_field_rejected():
+def test_missing_required_field_dropped():
     malformed = {"what_is_moving": "x", "why_it_matters": "y", "what_to_watch": "z",
                  "what_could_i_make_now": "w", "confidence": "LOW"}  # missing evidence_refs
-    try:
-        validate_producer_insights({"insights": [malformed]}, VALID_REFS)
-        assert False, "expected ProducerValidationError"
-    except ProducerValidationError:
-        pass
+    assert validate_producer_insights({"insights": [malformed]}, VALID_REFS) == []
 
 
 # ---- validate_music_trend_signals: evidence-ref grounding, 4 independent lists --
@@ -366,55 +323,40 @@ def test_valid_genre_signal_passes():
     assert result["genre_signals"] == [_trend_item()]
 
 
-def test_hallucinated_evidence_ref_rejected_in_any_list():
+def test_hallucinated_evidence_ref_dropped_in_any_list():
     for field in ("genre_signals", "production_notes", "producer_references", "kpop_ar_notes"):
         payload = _all_empty_lists()
         payload[field] = [_trend_item(evidence_refs=["E99"])]
-        try:
-            validate_music_trend_signals(payload, VALID_REFS)
-            assert False, f"expected MusicTrendValidationError for {field}"
-        except MusicTrendValidationError as exc:
-            assert "E99" in exc.reason
+        result = validate_music_trend_signals(payload, VALID_REFS)
+        assert result[field] == []
 
 
-def test_empty_evidence_refs_rejected():
+def test_music_trend_empty_evidence_refs_dropped():
     payload = _all_empty_lists()
     payload["production_notes"] = [_trend_item(evidence_refs=[])]
-    try:
-        validate_music_trend_signals(payload, VALID_REFS)
-        assert False, "expected MusicTrendValidationError"
-    except MusicTrendValidationError:
-        pass
+    result = validate_music_trend_signals(payload, VALID_REFS)
+    assert result["production_notes"] == []
 
 
-def test_empty_observed_rejected():
+def test_empty_observed_dropped():
     payload = _all_empty_lists()
     payload["producer_references"] = [_trend_item(observed="  ")]
-    try:
-        validate_music_trend_signals(payload, VALID_REFS)
-        assert False, "expected MusicTrendValidationError"
-    except MusicTrendValidationError:
-        pass
+    result = validate_music_trend_signals(payload, VALID_REFS)
+    assert result["producer_references"] == []
 
 
-def test_empty_interpretation_rejected():
+def test_empty_interpretation_dropped():
     payload = _all_empty_lists()
     payload["kpop_ar_notes"] = [_trend_item(interpretation="")]
-    try:
-        validate_music_trend_signals(payload, VALID_REFS)
-        assert False, "expected MusicTrendValidationError"
-    except MusicTrendValidationError:
-        pass
+    result = validate_music_trend_signals(payload, VALID_REFS)
+    assert result["kpop_ar_notes"] == []
 
 
-def test_invalid_confidence_rejected():
+def test_music_trend_invalid_confidence_dropped():
     payload = _all_empty_lists()
     payload["genre_signals"] = [_trend_item(confidence="EXTREME")]
-    try:
-        validate_music_trend_signals(payload, VALID_REFS)
-        assert False, "expected MusicTrendValidationError"
-    except MusicTrendValidationError:
-        pass
+    result = validate_music_trend_signals(payload, VALID_REFS)
+    assert result["genre_signals"] == []
 
 
 def test_over_max_items_per_list_truncated_not_rejected():
@@ -426,19 +368,18 @@ def test_over_max_items_per_list_truncated_not_rejected():
     assert len(result["genre_signals"]) == MAX_MUSIC_TREND_ITEMS_PER_LIST
 
 
-def test_one_bad_list_never_invalidates_a_well_grounded_item_check_is_atomic():
-    """The whole payload is validated as one unit (matching validate_
-    producer_insights's own all-or-nothing contract) -- a bad item in one
-    list still rejects the whole call, since report.music_trend_
-    orchestrator persists all 4 lists together or not at all."""
+def test_one_bad_list_never_invalidates_a_well_grounded_item_in_another():
+    """EMERGENCY QUALITY RECOVERY PASS (2026-08-17): a bad item in one
+    list is dropped, but a genuinely well-grounded item in a DIFFERENT
+    list must survive -- confirmed real defect this closes: a single
+    malformed producer_references item used to throw away an otherwise
+    fine genre_signals result from the same run."""
     payload = _all_empty_lists()
     payload["genre_signals"] = [_trend_item()]
     payload["production_notes"] = [_trend_item(evidence_refs=["E99"])]
-    try:
-        validate_music_trend_signals(payload, VALID_REFS)
-        assert False, "expected MusicTrendValidationError"
-    except MusicTrendValidationError:
-        pass
+    result = validate_music_trend_signals(payload, VALID_REFS)
+    assert result["genre_signals"] == [_trend_item()]
+    assert result["production_notes"] == []
 
 
 def test_missing_list_key_rejected():
@@ -503,22 +444,14 @@ def test_reason_grounded_fact_token_passes():
 EVIDENCE_BY_REF = {"E1": "Artist - Title reached #3 on the chart."}
 
 
-def test_producer_insight_malformed_text_rejected_with_evidence():
+def test_producer_insight_malformed_text_dropped_with_evidence():
     insight = _insight(what_is_moving="I'm sorry, but I cannot summarize this.")
-    try:
-        validate_producer_insights({"insights": [insight]}, VALID_REFS, EVIDENCE_BY_REF)
-        assert False, "expected ProducerValidationError"
-    except ProducerValidationError as exc:
-        assert "malformed" in exc.reason
+    assert validate_producer_insights({"insights": [insight]}, VALID_REFS, EVIDENCE_BY_REF) == []
 
 
-def test_producer_insight_unsupported_currency_rejected_with_evidence():
+def test_producer_insight_unsupported_currency_dropped_with_evidence():
     insight = _insight(why_it_matters="이 거래 규모는 42억 달러에 달한다")
-    try:
-        validate_producer_insights({"insights": [insight]}, VALID_REFS, EVIDENCE_BY_REF)
-        assert False, "expected ProducerValidationError"
-    except ProducerValidationError as exc:
-        assert "unsupported" in exc.reason
+    assert validate_producer_insights({"insights": [insight]}, VALID_REFS, EVIDENCE_BY_REF) == []
 
 
 def test_producer_insight_real_korean_no_facts_passes_with_evidence():
@@ -539,24 +472,18 @@ def test_producer_insight_grounded_currency_passes_with_evidence():
     assert result == [insight]
 
 
-def test_music_trend_item_malformed_text_rejected_with_evidence():
+def test_music_trend_item_malformed_text_dropped_with_evidence():
     payload = _all_empty_lists()
     payload["genre_signals"] = [_trend_item(observed="I cannot provide that information.")]
-    try:
-        validate_music_trend_signals(payload, VALID_REFS, EVIDENCE_BY_REF)
-        assert False, "expected MusicTrendValidationError"
-    except MusicTrendValidationError as exc:
-        assert "malformed" in exc.reason
+    result = validate_music_trend_signals(payload, VALID_REFS, EVIDENCE_BY_REF)
+    assert result["genre_signals"] == []
 
 
-def test_music_trend_item_unsupported_year_rejected_with_evidence():
+def test_music_trend_item_unsupported_year_dropped_with_evidence():
     payload = _all_empty_lists()
     payload["genre_signals"] = [_trend_item(interpretation="2030년 트렌드를 예고한다")]
-    try:
-        validate_music_trend_signals(payload, VALID_REFS, EVIDENCE_BY_REF)
-        assert False, "expected MusicTrendValidationError"
-    except MusicTrendValidationError as exc:
-        assert "unsupported" in exc.reason
+    result = validate_music_trend_signals(payload, VALID_REFS, EVIDENCE_BY_REF)
+    assert result["genre_signals"] == []
 
 
 def test_music_trend_item_grounded_text_passes_with_evidence():
