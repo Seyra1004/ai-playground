@@ -953,6 +953,16 @@ _MUSIC_INDUSTRY_DOWNRANK_KEYWORDS = (
     # revenue/pricing/route report), which stays eligible for its own real
     # priority class above.
     "최고의 순간", "베스트 모먼트", "best moments from", "하이라이트 모음", "명장면 모음",
+    # FINAL 90+ QUALITY CORRECTION PASS (confirmed real defect): an
+    # artist's music being used/removed on a POLITICAL FIGURE's social
+    # media is a celebrity-politics conflict story, not a real music-
+    # business/rights consequence, UNLESS it actually uses real
+    # rights/licensing language (in which case the LEGAL/RIGHTS EXCEPTION
+    # above already exempts it before this check ever runs) -- general
+    # political-conflict terms, never one artist's name, so this applies
+    # to any celebrity-vs-politician story, not just one real example.
+    "백악관", "white house", "대통령 후보", "presidential campaign", "정치 캠페인", "political campaign",
+    "선거 캠페인", "election campaign", "정당 지지", "trump", "트럼프",
 )
 _MUSIC_INDUSTRY_UNRANKED_PRIORITY = 9
 _MUSIC_INDUSTRY_DOWNRANKED_PRIORITY = 10

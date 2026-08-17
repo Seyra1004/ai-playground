@@ -135,6 +135,36 @@ def test_empty_selection_list_is_valid():
     assert valid == {"AI": [], "ECONOMY": [], "SOCIETY": []}
 
 
+# ---- FINAL 90+ QUALITY CORRECTION PASS: snippet_by_id fixes a real
+# false-positive currency-magnitude rejection (title-only evidence text
+# missed a currency figure that WAS present in the item's own real
+# snippet) --------------------------------------------------------------
+
+
+def test_currency_fact_false_positive_without_snippet_evidence():
+    """Reproduces the exact real defect: a title without the currency-unit
+    word ("2000조", no "원") fails to support a reason that correctly says
+    "2000조원", even though the fact is real and present in the item's own
+    snippet -- BEFORE this pass's fix, evidence text was title-only."""
+    candidates = {"ECONOMY": [{"id": 10, "normalized_title": "선 넘은 가계빚, 사상첫 2000조"}]}
+    parsed_output = {"ECONOMY": [{
+        "id": 10, "reason": "가계부채가 사상 처음 2000조원을 돌파한 것은 한국 경제의 구조적 위험을 보여주는 중대 지표다.",
+    }]}
+    valid, errors = validate_all_categories(parsed_output, candidates)
+    assert "ECONOMY" in errors  # false-positive reproduced with no snippet evidence
+
+
+def test_currency_fact_passes_with_snippet_evidence():
+    candidates = {"ECONOMY": [{"id": 10, "normalized_title": "선 넘은 가계빚, 사상첫 2000조"}]}
+    parsed_output = {"ECONOMY": [{
+        "id": 10, "reason": "가계부채가 사상 처음 2000조원을 돌파한 것은 한국 경제의 구조적 위험을 보여주는 중대 지표다.",
+    }]}
+    snippet_by_id = {10: "우리나라 가계 빚이 사상 처음으로 2000조원대에 진입한 것이 확실시된다."}
+    valid, errors = validate_all_categories(parsed_output, candidates, snippet_by_id=snippet_by_id)
+    assert errors == {}
+    assert valid["ECONOMY"] == parsed_output["ECONOMY"]
+
+
 # ---- validate_producer_insights: evidence-ref grounding ---------------------
 
 VALID_REFS = {"E1", "E2", "E3"}
@@ -231,6 +261,47 @@ def test_exactly_max_producer_insights_allowed():
 
 def test_empty_insights_list_is_valid():
     assert validate_producer_insights({"insights": []}, VALID_REFS) == []
+
+
+# ---- FINAL 90+ QUALITY CORRECTION PASS: reject editorial-content-creation
+# advice masquerading as producer/A&R action -----------------------------
+
+
+def test_newsletter_advice_rejected_not_real_producer_action():
+    insight = _insight(what_could_i_make_now="이번 주 차트 무브를 요약한 짧은 뉴스레터 섹션을 바로 만들 수 있다")
+    try:
+        validate_producer_insights({"insights": [insight]}, VALID_REFS)
+        assert False, "expected ProducerValidationError"
+    except ProducerValidationError as exc:
+        assert "editorial content" in exc.reason.lower() or "music-making" in exc.reason.lower()
+
+
+def test_article_explainer_advice_rejected():
+    insight = _insight(what_could_i_make_now="이 이슈를 타임라인 형태로 정리한 짧은 explainer 기사를 작성할 수 있다")
+    try:
+        validate_producer_insights({"insights": [insight]}, VALID_REFS)
+        assert False, "expected ProducerValidationError"
+    except ProducerValidationError:
+        pass
+
+
+def test_analysis_memo_advice_rejected():
+    """Confirmed real leak (2026-08-17): a cached what_could_i_make_now
+    recommending a short analysis memo about the news is editorial-content
+    creation, not a real music-making/A&R action -- same rejection as
+    newsletter/article/explainer advice."""
+    insight = _insight(what_could_i_make_now="TikTok의 음악 산업 내 역할 축소가 마케팅에 미치는 영향을 짚는 짧은 분석 메모를 작성할 수 있다")
+    try:
+        validate_producer_insights({"insights": [insight]}, VALID_REFS)
+        assert False, "expected ProducerValidationError"
+    except ProducerValidationError as exc:
+        assert "editorial content" in exc.reason.lower() or "music-making" in exc.reason.lower()
+
+
+def test_real_music_making_advice_still_passes():
+    insight = _insight(what_could_i_make_now="훅 중심의 신스팝 인트로를 다음 데모 세션에서 시도해볼 수 있다")
+    result = validate_producer_insights({"insights": [insight]}, VALID_REFS)
+    assert len(result) == 1
 
 
 def test_missing_insights_key_rejected():

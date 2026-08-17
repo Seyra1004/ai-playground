@@ -78,6 +78,32 @@ class ProducerValidationError(Exception):
 
 _PRODUCER_INSIGHT_TEXT_FIELDS = ("what_is_moving", "why_it_matters", "what_to_watch", "what_could_i_make_now")
 
+# FINAL 90+ QUALITY CORRECTION PASS (confirmed real, systemic defect: every
+# recent what_could_i_make_now value recommended writing a newsletter/
+# article/explainer about the news itself instead of a real music-making
+# action). A producer/composer reader has no use for editorial-content-
+# creation advice -- deterministic keyword reject, shared with report/
+# web_render_v2.py's render-time suppression of already-cached bad rows.
+CONTENT_CREATION_ADVICE_KEYWORDS = (
+    "뉴스레터", "newsletter", "explainer", "브리핑", "briefing", "타임라인", "timeline",
+    "카드뉴스", "요약 카드", "정리 카드", "뉴스 카드", "기사를 작성", "기사를 쓸", "아티클", "article",
+    "블로그", "blog post", "포스트를 작성", "recap", "리캡", "뉴스레터 섹션", "콘텐츠를 제작",
+    "글을 작성", "글을 쓸", "정리 글", "요약 글", "리스티클",
+    "분석 메모", "메모를 작성", "메모 작성", "정리 메모",
+)
+
+
+def is_content_creation_advice(text):
+    """True when `text` recommends making a piece of EDITORIAL CONTENT
+    (a newsletter/article/explainer/briefing/recap about the news) rather
+    than a real music-making/A&R/business action -- see
+    report.producer_synthesis's own what_could_i_make_now prompt fix for
+    the forward-looking half of this guard."""
+    if not text:
+        return False
+    lowered = text.lower()
+    return any(keyword in lowered for keyword in CONTENT_CREATION_ADVICE_KEYWORDS)
+
 
 def validate_producer_insights(parsed_output, valid_refs, evidence_by_ref=None):
     """parsed_output: the raw value the LLM returned for the Producer
@@ -123,6 +149,11 @@ def validate_producer_insights(parsed_output, valid_refs, evidence_by_ref=None):
         for field in _PRODUCER_INSIGHT_TEXT_FIELDS:
             if not isinstance(insight[field], str) or not insight[field].strip():
                 raise ProducerValidationError(f"empty {field}: {insight!r}")
+        if is_content_creation_advice(insight["what_could_i_make_now"]):
+            raise ProducerValidationError(
+                f"what_could_i_make_now recommends editorial content creation, not a real "
+                f"music-making/A&R action: {insight['what_could_i_make_now']!r}"
+            )
         if not isinstance(insight["evidence_refs"], list) or not insight["evidence_refs"]:
             raise ProducerValidationError(f"evidence_refs must be a non-empty list: {insight!r}")
         for ref in insight["evidence_refs"]:
@@ -215,11 +246,23 @@ def validate_music_trend_signals(parsed_output, valid_refs, evidence_by_ref=None
     return parsed_output
 
 
-def validate_all_categories(parsed_output, candidates_by_category):
+def validate_all_categories(parsed_output, candidates_by_category, snippet_by_id=None):
     """Returns (valid, errors): valid is dict[category -> selections] for
     categories that passed; errors is dict[category -> CategoryValidationError]
     for categories that didn't. Every category in candidates_by_category
-    appears in exactly one of the two dicts."""
+    appears in exactly one of the two dicts.
+
+    snippet_by_id (FINAL 90+ QUALITY CORRECTION PASS -- confirmed real
+    defect): optional {id: snippet_text} map. The fact-check evidence text
+    used to be the candidate's normalized_title ONLY -- a real ECONOMY
+    story's headline read "선 넘은 가계빚, 사상첫 2000조" (no currency-unit
+    word after "조"), so the currency-magnitude extractor found nothing
+    there even though the item's own real snippet said "2000조원대에
+    진입", producing a FALSE-POSITIVE "unsupported fact" rejection on a
+    genuinely well-supported figure. When provided, snippet_by_id's text is
+    appended to the title for fact-checking (never REPLACES the title --
+    still real, already-collected text, just more of it); omitted (None,
+    the default) keeps prior behavior for existing callers/tests."""
     valid = {}
     errors = {}
 
@@ -230,9 +273,14 @@ def validate_all_categories(parsed_output, candidates_by_category):
             )
         return valid, errors
 
+    snippet_by_id = snippet_by_id or {}
     for category, candidates in candidates_by_category.items():
         candidate_ids = {c["id"] for c in candidates}
-        title_by_id = {c["id"]: c.get("normalized_title") for c in candidates}
+        title_by_id = {}
+        for c in candidates:
+            title = c.get("normalized_title") or ""
+            snippet = snippet_by_id.get(c["id"])
+            title_by_id[c["id"]] = f"{title} {snippet}".strip() if snippet else title
         selections = parsed_output.get(category)
         try:
             if selections is None and category not in parsed_output:

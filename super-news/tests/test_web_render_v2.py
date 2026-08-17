@@ -703,8 +703,8 @@ def test_spotify_watch_shows_real_high_priority_item_with_enrichment():
     section = _section(html_out, "section-SPOTIFY")
     assert "block-quiet" not in section
     assert "Spotify announces new licensing agreement for AI covers" in section
-    assert "WHY IT MATTERS" in section and "왜 중요한가 텍스트" in section
-    assert "PRODUCER IMPACT" in section and "시도해볼 것 텍스트" in section  # MEDIUM confidence: TRY shown
+    assert "<b>왜 중요한가</b>" in section and "왜 중요한가 텍스트" in section
+    assert "<b>프로듀서 시사점</b>" in section and "시도해볼 것 텍스트" in section  # MEDIUM confidence: TRY shown
 
 
 def test_spotify_watch_excludes_item_already_shown_as_lead():
@@ -766,6 +766,45 @@ def test_producer_takeaway_medium_confidence_keeps_try_and_watch():
     section = _section(html_out, "section-PRODUCER")
     assert "<b>시도 · 지켜볼 점</b>" in section
     assert "시도해볼 것 텍스트" in section
+
+
+def test_producer_takeaway_suppresses_cached_newsletter_advice():
+    """FINAL 90+ QUALITY CORRECTION PASS: an already-cached insight (from
+    before report.producer_synthesis's prompt fix) recommending a
+    newsletter/explainer must never render as producer advice, even at
+    MEDIUM/HIGH confidence -- falls back to WATCH-only instead."""
+    data = _empty_dashboard()
+    insight = {
+        "what_is_moving": "실제 관측된 사실", "why_it_matters": "왜 중요한가 텍스트",
+        "what_to_watch": "지켜볼 점 텍스트",
+        "what_could_i_make_now": "이 이슈를 다루는 짧은 뉴스레터 섹션을 바로 만들 수 있다",
+        "confidence": "HIGH", "evidence": [],
+    }
+    data["producer_intelligence"] = {"state": "NORMAL", "insights": [insight]}
+    html_out = render_dashboard_html_v2(data)
+    section = _section(html_out, "section-PRODUCER")
+    assert "뉴스레터" not in section
+
+
+def test_producer_takeaway_suppresses_cached_analysis_memo_advice():
+    """Confirmed real leak (2026-08-17): a cached what_could_i_make_now
+    recommending a short analysis memo must never render as producer
+    advice -- falls back to WATCH-only, same as the newsletter-advice
+    guard above."""
+    data = _empty_dashboard()
+    insight = {
+        "what_is_moving": "실제 관측된 사실", "why_it_matters": "왜 중요한가 텍스트",
+        "what_to_watch": "지켜볼 점 텍스트",
+        "what_could_i_make_now": "TikTok의 역할 축소가 마케팅에 미치는 영향을 짚는 짧은 분석 메모를 작성할 수 있다",
+        "confidence": "HIGH", "evidence": [],
+    }
+    data["producer_intelligence"] = {"state": "NORMAL", "insights": [insight]}
+    html_out = render_dashboard_html_v2(data)
+    section = _section(html_out, "section-PRODUCER")
+    assert "분석 메모" not in section
+    assert "지켜볼 점 텍스트" in section
+    assert "<b>지켜볼 점</b>" in section
+    assert "지켜볼 점 텍스트" in section
 
 
 def test_producer_quality_cap_drops_low_confidence_insight_when_stronger_ones_exist():
@@ -1591,6 +1630,85 @@ def test_society_first_item_gets_full_editorial_card():
     assert "실제 사회 중요도" in section
 
 
+def test_untranslated_english_ai_item_never_becomes_lead_and_sorts_after_korean():
+    """DAILY KOREAN-READINESS GUARD: an untranslated English-only item can
+    never be Level A or Level B, only the compact Level C brief, and sorts
+    AFTER Korean-ready items for display even if it was first in the real
+    (unmutated) data list."""
+    data = _empty_dashboard()
+    data["news"]["AI"] = _news("NORMAL", [
+        _news_item("Untranslated English Headline", translation_status="FAILED",
+                    snippet="This is a long raw English summary that must never show."),
+        _news_item("실제 한국어 헤드라인", snippet="실제 한국어 요약입니다."),
+    ])
+    html_out = render_dashboard_html_v2(data)
+    section = _section(html_out, "section-AI")
+    assert 'class="news-card ed-card ed-card-lead' in section
+    lead_start = section.index('class="news-card ed-card ed-card-lead')
+    lead_end = section.index("</article>", lead_start)
+    lead_card = section[lead_start:lead_end]
+    assert "실제 한국어 헤드라인" in lead_card
+    assert "Untranslated English Headline" not in lead_card
+    # Korean-ready card renders before the English-only card in the DOM.
+    korean_pos = section.index("실제 한국어 헤드라인")
+    english_pos = section.index("Untranslated English Headline")
+    assert korean_pos < english_pos
+    # English-only item is a compact Level C brief: headline shown, but
+    # its long raw English summary never renders anywhere.
+    assert "This is a long raw English summary that must never show." not in section
+    assert data["news"]["AI"]["items"][0]["title"] == "Untranslated English Headline"  # real DB order untouched
+
+
+def test_all_english_ai_items_have_no_level_a_lead_at_all():
+    """Never fabricate a Korean lead -- if genuinely nothing in the round
+    is Korean-ready, there is simply no Level A card that round."""
+    data = _empty_dashboard()
+    data["news"]["AI"] = _news("NORMAL", [
+        _news_item("First English Headline", translation_status="FAILED"),
+        _news_item("Second English Headline", translation_status="FAILED"),
+    ])
+    html_out = render_dashboard_html_v2(data)
+    section = _section(html_out, "section-AI")
+    assert 'class="news-card ed-card ed-card-lead' not in section
+
+
+def test_music_industry_untouched_by_korean_lead_guard():
+    """The Korean-readiness guard is DAILY-only (AI/ECONOMY/SOCIETY) --
+    Music Industry keeps its existing behavior untouched, including for a
+    real English-titled item at index 0."""
+    data = _empty_dashboard()
+    data["news"]["SPOTIFY"] = _news("NORMAL", [_news_item("Top industry story", snippet="A real snippet fact.", reason="A real distinct reason.", source_count=2)])
+    html_out = render_dashboard_html_v2(data)
+    section = _section(html_out, "section-INDUSTRY")
+    assert 'class="news-card ed-card ed-card-lead' in section
+    lead_start = section.index('class="news-card ed-card ed-card-lead')
+    lead_end = section.index("</article>", lead_start)
+    assert "Top industry story" in section[lead_start:lead_end]
+
+
+def test_all_article_cta_links_use_unified_label():
+    """FINAL TEXT POLISH: every visible article CTA -- Level C compact
+    item-link, ed-cta, and the lead-story's own meta link -- uses the same
+    "기사 보기 →" text everywhere; "원문 기사 보기 →" must never appear
+    anywhere on either page."""
+    data = _empty_dashboard()
+    data["today_music_intelligence"] = [
+        _today_signal("INDUSTRY_NEWS", is_strongest=True,
+                      headline_item=_news_item("리드 헤드라인", source_url="https://example.com/lead")),
+        _today_signal("VIRAL_HOT", headline_item=_news_item("보조 헤드라인", source_url="https://example.com/secondary")),
+    ]
+    data["news"]["AI"] = _news("NORMAL", [
+        _news_item("AI 헤드라인 1", source_url="https://example.com/ai1", snippet="실제 요약입니다."),
+        _news_item("AI 헤드라인 2", source_url="https://example.com/ai2"),
+        _news_item("AI 헤드라인 3", source_url="https://example.com/ai3"),
+        _news_item("AI 헤드라인 4", source_url="https://example.com/ai4"),
+        _news_item("AI 헤드라인 5", source_url="https://example.com/ai5"),
+    ])
+    html_out = render_dashboard_html_v2(data)
+    assert "원문 기사 보기" not in html_out
+    assert "기사 보기 →" in html_out
+
+
 def test_economy_card_shows_source_and_cta_link():
     data = _empty_dashboard()
     data["news"]["ECONOMY"] = _news("NORMAL", [_news_item(
@@ -1612,21 +1730,83 @@ def test_ai_item_shows_real_why_it_matters_when_available():
     assert "실제 왜 중요한가 텍스트" in section
 
 
-def test_news_card_never_truncates_real_summary_text():
-    """REFERENCE DESIGN: the editorial card's summary is a real, fully
-    readable paragraph (matching the reference image's full-sentence
-    summary), never truncated/clamped at the data OR rendering layer.
-    Uses AI (Level A/B editorial cards) -- ECONOMY/SOCIETY get the exact
-    same .ed-summary treatment, see the editorial-card tests above."""
+def test_music_news_card_never_truncates_real_summary_text():
+    """REFERENCE DESIGN: MUSIC's own editorial card summary is a real,
+    fully readable paragraph (matching the reference image's full-sentence
+    summary), never truncated/clamped -- the 1-2 sentence cap (below) is a
+    DAILY-only (AI/ECONOMY/SOCIETY) awareness-feed constraint, never
+    applied to MUSIC's own deeper editorial summaries."""
     data = _empty_dashboard()
     long_snippet = "매우 긴 실제 기사 본문입니다. " * 40
-    # Two items: index 0 is the Level A card, index 1 is the Level B card
-    # under real test -- both use .ed-summary, neither clamps.
-    data["news"]["AI"] = _news("NORMAL", [_news_item("첫 헤드라인"), _news_item("헤드라인", snippet=long_snippet)])
+    data["news"]["SPOTIFY"] = _news("NORMAL", [_news_item("헤드라인", snippet=long_snippet, source_count=2)])
     html_out = render_dashboard_html_v2(data)
-    section = _section(html_out, "section-AI")
+    section = _section(html_out, "section-INDUSTRY")
     assert long_snippet.strip() in section  # real text never stripped/truncated
     assert 'class="ed-summary"' in section
+
+
+def test_daily_summary_capped_to_two_sentences_and_max_length():
+    """DAILY summary hygiene: AI/ECONOMY/SOCIETY summaries stay to at most
+    2 sentences within a bounded length -- a real scanning-focused
+    constraint, distinct from MUSIC's own uncapped summaries (see
+    test_music_news_card_never_truncates_real_summary_text). Never
+    fabricates replacement text, only truncates the real snippet."""
+    data = _empty_dashboard()
+    long_snippet = "매우 긴 실제 기사 문장입니다. " * 40
+    data["news"]["AI"] = _news("NORMAL", [_news_item("헤드라인", snippet=long_snippet)])
+    html_out = render_dashboard_html_v2(data)
+    section = _section(html_out, "section-AI")
+    assert 'class="ed-summary"' in section
+    assert long_snippet.strip() not in section  # the full uncapped text never appears
+    summary_start = section.index('class="ed-summary"')
+    summary_html = section[summary_start:section.index("</p>", summary_start)]
+    assert summary_html.count("문장입니다.") <= 2  # at most 2 real sentences kept
+    assert len(summary_html) < len(long_snippet)
+
+
+def test_daily_summary_strips_leading_wire_service_boilerplate():
+    """Confirmed real defect: Newis/연합뉴스-style bylines like
+    "[전남광주=뉴시스]이현행 기자 =" leaking into the visible DAILY summary
+    -- stripped only from the exact leading "[dateline=agency]reporter
+    title =" shape, never rewriting the real article text after it."""
+    data = _empty_dashboard()
+    data["news"]["ECONOMY"] = _news("NORMAL", [_news_item(
+        "헤드라인", snippet="[전남광주=뉴시스]이현행 기자 = 실제 기사 본문 내용입니다.",
+    )])
+    html_out = render_dashboard_html_v2(data)
+    section = _section(html_out, "section-ECONOMY")
+    assert "뉴시스" not in section
+    assert "이현행 기자" not in section
+    assert "실제 기사 본문 내용입니다." in section
+
+
+def test_daily_summary_inserts_space_after_sentence_end_before_next_word():
+    """FINAL TEXT POLISH: a Korean sentence-ending mark immediately
+    followed (no whitespace) by the next sentence gets exactly one space
+    inserted -- "경신했다.16일" -> "경신했다. 16일" -- deterministic, no
+    rewriting."""
+    data = _empty_dashboard()
+    data["news"]["ECONOMY"] = _news("NORMAL", [_news_item(
+        "헤드라인", snippet="역대 최고 기록을 경신했다.16일 발표된 자료에 따르면 그렇다.",
+    )])
+    html_out = render_dashboard_html_v2(data)
+    section = _section(html_out, "section-ECONOMY")
+    assert "경신했다. 16일" in section
+    assert "경신했다.16일" not in section
+
+
+def test_daily_summary_never_touches_decimal_numbers():
+    """A digit immediately before the sentence-ending mark (a real decimal
+    number like 66.4) must never get a space inserted -- only a Hangul
+    character immediately before the mark triggers the fix."""
+    data = _empty_dashboard()
+    data["news"]["ECONOMY"] = _news("NORMAL", [_news_item(
+        "헤드라인", snippet="이번 폭우로 66.4㎜의 강수량을 기록했다.",
+    )])
+    html_out = render_dashboard_html_v2(data)
+    section = _section(html_out, "section-ECONOMY")
+    assert "66.4㎜" in section
+    assert "66. 4㎜" not in section
 
 
 # ---- Sources: neutral, compact, real source keys only ----
@@ -1867,3 +2047,266 @@ def test_both_split_pages_produce_complete_html_documents():
         assert "<!DOCTYPE html>" in html_out
         assert html_out.strip().endswith("</html>")
         assert "2026.08.15" in html_out
+
+
+def test_daily_body_class_scopes_larger_images_music_untouched():
+    """DAILY_ONLY image enlargement is scoped via <body class="page-daily">
+    -- MUSIC's own <body class="page-music"> never carries the DAILY
+    class, so the .page-daily-scoped rule can never apply there even
+    though the CSS text is shared across pages via the same _STYLE
+    constant."""
+    music_html = render_music_page_html_v2(_empty_dashboard())
+    daily_html = render_daily_page_html_v2(_empty_dashboard())
+    assert '<body class="page-daily">' in daily_html
+    assert '<body class="page-music">' in music_html
+    assert '<body class="page-daily">' not in music_html
+    assert '<body class="page-music">' not in daily_html
+    assert '.page-daily .ed-card-media { flex: 0 0 48%; max-width: 480px; }' in daily_html
+    # The image-fill mechanism itself (stretch + height:100% + no aspect-
+    # ratio constraint on the img) is shared by every .ed-card-media --
+    # only the DAILY column WIDTH is page-daily-scoped.
+    assert '.ed-card-media img { display: block; width: 100%; height: 100%; object-fit: cover;' in daily_html
+    assert 'align-items: stretch;' in daily_html
+
+
+def test_ed_card_media_frame_fills_full_card_height_desktop():
+    """FIX ARTICLE IMAGE FRAME PROPERLY: the media wrapper stretches to
+    the card's full content height (align-items: stretch, align-self:
+    stretch) and the image has no aspect-ratio constraint of its own --
+    it fills the wrapper via width/height: 100% + object-fit: cover, so
+    there is no blank rectangle beneath a smaller fixed 4:3 box."""
+    music_html = render_music_page_html_v2(_empty_dashboard())
+    assert '.ed-card { background: var(--surface); border: 1px solid var(--rule); border-radius: 14px;' in music_html
+    assert 'align-items: stretch; }' in music_html
+    assert 'align-self: stretch;\n  overflow: hidden;' in music_html
+    assert 'aspect-ratio: 4 / 3' not in music_html.split("@media (max-width: 640px)")[0]  # no desktop aspect-ratio constraint on the img
+
+
+def test_music_full_section_order_chart_pulse_last_real_content():
+    """Full MUSIC content order, verified via real DOM string indexes:
+    lead -> industry -> today-secondary -> music-today -> spotify-watch ->
+    genre -> production -> producer -> signals -> outlook -> chart-pulse
+    -> sources. Chart Pulse is the last REAL content section, strictly
+    before the technical Sources section."""
+    data = _empty_dashboard()
+    data["today_music_intelligence"] = [
+        _today_signal("INDUSTRY_NEWS", is_strongest=True, headline_item=_news_item("리드 헤드라인")),
+        _today_signal("VIRAL_HOT", headline_item=_news_item("보조 헤드라인")),
+    ]
+    html_out = render_music_page_html_v2(data)
+    lead_pos = html_out.index('class="lead-story"')
+    industry_pos = html_out.index('id="section-INDUSTRY"')
+    today_secondary_pos = html_out.index('id="today-in-music"')
+    music_today_pos = html_out.index('id="section-MUSICTODAY"')
+    spotify_pos = html_out.index('id="section-SPOTIFY"')
+    genre_pos = html_out.index('id="section-GENRE"')
+    production_pos = html_out.index('id="section-PRODUCTION"')
+    producer_pos = html_out.index('id="section-PRODUCER"')
+    signals_pos = html_out.index('id="section-SIGNALS"')
+    outlook_pos = html_out.index('id="section-OUTLOOK"')
+    chart_pulse_pos = html_out.index('id="section-CHARTPULSE"')
+    sources_pos = html_out.index('id="section-SOURCES"')
+    assert (
+        lead_pos < industry_pos < today_secondary_pos < music_today_pos < spotify_pos
+        < genre_pos < production_pos < producer_pos < signals_pos < outlook_pos
+        < chart_pulse_pos < sources_pos
+    )
+    assert outlook_pos < chart_pulse_pos < sources_pos  # explicit key relationship
+    # Chart Pulse is the last REAL content section (only Sources, the
+    # technical status section, follows it).
+    assert chart_pulse_pos == max(
+        industry_pos, today_secondary_pos, music_today_pos, spotify_pos, genre_pos,
+        production_pos, producer_pos, signals_pos, outlook_pos, chart_pulse_pos,
+    )
+
+
+def test_music_nav_chart_link_is_last_content_link():
+    """MUSIC nav "차트" link moves to the last real-content nav position,
+    matching Chart Pulse's new bottom position -- style/markup unchanged,
+    order only."""
+    html_out = render_music_page_html_v2(_empty_dashboard())
+    nav_end = html_out.index("</nav>") if "</nav>" in html_out else html_out.index('<main class="main">')
+    nav_html = html_out[html_out.index('class="pub-nav"'):nav_end]
+    chart_pos = nav_html.index(">차트<")
+    other_positions = [nav_html.index(f">{label}<") for label in ("음악", "음악 산업", "Spotify", "레이더", "프로듀서")]
+    assert chart_pos > max(other_positions)
+
+
+def test_music_industry_is_first_section_before_music_today_and_chart_pulse():
+    """Required MUSIC top order: hero -> Music Industry -> Music Today ->
+    Chart Pulse -- section-INDUSTRY must be the first section in <main>,
+    before both section-MUSICTODAY and section-CHARTPULSE."""
+    html_out = render_music_page_html_v2(_empty_dashboard())
+    industry_pos = html_out.index('id="section-INDUSTRY"')
+    music_today_pos = html_out.index('id="section-MUSICTODAY"')
+    chart_pulse_pos = html_out.index('id="section-CHARTPULSE"')
+    assert industry_pos < music_today_pos < chart_pulse_pos
+    main_start = html_out.index('<main class="main">')
+    first_section_start = html_out.index("<section", main_start)
+    assert 'id="section-INDUSTRY"' in html_out[first_section_start:first_section_start + 200]
+
+
+def test_music_exact_visible_order_lead_industry_today_secondary_musictoday_chartpulse():
+    """EXACT VISIBLE ORDER FIX: 오늘의 음악 소식 (today-secondary) is no
+    longer nested inside .today-intel -- it must render AFTER
+    section-INDUSTRY and BEFORE section-MUSICTODAY. Required order: lead
+    story -> 뮤직 인더스트리 -> 오늘의 음악 소식 -> 뮤직 투데이 -> 차트 펄스."""
+    data = _empty_dashboard()
+    data["today_music_intelligence"] = [
+        _today_signal("INDUSTRY_NEWS", is_strongest=True, headline_item=_news_item("리드 헤드라인")),
+        _today_signal("VIRAL_HOT", headline_item=_news_item("보조 헤드라인")),
+    ]
+    html_out = render_music_page_html_v2(data)
+    lead_pos = html_out.index('class="lead-story"')
+    industry_pos = html_out.index('id="section-INDUSTRY"')
+    today_secondary_pos = html_out.index('id="today-in-music"')
+    music_today_pos = html_out.index('id="section-MUSICTODAY"')
+    chart_pulse_pos = html_out.index('id="section-CHARTPULSE"')
+    assert lead_pos < industry_pos < today_secondary_pos < music_today_pos < chart_pulse_pos
+    # 오늘의 음악 소식 no longer lives inside .today-intel.
+    today_intel_html = html_out[html_out.index('id="today-intel"'):html_out.index('<main class="main">')]
+    assert "오늘의 음악 소식" not in today_intel_html
+    assert "리드 헤드라인" in today_intel_html
+    # Its own card content (the secondary signal) still renders intact.
+    assert "보조 헤드라인" in html_out[today_secondary_pos:music_today_pos]
+
+
+def test_music_today_secondary_card_design_unchanged():
+    """The relocated 오늘의 음악 소식 block keeps its exact original
+    markup/classes -- only its parent container changed, not its own
+    design."""
+    data = _empty_dashboard()
+    data["today_music_intelligence"] = [
+        _today_signal("INDUSTRY_NEWS", is_strongest=True, headline_item=_news_item("리드")),
+        _today_signal("VIRAL_HOT", headline_item=_news_item("보조 헤드라인", image_url="https://cdn.example.com/s1.jpg")),
+    ]
+    html_out = render_music_page_html_v2(data)
+    assert 'class="today-secondary" id="today-in-music"' in html_out
+    assert '<h2 class="today-secondary-head">오늘의 음악 소식</h2>' in html_out
+    assert 'class="today-secondary-list"' in html_out
+    assert 'class="signal-card"' in html_out
+
+
+def test_dashboard_combined_page_keeps_today_secondary_nested_unchanged():
+    """render_dashboard_html_v2 (legacy combined page, untouched by this
+    fix) keeps the original nested structure -- 오늘의 음악 소식 still
+    lives inside the same .today-intel div as the lead, exactly as
+    before."""
+    data = _empty_dashboard()
+    data["today_music_intelligence"] = [
+        _today_signal("INDUSTRY_NEWS", is_strongest=True, headline_item=_news_item("리드")),
+        _today_signal("VIRAL_HOT", headline_item=_news_item("보조 헤드라인")),
+    ]
+    html_out = render_dashboard_html_v2(data)
+    today_intel_html = html_out[html_out.index('id="today-intel"'):html_out.index('<main class="main">')]
+    assert "오늘의 음악 소식" in today_intel_html
+    assert "보조 헤드라인" in today_intel_html
+
+
+def test_daily_page_never_shows_source_status_section():
+    """Remove from DAILY only: Apple Music/Spotify/TikTok source status --
+    that's a MUSIC-product concept, meaningless on a pure AI/ECONOMY/
+    SOCIETY page."""
+    html_out = render_daily_page_html_v2(_empty_dashboard())
+    assert 'id="section-SOURCES"' not in html_out
+    assert "출처" not in html_out
+
+
+def test_music_page_still_shows_source_status_section():
+    """Regression guard: the DAILY-only sources removal must not
+    accidentally remove it from MUSIC, where it's still meaningful."""
+    html_out = render_music_page_html_v2(_empty_dashboard())
+    assert 'id="section-SOURCES"' in html_out
+
+
+def test_masthead_brand_and_subtitles_are_exact():
+    """USER CHANGE #1: SUPER NEWS is enlarged and paired with the edition
+    word, and the exact requested subtitles render on each page."""
+    music_html = render_music_page_html_v2(_empty_dashboard())
+    daily_html = render_daily_page_html_v2(_empty_dashboard())
+    assert 'class="brand">SUPER NEWS <span class="brand-edition-music">MUSIC</span>' in music_html
+    assert "작곡가·프로듀서를 위한 오늘의 음악 인텔리전스" in music_html
+    assert 'class="brand">SUPER NEWS <span class="brand-edition-daily">DAILY</span>' in daily_html
+    assert "AI · 경제 · 사회 핵심 브리핑" in daily_html
+
+
+# ---- FINAL 90+ QUALITY CORRECTION PASS: summary/bullet near-duplicate guard ----
+
+
+def test_ed_card_bullet_identical_to_summary_is_suppressed():
+    data = _empty_dashboard()
+    data["news"]["AI"] = _news("NORMAL", [_news_item(
+        "고유 헤드라인", snippet="Cursor가 SpaceX의 일부가 되었다.",
+        ai_intelligence_status="AVAILABLE", why_it_matters="Cursor가 SpaceX의 일부가 되었다.",
+    )])
+    html_out = render_dashboard_html_v2(data)
+    section = _section(html_out, "section-AI")
+    assert 'class="ed-summary"' in section
+    assert 'class="ed-bullets"' not in section  # the only candidate bullet duplicated the summary
+
+
+def test_ed_card_bullet_genuinely_additive_is_kept():
+    data = _empty_dashboard()
+    data["news"]["AI"] = _news("NORMAL", [_news_item(
+        "고유 헤드라인", snippet="Cursor가 SpaceX의 일부가 되었다.",
+        ai_intelligence_status="AVAILABLE", why_it_matters="이는 AI 코딩 도구 시장의 대형 M&A 지형 변화를 시사한다.",
+    )])
+    html_out = render_dashboard_html_v2(data)
+    section = _section(html_out, "section-AI")
+    assert "이는 AI 코딩 도구 시장의 대형 M&amp;A 지형 변화를 시사한다." in section
+
+
+def test_lead_story_why_row_duplicate_of_summary_suppressed():
+    data = _empty_dashboard()
+    data["today_music_intelligence"] = [_today_signal(
+        "INDUSTRY_NEWS", is_strongest=True,
+        headline_item=_news_item("음악 헤드라인", snippet="아티스트 X의 신곡이 차트 1위에 올랐다."),
+        why_it_matters="아티스트 X의 신곡이 차트 1위에 올랐다.",
+    )]
+    html_out = render_dashboard_html_v2(data)
+    section = _today_intel_section(html_out)
+    assert "lead-why-row" not in section
+
+
+def test_lead_story_suppresses_cached_newsletter_watch_next():
+    """CURRENT-CACHE SAFETY: the hero lead story's 프로듀서 시사점 row
+    must never show cached editorial-content-creation advice either."""
+    data = _empty_dashboard()
+    data["today_music_intelligence"] = [_today_signal(
+        "INDUSTRY_NEWS", is_strongest=True,
+        headline_item=_news_item("음악 헤드라인", snippet="차트 관련 실제 요약"),
+        why_it_matters="실제 왜 중요한가 텍스트",
+        watch_next="이번 주 차트 무브를 요약한 짧은 뉴스레터 섹션을 바로 만들 수 있다",
+    )]
+    html_out = render_dashboard_html_v2(data)
+    section = _today_intel_section(html_out)
+    assert "뉴스레터" not in section
+
+
+def test_music_today_card_suppresses_cached_newsletter_implication():
+    data = _empty_dashboard()
+    data["music_today"] = [_music_candidate(
+        "INDUSTRY_NEWS", mode="ANALYSIS", why_it_matters="실제 왜 중요한가",
+        producer_implication="이번 주 차트 무브를 요약한 짧은 뉴스레터 섹션을 바로 만들 수 있다",
+    )]
+    html_out = render_dashboard_html_v2(data)
+    section = _section(html_out, "section-MUSICTODAY")
+    assert "뉴스레터" not in section
+
+
+def test_spotify_watch_suppresses_cached_newsletter_implication(monkeypatch):
+    data = _empty_dashboard()
+    data["spotify_watch_candidates"] = [
+        _news_item("Spotify announces new licensing agreement", source_url="https://example.com/a", event_key="ev-1"),
+    ]
+    data["producer_intelligence"] = {
+        "state": "NORMAL",
+        "insights": [{
+            **_producer_insight("실제 시그널"),
+            "what_could_i_make_now": "이번 주 차트 무브를 요약한 짧은 뉴스레터 섹션을 바로 만들 수 있다",
+            "evidence": [{"ref": "E1", "summary": "Spotify announces new licensing agreement"}],
+        }],
+    }
+    html_out = render_dashboard_html_v2(data)
+    section = _section(html_out, "section-SPOTIFY")
+    assert "뉴스레터" not in section

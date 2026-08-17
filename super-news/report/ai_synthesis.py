@@ -84,7 +84,11 @@ def _build_prompts(candidates_by_category):
         f"to {MAX_SELECTIONS_PER_CATEGORY} candidates by their exact integer id, each "
         "with a one-sentence reason for why it matters. Only use ids that appear "
         "in the candidate list for that category -- never invent an id. If a "
-        "category has no candidates worth reporting, return an empty array for it."
+        "category has no candidates worth reporting, return an empty array for it. "
+        "When multiple real candidates cover genuinely comparable news value, prefer "
+        "selecting from different source outlets over picking several near-duplicate-"
+        "importance stories from the same single outlet -- never force this at the "
+        "cost of a real, clearly more important story from an over-represented outlet."
     )
     user_prompt = canonical_json({"candidates": _hashable_candidates(candidates_by_category)})
     return system_prompt, user_prompt

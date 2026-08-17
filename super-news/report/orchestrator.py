@@ -36,6 +36,28 @@ _STATUS_TO_RUN_RESULT = {
 }
 
 
+def _candidate_snippets(conn, candidates_by_category):
+    """FINAL 90+ QUALITY CORRECTION PASS: real raw_items.snippet text for
+    every real candidate id, keyed by id -- see report.validation.
+    validate_all_categories's own docstring for why the fact-checker needs
+    this (title-only evidence text produced a confirmed real false-positive
+    reject on a genuinely well-supported ECONOMY figure). A candidate can
+    represent a merged event_key group with multiple item_ids; only the
+    group's own representative `id` is looked up, since that's the only id
+    validate_all_categories ever keys title_by_id by."""
+    ids = sorted({c["id"] for candidates in candidates_by_category.values() for c in candidates})
+    if not ids:
+        return {}
+    placeholders = ",".join("?" for _ in ids)
+    rows = conn.execute(
+        f"""SELECT ni.id, ri.snippet FROM normalized_items ni
+           JOIN raw_items ri ON ri.id = ni.raw_item_id
+           WHERE ni.id IN ({placeholders})""",
+        ids,
+    ).fetchall()
+    return {row["id"]: row["snippet"] for row in rows if row["snippet"]}
+
+
 def run_daily_report(conn, run_id, run_date=None, llm=None):
     """Runs one full daily report-generation execution. `llm` lets tests
     (and any future caller) inject a fake StructuredLLM; production code
@@ -63,7 +85,8 @@ def run_daily_report(conn, run_id, run_date=None, llm=None):
             news_result = synthesize_news(conn, llm_instance, candidates_by_category, effective_run_date)
             if news_result is not None:
                 valid_selections, validation_errors = validate_all_categories(
-                    news_result["parsed"], candidates_by_category
+                    news_result["parsed"], candidates_by_category,
+                    snippet_by_id=_candidate_snippets(conn, candidates_by_category),
                 )
         except Exception as exc:
             # A total LLM-call failure (network error, auth error, provider
