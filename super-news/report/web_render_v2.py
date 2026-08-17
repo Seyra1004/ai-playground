@@ -66,6 +66,7 @@ from report.validation import is_content_creation_advice
 from report.web_data_v2 import (
     _MUSIC_INDUSTRY_DOWNRANKED_PRIORITY,
     _MUSIC_INDUSTRY_UNRANKED_PRIORITY,
+    known_chart_entity_keys,
     music_industry_priority_rank,
     rank_music_industry_items,
     resolve_producer_enrichment,
@@ -293,10 +294,38 @@ def _has_korean_title(item):
     return bool(_HANGUL_RE.search(_display_title(item)))
 
 
+_RHETORICAL_QUESTION_ONLY_RE = re.compile(r"^(?:[^.!?]*[?？]\s*)+$")
+
+
+def _is_rhetorical_question_only(text):
+    """SUMMARY QUALITY (CURRENT-CACHE SAFETY, content-quality hardening
+    pass, 2026-08-17): True when `text` is ENTIRELY composed of one or
+    more question-ended sentences with no real declarative sentence
+    anywhere in it -- a literal '~까요?' teaser-question translation
+    (confirmed real example: "워터마킹은 실제로 어떻게 작동할까요? 편집으로
+    숨길 수 있을까요?") reads awkwardly as a news summary line. See
+    report.translation_anthropic's own system-prompt fix for the
+    forward-looking half of this guard (future translations normalize
+    this at the source, never producing this shape to begin with); this
+    detector is the render-time half, for an ALREADY-cached translation.
+    A text with even one real non-question sentence never matches."""
+    if not text:
+        return False
+    return bool(_RHETORICAL_QUESTION_ONLY_RE.match(text.strip()))
+
+
 def _display_snippet(item):
     if item.get("snippet_translation_status") in _DISPLAYABLE_TRANSLATION_STATUSES and item.get("ko_snippet"):
-        return item["ko_snippet"]
-    return item.get("snippet")
+        snippet = item["ko_snippet"]
+    else:
+        snippet = item.get("snippet")
+    # CURRENT-CACHE SAFETY: never shown when it's purely a rhetorical-
+    # question-style translation -- suppressed, never rewritten/
+    # fabricated, falling back to the card's own real declarative
+    # bullets (see _is_rhetorical_question_only's own docstring).
+    if snippet and _is_rhetorical_question_only(snippet):
+        return None
+    return snippet
 
 
 def _item_byline(item):
@@ -1247,7 +1276,135 @@ def _apply_music_event_exposure_budget(entry_lists, lead_event_key, lead_refs, t
     return result
 
 
-def _today_intel_parts(signals):
+# ---- SEMANTIC DUPLICATION GUARD (content-quality hardening pass,
+# 2026-08-17) -- extends the MUSIC EVENT EXPOSURE BUDGET above, which
+# only ever compares each section against the LEAD, never against its
+# OWN sibling sections, and has no identity concept at all for a
+# chart-fact-only signal (no backing article/event_key -- see
+# _resolve_entry_event_key's own documented limitation). Confirmed real
+# defect: the SAME underlying Spotify chart fact (an artist's rank
+# change) independently resurfaced, reworded, across FIVE separate
+# sections (오늘의 음악 소식/hero secondary, 뮤직 투데이, 장르 레이더,
+# 프로듀서 A&R 테이크어웨이, 크로스플랫폼 시그널) purely because each
+# section's own synthesis pass has no visibility into what its siblings
+# already showed. ----
+
+# Every real text field ANY of these entry shapes may carry -- a single
+# generic scan, not one adapter per section shape (hero/music_today
+# candidates: fact_text/why_it_matters/watch_next; genre/production
+# radar + producer references/kpop notes: observed/interpretation;
+# producer insights: what_is_moving/why_it_matters/what_to_watch/
+# what_could_i_make_now).
+_MUSIC_ENTITY_TEXT_FIELDS = (
+    "fact_text", "why_it_matters", "watch_next", "producer_implication",
+    "observed", "interpretation", "what_is_moving", "what_to_watch", "what_could_i_make_now",
+)
+
+
+def _entry_text_blob(entry):
+    return " ".join(str(entry[field]) for field in _MUSIC_ENTITY_TEXT_FIELDS if entry.get(field))
+
+
+def _entry_chart_entity_keys(entry, known_chart_keys):
+    """Real chart-entity identity for one entry -- checks that BOTH the
+    real artist name AND the real track title (known_chart_keys' values
+    are "Artist - Title" labels; split into two independent substring
+    checks) appear SOMEWHERE in the entry's own real text, never requiring
+    the exact joined "Artist - Title" phrasing. Confirmed real gap the
+    exact-joined-string version had: an LLM-synthesized ANALYSIS entry
+    naturally rephrases a track mention in natural Korean prose (e.g.
+    "Shakira의 'Dai Dai'는 순위가...") rather than the canonical
+    "Artist - Title" format a raw chart-fact candidate uses -- an exact
+    substring match on the joined label silently missed every such
+    rephrasing. Still never fuzzy/invented: both parts must be real,
+    closed-vocabulary strings drawn directly from that day's real
+    spotify_chart top10. An entry can genuinely reference more than one
+    real track (a combined 'chart movements' narrative), so this returns
+    a set. A headline_item's own title/snippet is also scanned when
+    present (INDUSTRY_NEWS-shaped hero/music_today candidates)."""
+    item = entry.get("headline_item")
+    text = _entry_text_blob(entry)
+    if item:
+        text = f'{text} {item.get("title") or ""} {item.get("snippet") or ""}'
+    if not text:
+        return set()
+    found = set()
+    for key, label in known_chart_keys.items():
+        artist, _, title = label.partition(" - ")
+        if artist and title and artist in text and title in text:
+            found.add(key)
+    return found
+
+
+def _apply_full_music_cross_section_dedup(
+    hero_secondary, music_today, genre_signals, production_notes,
+    producer_insights, producer_references, kpop_ar_notes,
+    lead_event_key, title_to_event_key, known_chart_keys,
+):
+    """ONE combined identity per entry -- its real event_key (article-
+    backed, via _synthesis_entry_event_identity/_signal_event_identity)
+    UNION any real chart-entity keys its own text mentions (see
+    _entry_chart_entity_keys) -- walked across ALL of these sections in
+    ONE fixed editorial order (exactly the page's own top-to-bottom
+    order: hero secondary -> music_today -> genre -> production ->
+    producer insights -> producer references -> kpop/A&R notes). The
+    FIRST entry carrying a given identity is kept; every later entry
+    sharing ANY of that identity -- in any of these lists -- is
+    suppressed: simple re-wording of an already-shown fact is never a
+    second real exposure ("한 사건은 최대 1개 primary section"). The
+    LEAD's own identity seeds the seen-set first, so an entry that only
+    repeats what the lead already showed is caught too (belt-and-braces
+    with the existing exposure-budget pass above, which already removes
+    most of those).
+
+    크로스플랫폼 시그널 (cross_platform) is NOT passed here -- see its
+    own call site, which is deliberately exempt as the one designated
+    short cross-reference slot ("+ 필요할 경우 1개 짧은 cross-reference").
+
+    Never invents a replacement entry -- suppression only ever removes.
+    A section can legitimately end up with fewer (or zero) real items on
+    a day the real music news is genuinely thin; "정보 밀도" is preferred
+    over forcing every section to stay visually non-empty."""
+    # Seeded with the lead's own event_key when it has one (an
+    # article-backed lead) -- a chart-fact-only lead resolves no
+    # event_key at all (see _signal_event_identity), and TIER 1
+    # (_shares_lead_evidence) in the exposure-budget pass above already
+    # covers literal-source overlap for that case, so lead_refs itself
+    # needs no separate handling here.
+    seen = {lead_event_key} if lead_event_key else set()
+
+    def _identity_for(entry, is_signal):
+        if is_signal:
+            event_key, _refs = _signal_event_identity(entry, title_to_event_key)
+        else:
+            event_key, _refs = _synthesis_entry_event_identity(entry, title_to_event_key)
+        keys = _entry_chart_entity_keys(entry, known_chart_keys)
+        if event_key:
+            keys = keys | {event_key}
+        return keys
+
+    def _filter(entries, is_signal):
+        kept = []
+        for entry in entries:
+            identity = _identity_for(entry, is_signal)
+            if identity and identity & seen:
+                continue
+            kept.append(entry)
+            seen.update(identity)
+        return kept
+
+    return (
+        _filter(hero_secondary, True),
+        _filter(music_today, True),
+        _filter(genre_signals, False),
+        _filter(production_notes, False),
+        _filter(producer_insights, False),
+        _filter(producer_references, False),
+        _filter(kpop_ar_notes, False),
+    )
+
+
+def _today_intel_parts(signals, secondary_override=None):
     """Returns (today_intel_lead_html, today_secondary_html) as two
     SEPARATE fragments so a caller can position them independently -- see
     render_music_page_html_v2, which places section-INDUSTRY between them
@@ -1259,11 +1416,20 @@ def _today_intel_parts(signals):
     auto; padding: 0 20px) -- so relocating it needs no new CSS.
     _render_today_music_intelligence (below) recombines both fragments in
     their original adjacent nested order, byte-identical to before this
-    split, for render_dashboard_html_v2's own unchanged legacy page."""
+    split, for render_dashboard_html_v2's own unchanged legacy page.
+
+    `secondary_override`, when given, REPLACES the internally-computed
+    secondary list (e.g. render_music_page_html_v2 passes its own
+    already cross-section-deduped list -- see
+    _apply_full_music_cross_section_dedup) -- None (the default)
+    preserves the original internal computation exactly."""
     strongest = _lead_signal(signals)
     if strongest is None:
         return "", ""
-    secondary = [s for s in signals if s is not strongest][:_HERO_SECONDARY_MAX]
+    secondary = (
+        secondary_override if secondary_override is not None
+        else [s for s in signals if s is not strongest][:_HERO_SECONDARY_MAX]
+    )
 
     lead_html = _render_lead_story(strongest)
     today_intel_lead_html = (
@@ -2418,19 +2584,15 @@ def render_music_page_html_v2(dashboard_data):
     spotify_chart = dashboard_data["spotify_chart"]
     y, m, d = report_date_kst.split("-")
 
-    # VISIBLE ORDER FIX: 오늘의 음악 소식 (today-secondary) moves out of
-    # .today-intel and renders AFTER section-INDUSTRY instead -- required
-    # visible order is 업계 뉴스 lead -> 뮤직 인더스트리 -> 오늘의 음악 소식
-    # -> 뮤직 투데이 -> 차트 펄스. today_intel_html here is the LEAD-ONLY
-    # fragment (heading + lead story); today_secondary_html is inserted
-    # into sections_html below, right after Music Industry.
-    today_intel_html, today_secondary_html = _today_intel_parts(dashboard_data["today_music_intelligence"])
-
     lead_signal = _lead_signal(dashboard_data["today_music_intelligence"])
     title_to_event_key = _news_title_to_event_key_map(news)
     lead_event_key, lead_refs = (None, set())
     if lead_signal:
         lead_event_key, lead_refs = _signal_event_identity(lead_signal, title_to_event_key)
+
+    hero_secondary_raw = [
+        s for s in dashboard_data["today_music_intelligence"] if s is not lead_signal
+    ][:_HERO_SECONDARY_MAX]
 
     music_today = _exclude_lead_event_from_today_in_music(
         dashboard_data["music_today"], lead_event_key, lead_refs, title_to_event_key,
@@ -2448,8 +2610,32 @@ def render_music_page_html_v2(dashboard_data):
             lead_event_key, lead_refs, title_to_event_key,
         )
     )
+    # SEMANTIC DUPLICATION GUARD (second pass, cross-section vs EACH
+    # OTHER -- not just vs the lead like the exposure-budget pass above):
+    # see _apply_full_music_cross_section_dedup's own docstring for the
+    # confirmed real defect this closes.
+    known_chart_keys = known_chart_entity_keys(spotify_chart)
+    (
+        hero_secondary, music_today, genre_signals, production_notes,
+        producer_insights, producer_references, kpop_ar_notes,
+    ) = _apply_full_music_cross_section_dedup(
+        hero_secondary_raw, music_today, genre_signals, production_notes,
+        producer_insights, producer_references, kpop_ar_notes,
+        lead_event_key, title_to_event_key, known_chart_keys,
+    )
     producer_insights, producer_references, kpop_ar_notes = _dedupe_producer_section_exact_duplicates(
         producer_insights, producer_references, kpop_ar_notes, title_to_event_key,
+    )
+
+    # VISIBLE ORDER FIX: 오늘의 음악 소식 (today-secondary) moves out of
+    # .today-intel and renders AFTER section-INDUSTRY instead -- required
+    # visible order is 업계 뉴스 lead -> 뮤직 인더스트리 -> 오늘의 음악 소식
+    # -> 뮤직 투데이 -> 차트 펄스. today_intel_html here is the LEAD-ONLY
+    # fragment (heading + lead story); today_secondary_html is inserted
+    # into sections_html below, right after Music Industry. Uses the
+    # already cross-section-deduped hero_secondary list computed above.
+    today_intel_html, today_secondary_html = _today_intel_parts(
+        dashboard_data["today_music_intelligence"], secondary_override=hero_secondary,
     )
     trend_for_render = {
         **trend, "genre_signals": genre_signals, "production_notes": production_notes,

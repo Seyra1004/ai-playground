@@ -207,6 +207,153 @@ def _is_boilerplate_genre(title):
     return bool(_BOILERPLATE_NOTICE_TAG_PATTERN.search(title)) and "저작권" in title
 
 
+# ---- DAILY STALENESS POLICY (content-quality hardening pass, 2026-08-17)
+# -- AI/ECONOMY/SOCIETY only. Confirmed real defect: a 3-day-old MIT
+# Technology Review story (real published_at, late-collected) sat in the
+# AI candidate pool with no real distinction from same-day coverage
+# beyond freshness_bucket=1's own "still eligible if bucket 0 is empty"
+# rule -- far too lenient for a "오늘의 브리핑" (today's briefing)
+# product. SPOTIFY/TIKTOK (MUSIC) deliberately keep the existing, more
+# lenient STALE_EXCLUSION_DAYS/_freshness_bucket policy untouched --
+# chart/trade-press coverage has a genuinely slower, more forgiving news
+# cycle than a daily general-news briefing, and this pass's own content
+# review found no MUSIC lead-selection defect to justify tightening it. ----
+_DAILY_STRICT_CATEGORIES = frozenset({"AI", "ECONOMY", "SOCIETY"})
+# 0-48h: always eligible (no gate below applies). Within this window the
+# existing continuous _freshness_score (halflife 48h) already prefers a
+# ~24h-old item over a ~47h-old one -- no separate "prefer last 24h" gate
+# is needed on top of it.
+_DAILY_DEFAULT_EXCLUDE_AGE_HOURS = 48.0
+# 72h+: ALWAYS excluded from the daily candidate pool, no exception --
+# "오늘 뉴스 섹션에서 제외" is unconditional past this point.
+_DAILY_HARD_EXCLUDE_AGE_HOURS = 72.0
+# 48-72h: excluded UNLESS the item clears an objective, already-real
+# "important follow-up/analysis" bar -- real multi-source corroboration
+# or a real top-tier source quality score. Never a per-article name/
+# keyword hardcode; the same two signals _corroboration_score/
+# _source_quality_score_for_group already compute for every candidate.
+_DAILY_IMPORTANT_EXCEPTION_MIN_SOURCE_COUNT = 3
+_DAILY_IMPORTANT_EXCEPTION_MIN_QUALITY_SCORE = 0.85
+
+# URL date-slug fallback (priority 4 of the published_at resolution
+# chain: real published_at > RSS/API timestamp > structured metadata >
+# URL date slug > collected_at) -- used ONLY when a group has no real
+# published_at at all, or to detect a DATE_CONFLICT against one that
+# does exist. Matches a YYYY-MM-DD-shaped run of digits anywhere in the
+# URL (e.g. newsis.com's /NISX20260814_.../, or a generic /2026/08/14/
+# path segment) -- never used to override a real published_at, only to
+# fall back when one is missing or to flag reduced trust when the two
+# disagree by more than a day.
+_URL_DATE_SLUG_RE = re.compile(r"(20\d{2})[-/]?(0[1-9]|1[0-2])[-/]?(0[1-9]|[12]\d|3[01])")
+_DATE_CONFLICT_THRESHOLD_HOURS = 24.0
+
+
+def _extract_url_date_iso(url):
+    """Best-effort fallback publish-date from a URL's own date slug --
+    returns an ISO datetime (midnight UTC on that date) or None if no
+    plausible YYYYMMDD-shaped run of digits is found. A coincidental
+    numeric match (e.g. an article id that happens to look date-like) is
+    an accepted, bounded risk of a pure string heuristic -- this value is
+    NEVER trusted over a real published_at, only used as a fallback/
+    cross-check (see _resolve_published_at_and_conflict)."""
+    if not url:
+        return None
+    m = _URL_DATE_SLUG_RE.search(url)
+    if not m:
+        return None
+    year, month, day = (int(g) for g in m.groups())
+    try:
+        return datetime(year, month, day, tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+def _resolve_published_at_and_conflict(published_at_iso, source_urls):
+    """Returns (effective_published_at_iso, conservative_published_at_iso,
+    date_conflict).
+
+    Priority: a real published_at (already RSS/API-sourced -- this
+    pipeline's ingestion adapters populate it from the feed's own pubDate,
+    i.e. priorities 1-3 of the requested chain in practice) is ALWAYS
+    used as the DISPLAYED/effective value when present -- a URL date slug
+    never overrides it. When published_at is missing, the first
+    extractable URL date slug among the group's real source_urls is used
+    as the priority-4 fallback; priority 5 (collected_at) is handled by
+    the caller already treating a fully-unresolved age as "unknown," not
+    here.
+
+    date_conflict=True when a real published_at EXISTS and a URL date
+    slug is ALSO extractable and the two disagree by more than
+    _DATE_CONFLICT_THRESHOLD_HOURS -- a signal of reduced trust in the
+    metadata (e.g. a republished/updated article). When that happens,
+    conservative_published_at_iso is the OLDER of the two candidate
+    timestamps -- used for STALENESS/AGE COMPUTATIONS ONLY ("낮은
+    신뢰도로 처리" = never trust the newer-looking of two disagreeing
+    timestamps for ranking purposes); it never changes what's shown to
+    the reader (effective_published_at_iso). Equal to
+    effective_published_at_iso whenever there's no conflict."""
+    url_date = None
+    for url in source_urls:
+        url_date = _extract_url_date_iso(url)
+        if url_date:
+            break
+
+    if published_at_iso:
+        if url_date is None:
+            return published_at_iso, published_at_iso, False
+        published_dt = datetime.fromisoformat(published_at_iso)
+        if published_dt.tzinfo is None:
+            published_dt = published_dt.replace(tzinfo=timezone.utc)
+        conflict = abs((published_dt - url_date).total_seconds()) > _DATE_CONFLICT_THRESHOLD_HOURS * 3600
+        if conflict:
+            conservative_dt = min(published_dt, url_date)
+            return published_at_iso, conservative_dt.isoformat(), True
+        return published_at_iso, published_at_iso, False
+
+    if url_date is not None:
+        return url_date.isoformat(), url_date.isoformat(), False
+    return None, None, False
+
+
+# ---- LEAD RANKING IMPROVEMENT (content-quality hardening pass,
+# 2026-08-17) -- AI/ECONOMY/SOCIETY only, same reasoning as the staleness
+# policy above. Deterministic, GENERALIZABLE keyword-pattern signals --
+# the exact same established mechanism as _is_boilerplate_genre above,
+# never a per-article name/title hardcode. Confirmed real defect: an
+# uncorroborated (source_count==1) personal-harm allegation story
+# outranked a well-covered industry M&A story for the AI section's LEAD
+# slot, purely because the existing scoring model has no signal at all
+# for "industry-structural significance" or "this is an individual-harm
+# allegation that hasn't been corroborated yet." ----
+_INDUSTRY_SIGNIFICANCE_RE = re.compile(
+    r"(인수합병|인수|합병|M&A|acquisition|merger|"
+    r"규제안|규제|법안|정책|regulation|regulatory|policy|"
+    r"출시|launch|상장|IPO|투자유치|funding round|"
+    r"반독점|antitrust|소송|lawsuit|"
+    r"제휴|파트너십|partnership)",
+    re.IGNORECASE,
+)
+_INDUSTRY_SIGNIFICANCE_BONUS = 0.12
+
+# Deliberately narrow to real crime/abuse-victim-specific terms -- a
+# generic reporting verb like "주장했다" (claimed) is far too common
+# across ordinary legitimate hard news (political statements, corporate
+# denials, etc.) to use as a signal on its own, and is NOT matched here.
+_PERSONAL_HARM_ALLEGATION_RE = re.compile(
+    r"(아동\s*성적|성적\s*학대|성적으로\s*노골적|의붓아버지|새아버지|계부|"
+    r"성폭행|아동학대|폭행당|살해당|자살했|피해자가\s|"
+    r"child sexual|sexually explicit|stepfather|stepmother|molest(ed|ation)?|"
+    r"sexual assault|rape victim)",
+    re.IGNORECASE,
+)
+# Never a hard exclusion -- a real, well-corroborated personal-harm story
+# is still real, important news and can still become LEAD; this only
+# down-weights the specific case of a SINGLE uncorroborated source,
+# mirroring _BOILERPLATE_SCORE_MULTIPLIER's own "multiply down, never
+# drop" philosophy.
+_PERSONAL_HARM_UNCORROBORATED_MULTIPLIER = 0.6
+
+
 def _freshness_score(age_hours):
     """Continuous exponential decay (halflife _FRESHNESS_HALFLIFE_HOURS),
     NOT the coarse 3-bucket step function _freshness_bucket already
@@ -307,7 +454,7 @@ def select_news_candidates(conn, categories, report_date_kst, as_of_utc=None):
         placeholders = ",".join("?" for _ in source_categories)
         rows = conn.execute(
             f"""SELECT ni.id, ni.event_key, ni.entity_type, ni.entity_name,
-                      ni.normalized_title, ri.source_name, ri.published_at
+                      ni.normalized_title, ri.source_name, ri.published_at, ri.source_url
                FROM normalized_items ni
                JOIN raw_items ri ON ri.id = ni.raw_item_id
                WHERE ni.category IN ({placeholders}) AND ri.collected_at >= ? AND ri.collected_at < ?
@@ -330,12 +477,15 @@ def select_news_candidates(conn, categories, report_date_kst, as_of_utc=None):
                     "item_ids": [],
                     "source_names": set(),
                     "published_at_values": [],
+                    "source_urls": [],
                 },
             )
             group["item_ids"].append(row["id"])
             group["source_names"].add(row["source_name"])
             if row["published_at"]:
                 group["published_at_values"].append(row["published_at"])
+            if row["source_url"]:
+                group["source_urls"].append(row["source_url"])
 
         candidates = []
         for group in groups.values():
@@ -343,8 +493,22 @@ def select_news_candidates(conn, categories, report_date_kst, as_of_utc=None):
             # multiple outlets covering the same event_key can each report
             # at a different instant; the story's actual age is how recent
             # the most recent real coverage of it is, not the first.
+            # PUBLISHED_AT RESOLUTION CHAIN (content-quality hardening
+            # pass): effective_published_at is what's shown/stored as this
+            # candidate's real published_at (never overridden by a URL
+            # slug guess when a real timestamp exists); conservative_
+            # published_at is the OLDER of the two when a DATE_CONFLICT is
+            # detected (see _resolve_published_at_and_conflict) and is
+            # what every age/staleness/freshness computation below
+            # actually uses -- "낮은 신뢰도로 처리" means never trusting
+            # the newer-looking of two disagreeing timestamps for ranking
+            # purposes. Existing candidates with no URL date-slug match
+            # (the overwhelming majority) see zero behavior change here.
             latest_published_at = max(group["published_at_values"], default=None)
-            age_hours = _age_hours(latest_published_at, now_utc)
+            effective_published_at, conservative_published_at, date_conflict = (
+                _resolve_published_at_and_conflict(latest_published_at, group["source_urls"])
+            )
+            age_hours = _age_hours(conservative_published_at, now_utc)
             # Unknown age (no published_at on any item in the group) is
             # never silently treated as fresh (bucket 0) -- but it's not
             # treated as confirmed-old either, since missing metadata is
@@ -361,8 +525,26 @@ def select_news_candidates(conn, categories, report_date_kst, as_of_utc=None):
             if stale:
                 continue
             source_count = len(group["source_names"])
-            freshness_score = _freshness_score(age_hours)
             source_quality_score = _source_quality_score_for_group(group["source_names"])
+            # DAILY STALENESS POLICY (AI/ECONOMY/SOCIETY only -- see the
+            # module-level constants' own docstring): a real, KNOWN age
+            # (age_hours is not None) past 72h is unconditionally excluded
+            # from the daily candidate pool; past 48h it survives only via
+            # the same real corroboration/quality signals computed for
+            # every candidate, never a per-article hardcode. An unknown
+            # age is never penalized here -- same "not evidence of
+            # staleness" principle as the bucket/stale logic above.
+            if category in _DAILY_STRICT_CATEGORIES and age_hours is not None:
+                if age_hours > _DAILY_HARD_EXCLUDE_AGE_HOURS:
+                    continue
+                if age_hours > _DAILY_DEFAULT_EXCLUDE_AGE_HOURS:
+                    is_important_followup = (
+                        source_count >= _DAILY_IMPORTANT_EXCEPTION_MIN_SOURCE_COUNT
+                        or source_quality_score >= _DAILY_IMPORTANT_EXCEPTION_MIN_QUALITY_SCORE
+                    )
+                    if not is_important_followup:
+                        continue
+            freshness_score = _freshness_score(age_hours)
             corroboration_score = _corroboration_score(source_count)
             novelty_score = _novelty_score(group["event_key"], recently_selected)
             is_boilerplate_genre = _is_boilerplate_genre(group["normalized_title"])
@@ -374,6 +556,19 @@ def select_news_candidates(conn, categories, report_date_kst, as_of_utc=None):
             )
             if is_boilerplate_genre:
                 final_score *= _BOILERPLATE_SCORE_MULTIPLIER
+            # LEAD RANKING IMPROVEMENT (AI/ECONOMY/SOCIETY only -- see the
+            # module-level constants' own docstring): real, deterministic,
+            # keyword-pattern signals, never a per-article hardcode.
+            is_industry_significant = False
+            is_personal_harm_uncorroborated = False
+            if category in _DAILY_STRICT_CATEGORIES:
+                title_text = group["normalized_title"] or ""
+                if _INDUSTRY_SIGNIFICANCE_RE.search(title_text):
+                    is_industry_significant = True
+                    final_score += _INDUSTRY_SIGNIFICANCE_BONUS
+                if _PERSONAL_HARM_ALLEGATION_RE.search(title_text) and source_count <= 1:
+                    is_personal_harm_uncorroborated = True
+                    final_score *= _PERSONAL_HARM_UNCORROBORATED_MULTIPLIER
             candidates.append(
                 {
                     "id": group["id"],
@@ -382,10 +577,13 @@ def select_news_candidates(conn, categories, report_date_kst, as_of_utc=None):
                     "entity_type": group["entity_type"],
                     "entity_name": group["entity_name"],
                     "normalized_title": group["normalized_title"],
+                    "date_conflict": date_conflict,
+                    "is_industry_significant": is_industry_significant,
+                    "is_personal_harm_uncorroborated": is_personal_harm_uncorroborated,
                     "source_count": source_count,
                     "source_names": sorted(group["source_names"]),
                     "item_ids": sorted(group["item_ids"]),
-                    "published_at": latest_published_at,
+                    "published_at": effective_published_at,
                     "age_hours": age_hours,
                     "freshness_bucket": bucket,
                     # Real, LLM-independent ranking evidence (all inputs

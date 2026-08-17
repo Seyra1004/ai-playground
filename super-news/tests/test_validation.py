@@ -8,6 +8,7 @@ from report.validation import (
     CategoryValidationError,
     MusicTrendValidationError,
     ProducerValidationError,
+    is_incomplete_summary,
     validate_all_categories,
     validate_category_selection,
     validate_music_trend_signals,
@@ -560,3 +561,46 @@ def test_music_trend_item_grounded_text_passes_with_evidence():
     )]
     result = validate_music_trend_signals(payload, VALID_REFS, EVIDENCE_BY_REF)
     assert result["genre_signals"][0]["observed"] == "해당 장르가 기사에서 명시적으로 언급되었다"
+
+
+# ---- is_incomplete_summary (content-quality hardening pass, 2026-08-17) ----
+
+
+def test_incomplete_summary_flagged_when_snippet_has_death_and_summary_omits_it():
+    snippet = "The woman claimed her stepfather used AI tools; he died by suicide two days later."
+    generated = "한 여성이 새아버지가 AI 이미지 생성 도구를 이용해 사진을 변조했다고 주장했다."
+    assert is_incomplete_summary(snippet, generated) is True
+
+
+def test_not_incomplete_when_generated_text_mentions_the_same_fact():
+    snippet = "The woman claimed her stepfather used AI tools; he died by suicide two days later."
+    generated = "새아버지는 적발 이틀 후 사망했다(died by suicide)고 보도됐다."
+    assert is_incomplete_summary(snippet, generated) is False
+
+
+def test_not_incomplete_when_snippet_has_no_high_severity_fact():
+    """An ordinary summary shorter than its source is never flagged --
+    only a real high-severity fact PRESENT in the available snippet and
+    absent from the generated text triggers this."""
+    snippet = "Anthropic released more details about how its new watermark works."
+    generated = "Anthropic이 워터마크 기술에 대한 세부 정보를 공개했다."
+    assert is_incomplete_summary(snippet, generated) is False
+
+
+def test_incomplete_summary_never_flags_when_snippet_or_generated_is_empty():
+    assert is_incomplete_summary("", "무언가") is False
+    assert is_incomplete_summary("something died", "") is False
+    assert is_incomplete_summary(None, None) is False
+
+
+def test_incomplete_summary_scoped_to_available_snippet_not_full_article():
+    """Documents the honest scope limitation: a fact that exists ONLY in
+    the full original article (never ingested into the snippet this
+    pipeline actually has) cannot be detected -- this is an ingestion-
+    scope limitation, not something is_incomplete_summary can catch."""
+    snippet_without_the_fact = "The woman claimed her stepfather used AI tools to alter photos."
+    generated = "한 여성이 새아버지가 AI 도구를 이용해 사진을 변조했다고 주장했다."
+    # The real full article mentions a death, but the ingested snippet
+    # (the only text available to this check) never did -- correctly not
+    # flagged, since there is nothing here to have caught it from.
+    assert is_incomplete_summary(snippet_without_the_fact, generated) is False

@@ -290,3 +290,46 @@ def validate_all_categories(parsed_output, candidates_by_category, snippet_by_id
             errors[category] = exc
 
     return valid, errors
+
+
+# ---- INCOMPLETE SUMMARY DETECTION (content-quality hardening pass,
+# 2026-08-17) -- deterministic, keyword-presence check: when the
+# INGESTED snippet (the only source text this pipeline's synthesis layer
+# ever has access to -- RSS-only ingestion never fetches the full
+# original article body) mentions a high-severity fact that the
+# GENERATED summary/why_it_matters text omits entirely, the event's real
+# meaning may be understated without it. Deliberately narrow in scope:
+# this can only ever catch "did the synthesis drop a fact that WAS
+# present in its own available input" -- it structurally CANNOT detect a
+# fact that exists only in the full original article but never made it
+# into the ingested snippet at all (confirmed real case: a TechCrunch
+# article's stepfather-suicide detail was never in the RSS snippet this
+# pipeline ingested, so no synthesis-layer fix could have surfaced it --
+# that is an ingestion-scope limitation, not a synthesis defect this
+# check is meant to catch). A diagnostic signal, not a hard content-
+# generation rule -- never used to reject/regenerate output on its own,
+# since a real editorial summary is legitimately allowed to omit a
+# secondary detail while keeping the primary fact; it flags candidates
+# for human/editorial review. ----
+_HIGH_SEVERITY_FACT_KEYWORDS = (
+    "사망", "사망자", "숨졌다", "숨진", "자살", "살해", "피살", "사살", "폭발",
+    "died", "death", "dead", "killed", "suicide", "fatality", "fatalities",
+)
+
+
+def is_incomplete_summary(source_snippet, generated_text):
+    """True when `source_snippet` (the real, already-ingested article
+    snippet -- never the full original article) mentions a high-severity
+    fact that `generated_text` (a synthesized summary/why_it_matters/
+    bullet, or several such fields concatenated) omits entirely. False
+    when either argument is empty, or when the snippet carries none of
+    the tracked high-severity keywords -- an ordinary summary is never
+    flagged just for being shorter than its source."""
+    if not source_snippet or not generated_text:
+        return False
+    snippet_lower = source_snippet.lower()
+    generated_lower = generated_text.lower()
+    return any(
+        keyword in snippet_lower and keyword not in generated_lower
+        for keyword in _HIGH_SEVERITY_FACT_KEYWORDS
+    )

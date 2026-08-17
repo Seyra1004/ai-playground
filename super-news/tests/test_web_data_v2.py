@@ -1352,6 +1352,25 @@ def test_music_industry_priority_rank_downranks_gossip_below_unranked():
     assert music_industry_priority_rank(gossip_item) > music_industry_priority_rank(generic_item)
 
 
+def test_music_industry_priority_rank_downranks_pure_idol_controversy():
+    """COMPOSER/PRODUCER EDITORIAL PRIORITY PASS: a pure idol-gossip
+    controversy carries no rights/business/production signal a composer
+    could act on -- same downrank bucket as 가십/열애 above."""
+    controversy_item = {"title": "아이돌 열애설 논란 확산", "ko_title": "", "snippet": "", "ko_snippet": ""}
+    generic_item = {"title": "An unrelated story with no priority keyword", "ko_title": "", "snippet": "", "ko_snippet": ""}
+    assert music_industry_priority_rank(controversy_item) > music_industry_priority_rank(generic_item)
+
+
+def test_music_industry_priority_rank_real_rights_controversy_still_exempt():
+    """A real copyright/rights controversy must still rank as class 1 --
+    the LEGAL/RIGHTS EXCEPTION check runs before the new 논란 downrank
+    keyword, exactly like every other downrank term above."""
+    rights_controversy_item = {
+        "title": "저작권 논란 딛고 라이선스 계약 체결", "ko_title": "", "snippet": "", "ko_snippet": "",
+    }
+    assert music_industry_priority_rank(rights_controversy_item) == 1
+
+
 # ---- MUSIC EDITORIAL RANKING UPGRADE: SUPER_NEWS_SPEC.md section 8's
 # exact 1-8 priority order + the explicit legal/rights downrank exception ----
 

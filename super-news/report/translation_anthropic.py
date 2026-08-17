@@ -97,8 +97,19 @@ _SYSTEM_PROMPT = (
     "question) -- while changing nothing about the actual reported fact. "
     "If the input is body/snippet text, preserve its original informational "
     "density -- do not compress or expand it, and do not add promotional "
-    "phrasing. Output ONLY the translated text: no preamble, no quotation "
-    "marks around it, no explanation, and no HTML or markup of any kind."
+    "phrasing. Some source outlets write their snippet/dek as a rhetorical "
+    "question or a string of teaser questions (e.g. 'How does it actually "
+    "work? Can it be hidden by editing?') -- when translating this into "
+    "Korean, rephrase it as a normal declarative Korean news-summary "
+    "sentence that states the same real fact/topic the question was "
+    "gesturing at, the way a professional Korean newsroom would write a "
+    "summary line, INSTEAD of a literal '~까요?' question translation -- "
+    "never invent a fact that answers the question, only restate what the "
+    "question was actually about as a statement. If the original snippet "
+    "is a genuine, substantive question central to the reporting (rare), "
+    "keep it as a real Korean question rather than forcing a statement. "
+    "Output ONLY the translated text: no preamble, no quotation marks "
+    "around it, no explanation, and no HTML or markup of any kind."
 )
 
 

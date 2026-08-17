@@ -1601,6 +1601,36 @@ def test_economy_fewer_than_cap_shows_no_more_disclosure():
     assert "더 보기" not in section
 
 
+def test_rhetorical_question_only_summary_is_suppressed():
+    """SUMMARY QUALITY: confirmed real defect -- a cached snippet
+    translation that's purely rhetorical teaser questions ("워터마킹은
+    실제로 어떻게 작동할까요? 편집으로 숨길 수 있을까요?") is never shown
+    as the summary line -- it's suppressed, never rewritten/fabricated,
+    falling back to the card's own real declarative bullets."""
+    data = _empty_dashboard()
+    data["news"]["AI"] = _news("NORMAL", [_news_item(
+        "헤드라인", snippet="워터마킹은 실제로 어떻게 작동할까요? 편집으로 숨길 수 있을까요?",
+        why_it_matters="Anthropic의 워터마크 기술 공개는 AI 콘텐츠 진위 판별에 중요한 진전이다.",
+        ai_intelligence_status="AVAILABLE",
+    )])
+    html_out = render_dashboard_html_v2(data)
+    section = _section(html_out, "section-AI")
+    assert "어떻게 작동할까요" not in section
+    assert 'class="ed-summary"' not in section
+    assert "Anthropic의 워터마크 기술 공개는 AI 콘텐츠 진위 판별에 중요한 진전이다." in section  # real bullet still shown
+
+
+def test_mixed_declarative_and_question_summary_is_never_suppressed():
+    data = _empty_dashboard()
+    data["news"]["AI"] = _news("NORMAL", [_news_item(
+        "헤드라인", snippet="Anthropic이 새로운 워터마크 기술을 공개했다. 편집 후에도 탐지가 가능한지는 불확실하다.",
+    )])
+    html_out = render_dashboard_html_v2(data)
+    section = _section(html_out, "section-AI")
+    assert 'class="ed-summary"' in section
+    assert "Anthropic이 새로운 워터마크 기술을 공개했다" in section
+
+
 def test_economy_first_item_gets_full_editorial_card():
     """REFERENCE DESIGN: ECONOMY is now a real DAILY product section, not
     a peripheral ultra-compact feed -- its first (Level A) item gets the
@@ -2080,6 +2110,137 @@ def test_ed_card_media_frame_fills_full_card_height_desktop():
     assert 'align-items: stretch; }' in music_html
     assert 'align-self: stretch;\n  overflow: hidden;' in music_html
     assert 'aspect-ratio: 4 / 3' not in music_html.split("@media (max-width: 640px)")[0]  # no desktop aspect-ratio constraint on the img
+
+
+def test_semantic_duplication_guard_suppresses_same_chart_fact_in_later_section():
+    """SEMANTIC DUPLICATION GUARD: confirmed real defect -- the SAME real
+    Spotify chart fact (Shakira - Dai Dai's rank change) independently
+    resurfaced, reworded, across the hero's own secondary signal AND a
+    separate Genre Radar entry. Only the FIRST (hero secondary, earlier
+    in the fixed editorial walk order) may show it in detail; the later
+    Genre Radar entry referencing the SAME real track must be suppressed,
+    not just reworded."""
+    data = _empty_dashboard()
+    data["spotify_chart"] = {
+        "state": "NORMAL",
+        "top10": [_spotify_entry(1, artist="Shakira", title="Dai Dai", rank_delta=2)],
+        "new_entries": [], "trend": _trend([_spotify_entry(1, artist="Shakira", title="Dai Dai", rank_delta=2)]),
+        "is_first_observation": False,
+    }
+    data["today_music_intelligence"] = [
+        _today_signal("INDUSTRY_NEWS", is_strongest=True, headline_item=_news_item("리드 헤드라인")),
+        _today_signal("VIRAL_HOT", fact_text="Shakira - Dai Dai — 오늘 가장 큰 검증된 상승폭 ▲2"),
+    ]
+    data["music_trend_intelligence"] = {
+        "state": "NORMAL",
+        "genre_signals": [{
+            "observed": "Shakira - Dai Dai 등 라틴팝 트랙이 강세를 보였다",
+            "interpretation": "라틴 팝 장르가 오늘 차트에서 두각을 나타냈다.",
+            "evidence": [],
+        }],
+        "production_notes": [], "producer_references": [], "kpop_ar_notes": [],
+    }
+    html_out = render_music_page_html_v2(data)
+    assert "Shakira - Dai Dai — 오늘 가장 큰 검증된 상승폭" in html_out  # hero secondary: kept
+    genre_section = _section(html_out, "section-GENRE")
+    assert "Shakira - Dai Dai 등 라틴팝 트랙이 강세를 보였다" not in genre_section  # later duplicate: suppressed
+
+
+def test_semantic_duplication_guard_catches_naturally_rephrased_mention():
+    """Confirmed real gap found during before/after verification: an
+    LLM-synthesized ANALYSIS entry (e.g. a Producer Insight's combined
+    'chart movements' narrative) naturally rephrases a track mention in
+    Korean prose ("Shakira의 'Dai Dai'는 순위가 2계단 상승했다") rather
+    than the canonical "Artist - Title" format a raw chart-fact
+    candidate uses -- the guard must still catch this as the same real
+    track, not just an exact "Artist - Title" substring match."""
+    data = _empty_dashboard()
+    data["spotify_chart"] = {
+        "state": "NORMAL",
+        "top10": [_spotify_entry(1, artist="Shakira", title="Dai Dai", rank_delta=2)],
+        "new_entries": [], "trend": _trend([_spotify_entry(1, artist="Shakira", title="Dai Dai", rank_delta=2)]),
+        "is_first_observation": False,
+    }
+    data["today_music_intelligence"] = [
+        _today_signal("INDUSTRY_NEWS", is_strongest=True, headline_item=_news_item("리드 헤드라인")),
+        _today_signal("VIRAL_HOT", fact_text="Shakira - Dai Dai — 오늘 가장 큰 검증된 상승폭 ▲2"),
+    ]
+    data["music_trend_intelligence"] = {
+        "state": "NORMAL",
+        "genre_signals": [{
+            "observed": "Spotify chart에 신곡들이 대거 진입했다. Shakira의 'Dai Dai'는 순위가 2계단 상승했다.",
+            "interpretation": "차트 지형이 재편되고 있다.",
+            "evidence": [],
+        }],
+        "production_notes": [], "producer_references": [], "kpop_ar_notes": [],
+    }
+    html_out = render_music_page_html_v2(data)
+    genre_section = _section(html_out, "section-GENRE")
+    assert "Shakira의 'Dai Dai'는 순위가 2계단 상승했다" not in genre_section  # naturally-rephrased duplicate: suppressed
+
+
+def test_semantic_duplication_guard_keeps_unrelated_entries():
+    """Entries about a genuinely DIFFERENT real track are never touched by
+    the guard -- suppression is scoped to a real shared chart-entity
+    identity, never a blanket per-section cap."""
+    data = _empty_dashboard()
+    data["spotify_chart"] = {
+        "state": "NORMAL",
+        "top10": [
+            _spotify_entry(1, artist="Shakira", title="Dai Dai", rank_delta=2),
+            _spotify_entry(6, artist="Tame Impala", title="Loser", is_new=True),
+        ],
+        "new_entries": [], "trend": _trend([
+            _spotify_entry(1, artist="Shakira", title="Dai Dai", rank_delta=2),
+            _spotify_entry(6, artist="Tame Impala", title="Loser", is_new=True),
+        ]),
+        "is_first_observation": False,
+    }
+    data["today_music_intelligence"] = [
+        _today_signal("INDUSTRY_NEWS", is_strongest=True, headline_item=_news_item("리드 헤드라인")),
+        _today_signal("VIRAL_HOT", fact_text="Shakira - Dai Dai — 오늘 가장 큰 검증된 상승폭 ▲2"),
+    ]
+    data["music_trend_intelligence"] = {
+        "state": "NORMAL",
+        "genre_signals": [{
+            "observed": "Tame Impala - Loser가 톱10에 신규 진입했다",
+            "interpretation": "인디 록 사운드가 메인스트림에 침투하고 있다.",
+            "evidence": [],
+        }],
+        "production_notes": [], "producer_references": [], "kpop_ar_notes": [],
+    }
+    html_out = render_music_page_html_v2(data)
+    genre_section = _section(html_out, "section-GENRE")
+    assert "Tame Impala - Loser가 톱10에 신규 진입했다" in genre_section  # unrelated real track: kept
+
+
+def test_semantic_duplication_guard_never_forces_a_replacement_entry():
+    """Suppression only ever removes -- a section legitimately ends up
+    with zero real items rather than a fabricated replacement when every
+    real candidate it had duplicates an already-shown chart entity."""
+    data = _empty_dashboard()
+    data["spotify_chart"] = {
+        "state": "NORMAL",
+        "top10": [_spotify_entry(1, artist="Shakira", title="Dai Dai", rank_delta=2)],
+        "new_entries": [], "trend": _trend([_spotify_entry(1, artist="Shakira", title="Dai Dai", rank_delta=2)]),
+        "is_first_observation": False,
+    }
+    data["today_music_intelligence"] = [
+        _today_signal("INDUSTRY_NEWS", is_strongest=True, headline_item=_news_item("리드 헤드라인")),
+        _today_signal("VIRAL_HOT", fact_text="Shakira - Dai Dai — 오늘 가장 큰 검증된 상승폭 ▲2"),
+    ]
+    data["music_trend_intelligence"] = {
+        "state": "NORMAL",
+        "genre_signals": [{
+            "observed": "Shakira - Dai Dai가 오늘 가장 크게 상승했다",
+            "interpretation": "라틴 팝이 강세다.",
+            "evidence": [],
+        }],
+        "production_notes": [], "producer_references": [], "kpop_ar_notes": [],
+    }
+    html_out = render_music_page_html_v2(data)
+    genre_section = _section(html_out, "section-GENRE")
+    assert "state-message" in genre_section  # honest empty state, never a fabricated card
 
 
 def test_music_full_section_order_chart_pulse_last_real_content():
