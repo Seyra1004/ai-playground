@@ -8,6 +8,8 @@ from report.validation import (
     CategoryValidationError,
     MusicTrendValidationError,
     ProducerValidationError,
+    is_incomplete_summary,
+    is_low_value_gossip_takeaway,
     validate_all_categories,
     validate_category_selection,
     validate_music_trend_signals,
@@ -135,6 +137,41 @@ def test_empty_selection_list_is_valid():
     assert valid == {"AI": [], "ECONOMY": [], "SOCIETY": []}
 
 
+# ---- FINAL 90+ QUALITY CORRECTION PASS: snippet_by_id fixes a real
+# false-positive currency-magnitude rejection (title-only evidence text
+# missed a currency figure that WAS present in the item's own real
+# snippet) --------------------------------------------------------------
+
+
+def test_currency_fact_grounded_even_without_snippet_evidence():
+    """A title without the currency-unit word ("2000조", no "원") now still
+    grounds a reason that correctly says "2000조원" via report.text_quality's
+    bare-조/억 contextual fallback (2026-08-17 parser fix) -- this used to be
+    a real false-positive rejection (title-only evidence text missed a
+    currency figure a real Korean headline simply never spelled out with
+    "원"), and the snippet_by_id augmentation below is still a real,
+    independent additional safety net for OTHER cases (a currency figure
+    that never appears in the title at all), not the only fix for this
+    specific one."""
+    candidates = {"ECONOMY": [{"id": 10, "normalized_title": "선 넘은 가계빚, 사상첫 2000조"}]}
+    parsed_output = {"ECONOMY": [{
+        "id": 10, "reason": "가계부채가 사상 처음 2000조원을 돌파한 것은 한국 경제의 구조적 위험을 보여주는 중대 지표다.",
+    }]}
+    valid, errors = validate_all_categories(parsed_output, candidates)
+    assert errors == {}
+
+
+def test_currency_fact_passes_with_snippet_evidence():
+    candidates = {"ECONOMY": [{"id": 10, "normalized_title": "선 넘은 가계빚, 사상첫 2000조"}]}
+    parsed_output = {"ECONOMY": [{
+        "id": 10, "reason": "가계부채가 사상 처음 2000조원을 돌파한 것은 한국 경제의 구조적 위험을 보여주는 중대 지표다.",
+    }]}
+    snippet_by_id = {10: "우리나라 가계 빚이 사상 처음으로 2000조원대에 진입한 것이 확실시된다."}
+    valid, errors = validate_all_categories(parsed_output, candidates, snippet_by_id=snippet_by_id)
+    assert errors == {}
+    assert valid["ECONOMY"] == parsed_output["ECONOMY"]
+
+
 # ---- validate_producer_insights: evidence-ref grounding ---------------------
 
 VALID_REFS = {"E1", "E2", "E3"}
@@ -231,6 +268,47 @@ def test_exactly_max_producer_insights_allowed():
 
 def test_empty_insights_list_is_valid():
     assert validate_producer_insights({"insights": []}, VALID_REFS) == []
+
+
+# ---- FINAL 90+ QUALITY CORRECTION PASS: reject editorial-content-creation
+# advice masquerading as producer/A&R action -----------------------------
+
+
+def test_newsletter_advice_rejected_not_real_producer_action():
+    insight = _insight(what_could_i_make_now="이번 주 차트 무브를 요약한 짧은 뉴스레터 섹션을 바로 만들 수 있다")
+    try:
+        validate_producer_insights({"insights": [insight]}, VALID_REFS)
+        assert False, "expected ProducerValidationError"
+    except ProducerValidationError as exc:
+        assert "editorial content" in exc.reason.lower() or "music-making" in exc.reason.lower()
+
+
+def test_article_explainer_advice_rejected():
+    insight = _insight(what_could_i_make_now="이 이슈를 타임라인 형태로 정리한 짧은 explainer 기사를 작성할 수 있다")
+    try:
+        validate_producer_insights({"insights": [insight]}, VALID_REFS)
+        assert False, "expected ProducerValidationError"
+    except ProducerValidationError:
+        pass
+
+
+def test_analysis_memo_advice_rejected():
+    """Confirmed real leak (2026-08-17): a cached what_could_i_make_now
+    recommending a short analysis memo about the news is editorial-content
+    creation, not a real music-making/A&R action -- same rejection as
+    newsletter/article/explainer advice."""
+    insight = _insight(what_could_i_make_now="TikTok의 음악 산업 내 역할 축소가 마케팅에 미치는 영향을 짚는 짧은 분석 메모를 작성할 수 있다")
+    try:
+        validate_producer_insights({"insights": [insight]}, VALID_REFS)
+        assert False, "expected ProducerValidationError"
+    except ProducerValidationError as exc:
+        assert "editorial content" in exc.reason.lower() or "music-making" in exc.reason.lower()
+
+
+def test_real_music_making_advice_still_passes():
+    insight = _insight(what_could_i_make_now="훅 중심의 신스팝 인트로를 다음 데모 세션에서 시도해볼 수 있다")
+    result = validate_producer_insights({"insights": [insight]}, VALID_REFS)
+    assert len(result) == 1
 
 
 def test_missing_insights_key_rejected():
@@ -489,3 +567,61 @@ def test_music_trend_item_grounded_text_passes_with_evidence():
     )]
     result = validate_music_trend_signals(payload, VALID_REFS, EVIDENCE_BY_REF)
     assert result["genre_signals"][0]["observed"] == "해당 장르가 기사에서 명시적으로 언급되었다"
+
+
+# ---- is_incomplete_summary (content-quality hardening pass, 2026-08-17) ----
+
+
+def test_incomplete_summary_flagged_when_snippet_has_death_and_summary_omits_it():
+    snippet = "The woman claimed her stepfather used AI tools; he died by suicide two days later."
+    generated = "한 여성이 새아버지가 AI 이미지 생성 도구를 이용해 사진을 변조했다고 주장했다."
+    assert is_incomplete_summary(snippet, generated) is True
+
+
+def test_not_incomplete_when_generated_text_mentions_the_same_fact():
+    snippet = "The woman claimed her stepfather used AI tools; he died by suicide two days later."
+    generated = "새아버지는 적발 이틀 후 사망했다(died by suicide)고 보도됐다."
+    assert is_incomplete_summary(snippet, generated) is False
+
+
+def test_not_incomplete_when_snippet_has_no_high_severity_fact():
+    """An ordinary summary shorter than its source is never flagged --
+    only a real high-severity fact PRESENT in the available snippet and
+    absent from the generated text triggers this."""
+    snippet = "Anthropic released more details about how its new watermark works."
+    generated = "Anthropic이 워터마크 기술에 대한 세부 정보를 공개했다."
+    assert is_incomplete_summary(snippet, generated) is False
+
+
+def test_incomplete_summary_never_flags_when_snippet_or_generated_is_empty():
+    assert is_incomplete_summary("", "무언가") is False
+    assert is_incomplete_summary("something died", "") is False
+    assert is_incomplete_summary(None, None) is False
+
+
+def test_incomplete_summary_scoped_to_available_snippet_not_full_article():
+    """Documents the honest scope limitation: a fact that exists ONLY in
+    the full original article (never ingested into the snippet this
+    pipeline actually has) cannot be detected -- this is an ingestion-
+    scope limitation, not something is_incomplete_summary can catch."""
+    snippet_without_the_fact = "The woman claimed her stepfather used AI tools to alter photos."
+    generated = "한 여성이 새아버지가 AI 도구를 이용해 사진을 변조했다고 주장했다."
+    # The real full article mentions a death, but the ingested snippet
+    # (the only text available to this check) never did -- correctly not
+    # flagged, since there is nothing here to have caught it from.
+    assert is_incomplete_summary(snippet_without_the_fact, generated) is False
+
+
+def test_is_low_value_gossip_takeaway_deleted_comment_no_relevance_is_rejected():
+    text = "Chris Brown이 삭제된 틱톡 댓글에서 한 BTS 팬을 향해 논란성 발언을 했다는 의혹이 보도되었습니다."
+    assert is_low_value_gossip_takeaway(text) is True
+
+
+def test_is_low_value_gossip_takeaway_real_rights_controversy_is_exempt():
+    text = "저작권 논란이 커지면서 레이블이 로열티 계약을 재협상하기로 했다."
+    assert is_low_value_gossip_takeaway(text) is False
+
+
+def test_is_low_value_gossip_takeaway_no_gossip_marker_is_never_flagged():
+    text = "Stray Kids의 신보가 빌보드 200 9번째 1위를 기록했다."
+    assert is_low_value_gossip_takeaway(text) is False

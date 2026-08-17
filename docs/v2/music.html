@@ -6,7 +6,7 @@
 <title>SUPER NEWS MUSIC — 2026.08.17</title>
 <style>
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
   --bg: #f7f6f2;
   --surface: #ffffff;
   --ink: #17181c;
@@ -26,28 +26,11 @@
   --good-up: #15803d;
   --new-badge: #1d4ed8;
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #121317;
-    --surface: #191b20;
-    --ink: #eef0f3;
-    --ink-soft: rgba(238,240,243,0.72);
-    --ink-faint: rgba(238,240,243,0.5);
-    --rule: rgba(238,240,243,0.14);
-    --chip-bg: rgba(238,240,243,0.08);
-    --masthead: #7ea1d6;
-    --hue-music: #3ddc9a;
-    --hue-music-tint: rgba(61,220,154,0.09);
-    --hue-music-tint2: #4fd6c8;
-    --hue-ai: #7fa6e6;
-    --hue-economy: #d4b866;
-    --hue-society: #d98a9a;
-    --hue-sources: #9aa0aa;
-    --bad-down: #f87171;
-    --good-up: #4ade80;
-    --new-badge: #93c5fd;
-  }
-}
+/* REFERENCE DESIGN BRAND: SUPER NEWS MUSIC/DAILY are an intentional light
+   editorial publication, not a system-theme-following app -- no automatic
+   @media (prefers-color-scheme: dark) switch (a real defect found in a
+   prior pass: it silently overrode the reference's light neutral
+   background/dark-navy-on-white brand whenever the OS was in dark mode). */
 * { box-sizing: border-box; }
 html { background: var(--bg); }
 body {
@@ -60,12 +43,19 @@ a { color: inherit; }
 
 .masthead { max-width: 1280px; margin: 0 auto; padding: 24px 20px 0; border-bottom: 1px solid var(--rule); padding-bottom: 16px; }
 .brand-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-.brand { font-family: Georgia, "Times New Roman", ui-serif, serif; font-size: 0.82rem; font-weight: 700;
-  letter-spacing: 0.22em; color: var(--masthead); }
-.tagline { font-size: 0.72rem; letter-spacing: 0.08em; opacity: 0.5; text-transform: uppercase; }
-.meta-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 2px; }
-.date { font-family: Georgia, "Times New Roman", ui-serif, serif; font-size: clamp(1.5rem, 2.6vw, 2rem);
-  font-weight: 700; margin: 0; letter-spacing: -0.01em; }
+/* BRAND: SUPER NEWS is the publication's own name and must be the first
+   thing the eye notices in the masthead -- substantially larger than the
+   date below it, which stays clearly secondary. The edition word (MUSIC/
+   DAILY) picks up a restrained accent color via .brand-edition-*; SUPER
+   NEWS itself stays the single navy brand color. */
+.brand { font-family: Georgia, "Times New Roman", ui-serif, serif; font-size: clamp(1.8rem, 2.6vw, 2.2rem);
+  font-weight: 800; letter-spacing: -0.01em; line-height: 1.15; color: var(--masthead); }
+.brand-edition-music { color: var(--hue-music); }
+.brand-edition-daily { color: var(--hue-ai); }
+.tagline { font-size: 0.86rem; letter-spacing: 0.01em; color: var(--ink-soft); margin-top: 2px; }
+.meta-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 8px; }
+.date { font-family: Georgia, "Times New Roman", ui-serif, serif; font-size: clamp(1.05rem, 1.6vw, 1.3rem);
+  font-weight: 700; margin: 0; letter-spacing: -0.01em; color: var(--ink-soft); }
 .read-time { font-size: 0.76rem; color: var(--ink-faint); letter-spacing: 0.02em; white-space: nowrap; }
 
 /* ---- thin horizontal publication nav, just under the masthead ---- */
@@ -113,7 +103,7 @@ a { color: inherit; }
 .lead-why-row:first-of-type { border-top: 1px solid var(--rule); }
 .lead-why-label { flex: 0 0 auto; width: 22px; height: 22px; margin-top: 1px; border-radius: 999px;
   background: var(--masthead); color: #fff; font-size: 0; text-transform: none; text-align: center; }
-.lead-why-label::before { content: "¹3"; font-size: 0.68rem; font-weight: 800; line-height: 22px; }
+.lead-why-label::before { content: "✓"; font-size: 0.68rem; font-weight: 800; line-height: 22px; }
 .lead-why-row p { margin: 0; }
 .lead-meta { margin-top: 18px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .lead-meta .item-byline { margin: 0; }
@@ -141,7 +131,13 @@ a { color: inherit; }
 section.block { margin-bottom: 34px; padding-bottom: 24px; border-bottom: 1px solid var(--rule); }
 section.block:last-of-type { border-bottom: none; }
 .block-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px; }
-.block-head h2 { font-size: 0.98rem; font-weight: 800; margin: 0; letter-spacing: 0.01em; }
+/* REFERENCE DESIGN: a short accent bar beside every primary section
+   heading (currentColor -- reuses whichever per-category h2 color already
+   applies below, never a separate color system). */
+.block-head h2 { font-size: 0.98rem; font-weight: 800; margin: 0; letter-spacing: 0.01em;
+  display: inline-flex; align-items: center; gap: 8px; }
+.block-head h2::before { content: ""; display: inline-block; width: 4px; height: 15px;
+  background: currentColor; border-radius: 2px; }
 .block-head .block-sub { font-size: 0.78rem; color: var(--ink-faint); }
 .block-MUSICTODAY .block-head h2, .block-CHARTPULSE .block-head h2, .block-INDUSTRY .block-head h2,
 .block-GENRE .block-head h2, .block-PRODUCTION .block-head h2, .block-PRODUCER .block-head h2,
@@ -301,13 +297,30 @@ section.block.block-quiet .state-message { font-size: 0.86rem; }
    module docstring's REFERENCE DESIGN note. Reuses --masthead (already
    theme-aware light/dark) as the single navy accent -- no new color
    tokens needed. ---- */
+/* DESKTOP: the media wrapper OWNS the image frame (align-items: stretch
+   on .ed-card makes .ed-card-media match the card's full content height;
+   the image itself has NO aspect-ratio constraint and simply fills that
+   wrapper via width/height: 100% + object-fit: cover) -- so the photo
+   fills the entire left-side slot vertically, never a smaller fixed-
+   ratio box leaving blank space beneath it. Cropping stays proportional
+   (object-fit: cover), never stretched/distorted. */
 .ed-card { background: var(--surface); border: 1px solid var(--rule); border-radius: 14px;
   box-shadow: 0 1px 3px rgba(16,24,40,0.06), 0 1px 2px rgba(16,24,40,0.05);
-  padding: 24px; margin: 0 0 20px; display: flex; gap: 28px; align-items: flex-start; }
-.ed-card-media { flex: 0 0 42%; max-width: 420px; }
-.ed-card-media img { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover;
-  border-radius: 10px; background: var(--chip-bg); }
+  padding: 24px; margin: 0 0 20px; display: flex; gap: 28px; align-items: stretch; }
+.ed-card-media { flex: 0 0 42%; max-width: 420px; align-self: stretch;
+  overflow: hidden; border-radius: 10px; background: var(--chip-bg); }
+.ed-card-media img { display: block; width: 100%; height: 100%; object-fit: cover;
+  object-position: center; border-radius: 0; }
 .ed-card-body { flex: 1 1 auto; min-width: 0; }
+/* DAILY ONLY (page-daily): article photos get more visual presence --
+   a wider image column (48%/480px vs MUSIC Industry's 42%/420px) --
+   still fills its full frame via the same stretched-wrapper mechanism
+   above; only the column WIDTH differs here. Scoped to .page-daily so
+   MUSIC's Music Industry cards and hero (its own separate .lead-image/
+   .lead-media rules) never inherit this. Mobile is unaffected -- the
+   existing top-image/16:9 mobile rule below already applies identically
+   to every page. */
+.page-daily .ed-card-media { flex: 0 0 48%; max-width: 480px; }
 .ed-pill { display: inline-block; font-size: 0.74rem; font-weight: 700; padding: 4px 12px;
   border-radius: 999px; background: var(--chip-bg); color: var(--masthead); margin: 0 0 12px; }
 .ed-headline { font-weight: 800; line-height: 1.35; color: var(--masthead); margin: 0 0 10px; }
@@ -330,12 +343,17 @@ section.block.block-quiet .state-message { font-size: 0.86rem; }
 .ed-cta:hover { opacity: 0.88; text-decoration: none; }
 .ed-byline { font-size: 0.78rem; color: var(--ink-faint); margin: 0 0 14px; }
 @media (max-width: 640px) {
-  .ed-card { flex-direction: column; padding: 16px; gap: 14px; }
-  .ed-card-media { flex: none; max-width: none; width: 100%; }
+  .ed-card { flex-direction: column; align-items: stretch; padding: 16px; gap: 14px; }
+  .ed-card-media { flex: none; max-width: none; width: 100%; align-self: auto;
+    aspect-ratio: 16 / 9; }
   .ed-card-media img { aspect-ratio: 16 / 9; }
   .ed-card-lead .ed-headline { font-size: 1.3rem; }
   .ed-card-standard .ed-headline { font-size: 1.1rem; }
-  .ed-cta { width: 100%; justify-content: center; padding: 13px 22px; }
+  /* REFERENCE DESIGN: the reference's mobile CTA is a compact,
+     left-aligned button (not a full-width bar) -- width: auto/fit-content
+     keeps it that way while padding stays comfortable for a real tap
+     target. */
+  .ed-cta { width: auto; padding: 13px 24px; }
 }
 
 /* ---- progressive disclosure ---- */
@@ -445,9 +463,10 @@ footer { max-width: 1280px; margin: 40px auto 0; padding: 0 20px; font-size: 0.7
      line removes any ambiguity -- neither is ever cut off, real content
      never lost, only re-flowed. */
   .brand-row { flex-wrap: wrap; }
+  .brand { font-size: clamp(1.5rem, 5.5vw, 1.7rem); }
   .tagline { flex-basis: 100%; }
   .meta-row { flex-direction: column; align-items: flex-start; gap: 2px; }
-  .date { font-size: clamp(1.3rem, 6vw, 1.7rem); }
+  .date { font-size: clamp(0.95rem, 4vw, 1.15rem); }
   .pub-nav { padding: 8px 16px; gap: 12px; }
   .today-intel { padding: 0 16px; margin-top: 16px; }
   .lead-story { padding-top: 16px; }
@@ -459,15 +478,15 @@ footer { max-width: 1280px; margin: 40px auto 0; padding: 0 20px; font-size: 0.7
 }
 </style>
 </head>
-<body>
+<body class="page-music">
 <div class="masthead">
-<div class="brand-row"><span class="brand">SUPER NEWS MUSIC</span><span class="tagline">데일리 뮤직 인텔리전스</span></div>
-<div class="meta-row"><div class="date num">2026.08.17</div><span class="read-time num">읽는 시간 6분</span></div>
+<div class="brand-row"><span class="brand">SUPER NEWS <span class="brand-edition-music">MUSIC</span></span><span class="tagline">작곡가·프로듀서를 위한 오늘의 음악 인텔리전스</span></div>
+<div class="meta-row"><div class="date num">2026.08.17</div><span class="read-time num">읽는 시간 4분</span></div>
 </div>
-<nav class="pub-nav" aria-label="Section navigation"><span class="pub-nav-badge">MUSIC INTELLIGENCE</span><div class="pub-nav-links"><a class="pub-nav-link" href="#today-intel">음악</a><a class="pub-nav-link" href="#section-CHARTPULSE">차트</a><a class="pub-nav-link" href="#section-INDUSTRY">음악 산업</a><a class="pub-nav-link" href="#section-SPOTIFY">Spotify</a><a class="pub-nav-link" href="#section-GENRE">레이더</a><a class="pub-nav-link" href="#section-PRODUCER">프로듀서</a></div></nav>
-<div class="today-intel" id="today-intel"><h1>오늘의 뮤직 인텔리전스</h1><article class="lead-story"><span class="lead-kicker">업계 뉴스</span><h2 class="lead-title"><a class="headline-link" href="https://www.billboard.com/lists/k-pop-albums-number-one-billboard-200-albums-full-list/" target="_blank" rel="noopener noreferrer">Stray Kids’ Latest Becomes Milestone 25th K-pop Album to Top Billboard 200: Full List</a></h2><p class="lead-summary">BTS was the first K-pop act to top the all-genre chart; BLACKPINK was the first female K-pop act to do so.</p><div class="lead-why-row"><span class="lead-why-label">왜 중요한가</span><p>Stray Kids의 신보가 빌보드 200 정상에 오른 25번째 K-pop 앨범이 된 것은 K-pop 산업 전체의 이정표다.</p></div><div class="lead-why-row"><span class="lead-why-label">프로듀서 시사점</span><p>Stray Kids의 통산 빌보드 200 1위 이력과 K팝 앨범의 25개 1위 타임라인을 정리한 인포그래픽이나 타임라인 문서를 바로 제작할 수 있습니다.</p></div><div class="lead-meta"><p class="item-byline">빌보드 · <span class="num">2026.08.17</span></p><a class="item-link" href="https://www.billboard.com/lists/k-pop-albums-number-one-billboard-200-albums-full-list/" target="_blank" rel="noopener noreferrer">기사 보기 →</a></div></article><div class="today-secondary" id="today-in-music"><h2 class="today-secondary-head">오늘의 음악 소식</h2><div class="today-secondary-list"><div class="signal-card"><div class="signal-body"><span class="signal-kicker">업계 뉴스</span><h3 class="signal-title"><a class="headline-link" href="https://news.google.com/rss/articles/CBMihAFBVV95cUxPSy15Zm9RM0VTdWlfU013OEI2c24xQ0VzeGp6VUhJU1kzdkMyZjlzVUI5cUZwUGM4OWRNcmdBMVhfbHpTNUxjakM5SzhRWDNyMkdqY1NnZlluM3lCS0VuQ1ktQ2FqUl9SLWh4b2RUUno5ZFV1Y1R5THl0NURHcWVHZldENVM?oc=5" target="_blank" rel="noopener noreferrer">Chris Brown Allegedly Tells BTS Fan &#x27;Pray Bout It Hoe&#x27; in Deleted TikTok Comment</a></h3><p class="signal-meaning">Chris Brown이 BTS 팬을 향해 남긴 삭제된 댓글 논란은 K-pop 팬덤과 해외 아티스트 간 갈등으로 큰 화제가 되고 있다.</p></div></div><div class="signal-card"><div class="signal-body"><span class="signal-kicker">바이럴 급상승</span><h3 class="signal-title">Shakira - Dai Dai — 오늘 가장 큰 검증된 상승폭 ▲2 (최고 1위 · 2일째 차트인)</h3></div></div><div class="signal-card"><div class="signal-body"><span class="signal-kicker">장르 시그널</span><h3 class="signal-title">BTS의 &#x27;SWIM&#x27;이 Global 차트 10위에 랭크됨</h3><p class="signal-meaning">K-pop(그룹 유닛) 트랙이 팝·얼터너티브 아티스트들과 동일한 차트에서 경쟁하며 장르 구분 없이 글로벌 순위권에 안착하는 사례로, K-pop이 하나의 독립된 글로벌 메인스트림 장르로 취급받고 있음을 시사</p></div></div></div></div></div>
+<nav class="pub-nav" aria-label="Section navigation"><span class="pub-nav-badge">MUSIC INTELLIGENCE</span><div class="pub-nav-links"><a class="pub-nav-link" href="#today-intel">음악</a><a class="pub-nav-link" href="#section-INDUSTRY">음악 산업</a><a class="pub-nav-link" href="#section-SPOTIFY">Spotify</a><a class="pub-nav-link" href="#section-GENRE">레이더</a><a class="pub-nav-link" href="#section-PRODUCER">프로듀서</a><a class="pub-nav-link" href="#section-CHARTPULSE">차트</a></div></nav>
+<div class="today-intel" id="today-intel"><h1>오늘의 뮤직 인텔리전스</h1><article class="lead-story"><span class="lead-kicker">업계 뉴스</span><h2 class="lead-title"><a class="headline-link" href="https://www.rollingstone.com/music/music-news/noah-kahan-chappell-roan-perform-california-live-1235609738/" target="_blank" rel="noopener noreferrer">Watch Noah Kahan and Surprise Guest Chappell Roan Perform ‘California’ at Rose Bowl Stadium</a></h2><p class="lead-summary">The musician played 27 songs at his sold-out The Great Divide tour stop in Pasadena, California on Saturday</p><div class="lead-meta"><p class="item-byline">롤링스톤 · <span class="num">2026.08.17</span></p><a class="item-link" href="https://www.rollingstone.com/music/music-news/noah-kahan-chappell-roan-perform-california-live-1235609738/" target="_blank" rel="noopener noreferrer">기사 보기 →</a></div></article></div>
 <main class="main">
-<section class="block block-MUSICTODAY" id="section-MUSICTODAY"><div class="block-head"><h2>뮤직 투데이</h2></div><div class="music-today-list"><article class="mt-card"><div class="mt-kicker-row"><span class="mt-type">프로듀서 인사이트</span><span class="mode-badge mode-ANALYSIS">분석</span></div><p class="mt-fact">Spotify 차트에 새로운 얼굴들이 대거 등장했습니다. Tame Impala의 &#x27;Loser&#x27;가 6위, Katy Perry의 &#x27;The One That Got Away&#x27;가 7위, Temper City의 &#x27;Self Aware&#x27;가 9위로 각각 신규 진입했고, Shakira의 &#x27;Dai Dai&#x27;는 2계단 상승했습니다.</p><p class="mt-why"><b>왜 중요한가</b>장르와 세대를 넘나드는 신곡들이 동시에 차트 상위권에 진입했다는 것은 현재 스트리밍 소비가 특정 팬덤이나 장르에 국한되지 않고 폭넓게 분산되어 있다는 신호입니다. 특히 신인/인디 성격의 Temper City가 기성 팝스타들과 나란히 진입한 점이 눈에 띕니다.</p><p class="mt-implication"><b>프로듀서 시사점</b>이번 주 Spotify 신규 진입곡과 급상승곡을 정리한 &#x27;이번 주 차트 무브&#x27; 요약 카드나 짧은 뉴스레터 섹션을 바로 만들 수 있습니다.</p></article></div></section><section class="block block-CHARTPULSE" id="section-CHARTPULSE"><div class="block-head"><h2>차트 펄스</h2></div><p class="block-sub-label">Spotify Global TOP 10 · 2026.08.13 기준 · 신규 진입 3</p><table class="pulse-table"><thead><tr><th class="pulse-rank">순위</th><th>트랙</th><th class="pulse-delta-head">Δ</th><th class="pulse-status-head">상태</th></tr></thead><tbody><tr><td class="pulse-rank num">1</td><td class="pulse-track">Shakira - Dai Dai</td><td class="pulse-delta-cell"><span class="pulse-delta pulse-delta-up num">▲2</span></td><td class="pulse-badges"><span class="badge badge-up">상승</span></td></tr>
+<section class="block block-INDUSTRY" id="section-INDUSTRY"><div class="block-head"><h2>뮤직 인더스트리</h2></div><div class="news-list"><article class="news-card ed-card ed-card-lead"><div class="ed-card-body"><span class="ed-pill">빌보드</span><h2 class="ed-headline"><a class="headline-link" href="https://www.billboard.com/music/latin/karol-g-bruno-mars-perform-still-la-show-music-video-1236317332/" target="_blank" rel="noopener noreferrer">Karol G Brings Out Bruno Mars for Surprise Live Debut of ‘Still’ at L.A. Concert</a></h2><p class="ed-summary">The pair performed the song as cameras rolled for its official music video.</p><hr class="ed-divider"><p class="item-byline ed-byline">빌보드 · <span class="num">2026.08.17</span></p><a class="ed-cta" href="https://www.billboard.com/music/latin/karol-g-bruno-mars-perform-still-la-show-music-video-1236317332/" target="_blank" rel="noopener noreferrer">기사 보기 <span aria-hidden="true">&rarr;</span></a></div></article></div></section><div class="today-secondary" id="today-in-music"><h2 class="today-secondary-head">오늘의 음악 소식</h2><div class="today-secondary-list"><div class="signal-card"><div class="signal-body"><span class="signal-kicker">업계 뉴스</span><h3 class="signal-title"><a class="headline-link" href="https://news.google.com/rss/articles/CBMidkFVX3lxTE1fcjJEWmNZT0pTTTJ6b1JaLWxrazI3a2U5a3ZYaVdUa3dnWXhDejZGVE85SWNiRFhPakYxUmVBOUtXUjhpWWtGVzEwd2JEYkozQlZMWEluT1hJWEpBaUJqb0ZZWExDaGpXd1RxZmtCdHZBOWVWQnc?oc=5" target="_blank" rel="noopener noreferrer">Top TikTok Campaigns Shaping the Future of the Music Industry</a></h3><p class="signal-meaning">메이저 아티스트가 앨범 발매의 주무대로 스트리밍 플랫폼 대신 TikTok을 선택하는 것은, 기존 Spotify·Apple Music 중심의 발매 관행에 균열이 생기고 있다는 뜻입니다. 기사 제목 자체가 &#x27;스트리밍 플랫폼에 문제가 되는가&#x27;라고 묻고 있어, 업계 내에서 플랫폼 권력 이동에 대한 논쟁이 시작됐음을 시사합니다.</p></div></div><div class="signal-card"><div class="signal-body"><span class="signal-kicker">바이럴 급상승</span><h3 class="signal-title">Shakira - Dai Dai — 오늘 가장 큰 검증된 상승폭 ▲2 (최고 1위 · 2일째 차트인)</h3></div></div><div class="signal-card"><div class="signal-body"><span class="signal-kicker">장르 시그널</span><h3 class="signal-title">BTS의 &#x27;SWIM&#x27;이 Global 차트 10위에 랭크됨</h3><p class="signal-meaning">K-pop(그룹 유닛) 트랙이 팝·얼터너티브 아티스트들과 동일한 차트에서 경쟁하며 장르 구분 없이 글로벌 순위권에 안착하는 사례로, K-pop이 하나의 독립된 글로벌 메인스트림 장르로 취급받고 있음을 시사</p></div></div></div></div><section class="block block-MUSICTODAY block-quiet" id="section-MUSICTODAY"><div class="block-head"><h2>뮤직 투데이</h2></div><p class="state-message">오늘은 근거가 충분한 음악 시그널이 없습니다.</p></section><section class="block block-SPOTIFY block-quiet" id="section-SPOTIFY"><div class="block-head"><h2>스포티파이 워치</h2></div><p class="state-message">오늘 확인된 중대한 Spotify 정책·비즈니스 변화 없음.</p></section><section class="block block-GENRE" id="section-GENRE"><div class="block-head"><h2>장르 레이더</h2></div><div class="radar-list radar-list-genre"><div class="radar-card radar-card-genre"><span class="radar-observed-label">오늘 관측</span><span class="evidence-level-badge evidence-level-signal">시그널</span><p class="radar-observed">5~9위에 Malcolm Todd, Tame Impala, Dominic Fike, Temper City 등 얼터너티브·인디 성향 아티스트가 다수 포진</p><p class="radar-interp">메인스트림 팝과 별개로 얼터너티브/인디 팝-록 사운드가 글로벌 차트 중위권을 꾸준히 점유하는 트렌드가 감지됨</p><details class="evidence-disclosure"><summary>근거 보기 (4개)</summary><span class="evidence-chip">#5 Malcolm Todd - Earrings (GLOBAL, real chart snapshot)</span><span class="evidence-chip">#6 Tame Impala - Loser (GLOBAL, real chart snapshot)</span><span class="evidence-chip">#8 Dominic Fike - Babydoll (GLOBAL, real chart snapshot)</span><span class="evidence-chip">#9 Temper City - Self Aware (GLOBAL, real chart snapshot)</span></details><span class="confidence-badge confidence-MEDIUM">신뢰도 보통</span></div></div></section><section class="block block-PRODUCTION block-quiet" id="section-PRODUCTION"><div class="block-head"><h2>프로덕션 레이더</h2></div><p class="state-message">오늘 실제 원문에 프로덕션 특성에 대한 구체적 언급이 없습니다.</p></section><section class="block block-PRODUCER" id="section-PRODUCER"><div class="block-head"><h2>프로듀서 / A&amp;R 테이크어웨이</h2></div><div class="takeaway-list"><div class="takeaway-card"><span class="takeaway-label">시그널</span><p class="takeaway-action">Stray Kids의 &#x27;THIS &amp; THAT&#x27;가 빌보드 200에서 통산 9번째 1위를 기록했으며, 이는 빌보드 200 정상을 차지한 K팝 앨범 중 25번째 기록이라는 이정표로 보도되었습니다.</p><p class="takeaway-row"><b>왜 중요한가</b> Stray Kids가 개별 그룹으로서 9번째 1위를 달성한 것은 미국 앨범 차트에서 최다 1위 기록을 보유한 K팝 그룹 중 하나로서의 입지를 재확인시켜 주며, K팝 전체가 빌보드 200에서 이제 &#x27;이변&#x27;이 아닌 &#x27;꾸준한 흐름&#x27;으로 자리잡았음을 보여주는 누적 데이터이기도 합니다.</p><p class="takeaway-row"><b>지켜볼 점</b> 다음 컴백 시점과, 이 기록이 다른 K팝 그룹들(예: 향후 25번째 이후 기록 경신 후보)과 어떻게 비교되는지, 그리고 이번 앨범의 스트리밍/판매 세부 구성비가 추가로 공개되는지 확인이 필요합니다.</p><details class="evidence-disclosure"><summary>근거 보기 (2개)</summary><span class="evidence-chip">Stray Kids Score Ninth No. 1 on Billboard 200 With ‘THIS &amp; THAT’</span><span class="evidence-chip">Stray Kids’ Latest Becomes Milestone 25th K-pop Album to Top Billboard 200: Full List</span></details><span class="confidence-badge confidence-HIGH">신뢰도 높음</span></div><div class="takeaway-card"><span class="takeaway-label">시그널</span><p class="takeaway-action">Charli XCX가 신보를 TikTok 앱 내에서 독점 공개하는 방식을 택했다는 보도가 나왔고, 동시에 &#x27;TikTok 캠페인이 음악 산업의 미래를 어떻게 형성하는가&#x27;를 다루는 별도 기사도 함께 나왔습니다.</p><p class="takeaway-row"><b>왜 중요한가</b> 메이저 아티스트가 앨범 발매의 주무대로 스트리밍 플랫폼 대신 TikTok을 선택하는 것은, 기존 Spotify·Apple Music 중심의 발매 관행에 균열이 생기고 있다는 뜻입니다. 기사 제목 자체가 &#x27;스트리밍 플랫폼에 문제가 되는가&#x27;라고 묻고 있어, 업계 내에서 플랫폼 권력 이동에 대한 논쟁이 시작됐음을 시사합니다.</p><p class="takeaway-row"><b>지켜볼 점</b> 이 발매 방식이 실제 스트리밍 수치나 차트 성적에 어떤 영향을 주는지, 그리고 다른 메이저 레이블/아티스트들이 유사한 TikTok 우선 전략을 따라가는지가 핵심 관전 포인트입니다.</p><details class="evidence-disclosure"><summary>근거 보기 (2개)</summary><span class="evidence-chip">Charli XCX Taps TikTok for a Serious In-App Album Drop—Is This Becoming a Problem for Streaming Platforms?</span><span class="evidence-chip">Top TikTok Campaigns Shaping the Future of the Music Industry</span></details><span class="confidence-badge confidence-MEDIUM">신뢰도 보통</span></div></div></section><section class="block block-SIGNALS" id="section-SIGNALS"><div class="block-head"><h2>크로스플랫폼 시그널</h2></div><ul class="signal-compact-list"><li class="signal-compact-row"><span class="signal-compact-track">Shakira - Dai Dai</span><span class="signal-compact-meta">Spotify Early Signal ▲2</span></li></ul></section><section class="block block-OUTLOOK block-quiet" id="section-OUTLOOK"><div class="block-head"><h2>3~6개월 전망</h2></div><p class="quiet-line">장기 관측 데이터 축적 중 — 오늘은 단기 관측만 제공합니다.</p></section><section class="block block-CHARTPULSE" id="section-CHARTPULSE"><div class="block-head"><h2>차트 펄스</h2></div><p class="block-sub-label">Spotify Global TOP 10 · 2026.08.13 기준 · 신규 진입 3</p><table class="pulse-table"><thead><tr><th class="pulse-rank">순위</th><th>트랙</th><th class="pulse-delta-head">Δ</th><th class="pulse-status-head">상태</th></tr></thead><tbody><tr><td class="pulse-rank num">1</td><td class="pulse-track">Shakira - Dai Dai</td><td class="pulse-delta-cell"><span class="pulse-delta pulse-delta-up num">▲2</span></td><td class="pulse-badges"><span class="badge badge-up">상승</span></td></tr>
 <tr><td class="pulse-rank num">2</td><td class="pulse-track">Ariana Grande - hate that i made you love me</td><td class="pulse-delta-cell"><span class="pulse-delta pulse-delta-down num">▼1</span></td><td class="pulse-badges"><span class="badge badge-down">하락</span></td></tr>
 <tr><td class="pulse-rank num">3</td><td class="pulse-track">Justin Bieber - Beauty And A Beat</td><td class="pulse-delta-cell"><span class="pulse-delta pulse-delta-up num">▲1</span></td><td class="pulse-badges"><span class="badge badge-up">상승</span></td></tr>
 <tr><td class="pulse-rank num">4</td><td class="pulse-track">Ariana Grande - petal</td><td class="pulse-delta-cell"><span class="pulse-delta pulse-delta-down num">▼2</span></td><td class="pulse-badges"><span class="badge badge-down">하락</span></td></tr>
@@ -476,7 +495,7 @@ footer { max-width: 1280px; margin: 40px auto 0; padding: 0 20px; font-size: 0.7
 <tr><td class="pulse-rank num">7</td><td class="pulse-track">Katy Perry - The One That Got Away</td><td class="pulse-delta-cell"><span class="pulse-delta num">—</span></td><td class="pulse-badges"><span class="badge badge-new">신규</span></td></tr>
 <tr><td class="pulse-rank num">8</td><td class="pulse-track">Dominic Fike - Babydoll</td><td class="pulse-delta-cell"><span class="pulse-delta pulse-delta-up num">▲1</span></td><td class="pulse-badges"><span class="badge badge-up">상승</span></td></tr>
 <tr><td class="pulse-rank num">9</td><td class="pulse-track">Temper City - Self Aware</td><td class="pulse-delta-cell"><span class="pulse-delta num">—</span></td><td class="pulse-badges"><span class="badge badge-new">신규</span></td></tr>
-<tr><td class="pulse-rank num">10</td><td class="pulse-track">BTS - SWIM</td><td class="pulse-delta-cell"><span class="pulse-delta pulse-delta-down num">▼4</span></td><td class="pulse-badges"><span class="badge badge-down">하락</span></td></tr></tbody></table><p class="pulse-narrative">신규 3 · 상승 3 · 하락 3 — 변동성 높음</p><p class="pulse-narrative"><b>바이럴 급상승</b> Shakira - Dai Dai ▲2</p><p class="pulse-status">TikTok 차트 · 데이터 소스 미연동</p></section><section class="block block-INDUSTRY" id="section-INDUSTRY"><div class="block-head"><h2>뮤직 인더스트리</h2></div><div class="news-list"><article class="news-card ed-card ed-card-lead"><div class="ed-card-body"><span class="ed-pill">빌보드</span><h2 class="ed-headline"><a class="headline-link" href="https://www.billboard.com/video/p1harmony-talks-about-what-inspired-the-sound-of-their-9th-mini-album-unique-connecting-with-their-fans-on-tour/" target="_blank" rel="noopener noreferrer">P1Harmony Talks About What Inspired the Sound of Their 9th Mini-Album ‘Unique’ &amp; Connecting With Their Fans On Tour | KCON LA 2026</a></h2><p class="ed-summary">K-Pop boy band P1Harmony talks about what inspired the sound of their 9th mini-album ‘Unique’ and how much they love connecting with their fans on tour.</p><hr class="ed-divider"><ul class="ed-bullets"><li class="ed-bullet"><span class="ed-bullet-icon" aria-hidden="true">&#10003;</span><span>K-Pop boy band P1Harmony talks about what inspired the sound of their 9th mini-album ‘Unique’ and how much they love connecting with their fans on tour.</span></li><li class="ed-bullet"><span class="ed-bullet-icon" aria-hidden="true">&#10003;</span><span>P1Harmony의 KCON LA 인터뷰는 K-pop 그룹의 해외 팬 소통과 신보 활동을 조명한다.</span></li></ul><p class="item-byline ed-byline">빌보드 · <span class="num">2026.08.17</span></p><a class="ed-cta" href="https://www.billboard.com/video/p1harmony-talks-about-what-inspired-the-sound-of-their-9th-mini-album-unique-connecting-with-their-fans-on-tour/" target="_blank" rel="noopener noreferrer">기사 보기 <span aria-hidden="true">&rarr;</span></a></div></article></div></section><section class="block block-SPOTIFY block-quiet" id="section-SPOTIFY"><div class="block-head"><h2>스포티파이 워치</h2></div><p class="state-message">오늘 확인된 중대한 Spotify 정책·비즈니스 변화 없음.</p></section><section class="block block-GENRE" id="section-GENRE"><div class="block-head"><h2>장르 레이더</h2></div><div class="radar-list radar-list-genre"><div class="radar-card radar-card-genre"><span class="radar-observed-label">오늘 관측</span><span class="evidence-level-badge evidence-level-observation">관측</span><p class="radar-observed">BTS의 &#x27;SWIM&#x27;이 Global 차트 10위에 랭크됨</p><p class="radar-interp">K-pop(그룹 유닛) 트랙이 팝·얼터너티브 아티스트들과 동일한 차트에서 경쟁하며 장르 구분 없이 글로벌 순위권에 안착하는 사례로, K-pop이 하나의 독립된 글로벌 메인스트림 장르로 취급받고 있음을 시사</p><details class="evidence-disclosure"><summary>근거 보기 (1개)</summary><span class="evidence-chip">#10 BTS - SWIM (GLOBAL, real chart snapshot)</span></details><span class="confidence-badge confidence-MEDIUM">신뢰도 보통</span></div></div></section><section class="block block-PRODUCTION block-quiet" id="section-PRODUCTION"><div class="block-head"><h2>프로덕션 레이더</h2></div><p class="state-message">오늘 실제 원문에 프로덕션 특성에 대한 구체적 언급이 없습니다.</p></section><section class="block block-PRODUCER" id="section-PRODUCER"><div class="block-head"><h2>프로듀서 / A&amp;R 테이크어웨이</h2></div><div class="takeaway-list"><div class="takeaway-card"><span class="takeaway-label">시그널</span><p class="takeaway-action">Spotify 차트에 새로운 얼굴들이 대거 등장했습니다. Tame Impala의 &#x27;Loser&#x27;가 6위, Katy Perry의 &#x27;The One That Got Away&#x27;가 7위, Temper City의 &#x27;Self Aware&#x27;가 9위로 각각 신규 진입했고, Shakira의 &#x27;Dai Dai&#x27;는 2계단 상승했습니다.</p><p class="takeaway-row"><b>왜 중요한가</b> 장르와 세대를 넘나드는 신곡들이 동시에 차트 상위권에 진입했다는 것은 현재 스트리밍 소비가 특정 팬덤이나 장르에 국한되지 않고 폭넓게 분산되어 있다는 신호입니다. 특히 신인/인디 성격의 Temper City가 기성 팝스타들과 나란히 진입한 점이 눈에 띕니다.</p><p class="takeaway-row"><b>시도 · 지켜볼 점</b> 이번 주 Spotify 신규 진입곡과 급상승곡을 정리한 &#x27;이번 주 차트 무브&#x27; 요약 카드나 짧은 뉴스레터 섹션을 바로 만들 수 있습니다. · 다음 주 차트에서 이 곡들이 순위를 유지하거나 더 오르는지, 특히 Temper City처럼 상대적으로 덜 알려진 아티스트가 지속력을 보이는지 지켜볼 필요가 있습니다.</p><details class="evidence-disclosure"><summary>근거 보기 (4개)</summary><span class="evidence-chip">[spotify_chart] Shakira - Dai Dai (+2 rank positions)</span><span class="evidence-chip">Tame Impala - Loser debuted at #6</span><span class="evidence-chip">Katy Perry - The One That Got Away debuted at #7</span><span class="evidence-chip">Temper City - Self Aware debuted at #9</span></details><span class="confidence-badge confidence-MEDIUM">신뢰도 보통</span></div><div class="takeaway-card"><span class="takeaway-label">시그널</span><p class="takeaway-action">Charli XCX가 신보를 TikTok 앱 내에서 독점 공개하는 방식을 택했다는 보도가 나왔고, 동시에 &#x27;TikTok 캠페인이 음악 산업의 미래를 어떻게 형성하는가&#x27;를 다루는 별도 기사도 함께 나왔습니다.</p><p class="takeaway-row"><b>왜 중요한가</b> 메이저 아티스트가 앨범 발매의 주무대로 스트리밍 플랫폼 대신 TikTok을 선택하는 것은, 기존 Spotify·Apple Music 중심의 발매 관행에 균열이 생기고 있다는 뜻입니다. 기사 제목 자체가 &#x27;스트리밍 플랫폼에 문제가 되는가&#x27;라고 묻고 있어, 업계 내에서 플랫폼 권력 이동에 대한 논쟁이 시작됐음을 시사합니다.</p><p class="takeaway-row"><b>시도 · 지켜볼 점</b> TikTok발 음악 마케팅/발매 트렌드와 전통적 스트리밍 발매 전략을 비교하는 짧은 분석 브리핑을 지금 작성할 수 있습니다. · 이 발매 방식이 실제 스트리밍 수치나 차트 성적에 어떤 영향을 주는지, 그리고 다른 메이저 레이블/아티스트들이 유사한 TikTok 우선 전략을 따라가는지가 핵심 관전 포인트입니다.</p><details class="evidence-disclosure"><summary>근거 보기 (2개)</summary><span class="evidence-chip">Charli XCX Taps TikTok for a Serious In-App Album Drop—Is This Becoming a Problem for Streaming Platforms?</span><span class="evidence-chip">Top TikTok Campaigns Shaping the Future of the Music Industry</span></details><span class="confidence-badge confidence-MEDIUM">신뢰도 보통</span></div><div class="takeaway-card"><span class="takeaway-label">K-pop / A&amp;R</span><p class="takeaway-action">Stray Kids가 &#x27;THIS &amp; THAT&#x27;로 빌보드 200 통산 9번째 1위를 기록, 그룹 기준 비틀즈에 이어 역대 최다 1위 공동 2위에 등극</p><p class="takeaway-row">Stray Kids의 지속적인 빌보드 200 1위 행진은 해당 그룹의 미국 앨범 시장 장악력이 일회성이 아닌 구조적 성과임을 보여주는 강력한 A&amp;R 벤치마크</p><details class="evidence-disclosure"><summary>근거 보기 (1개)</summary><span class="evidence-chip">Stray Kids Score Ninth No. 1 on Billboard 200 With ‘THIS &amp; THAT’ — The act ties for the second-most No. 1 albums among groups, trailing only The Beatles.</span></details><span class="confidence-badge confidence-HIGH">신뢰도 높음</span></div></div></section><section class="block block-SIGNALS" id="section-SIGNALS"><div class="block-head"><h2>크로스플랫폼 시그널</h2></div><ul class="signal-compact-list"><li class="signal-compact-row"><span class="signal-compact-track">Shakira - Dai Dai</span><span class="signal-compact-meta">Spotify Early Signal ▲2</span></li></ul></section><section class="block block-OUTLOOK block-quiet" id="section-OUTLOOK"><div class="block-head"><h2>3~6개월 전망</h2></div><p class="quiet-line">장기 관측 데이터 축적 중 — 오늘은 단기 관측만 제공합니다.</p></section><section class="block block-SOURCES" id="section-SOURCES"><div class="block-head"><h2>출처</h2></div><ul class="source-status-list"><li class="source-status-chip status-active"><span class="status-dot"></span>Apple Music 연동됨</li><li class="source-status-chip status-active"><span class="status-dot"></span>Spotify 연동됨</li><li class="source-status-chip status-unavailable"><span class="status-dot"></span>TikTok 미연동</li></ul></section>
+<tr><td class="pulse-rank num">10</td><td class="pulse-track">BTS - SWIM</td><td class="pulse-delta-cell"><span class="pulse-delta pulse-delta-down num">▼4</span></td><td class="pulse-badges"><span class="badge badge-down">하락</span></td></tr></tbody></table><p class="pulse-narrative">신규 3 · 상승 3 · 하락 3 — 변동성 높음</p><p class="pulse-narrative"><b>바이럴 급상승</b> Shakira - Dai Dai ▲2</p><p class="pulse-status">TikTok 차트 · 데이터 소스 미연동</p></section><section class="block block-SOURCES" id="section-SOURCES"><div class="block-head"><h2>출처</h2></div><ul class="source-status-list"><li class="source-status-chip status-active"><span class="status-dot"></span>Apple Music 연동됨</li><li class="source-status-chip status-active"><span class="status-dot"></span>Spotify 연동됨</li><li class="source-status-chip status-unavailable"><span class="status-dot"></span>TikTok 미연동</li></ul></section>
 </main>
 <footer>이 페이지는 매일 자동으로 갱신됩니다.</footer>
 </body>

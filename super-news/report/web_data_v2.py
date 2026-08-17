@@ -953,6 +953,33 @@ _MUSIC_INDUSTRY_DOWNRANK_KEYWORDS = (
     # revenue/pricing/route report), which stays eligible for its own real
     # priority class above.
     "최고의 순간", "베스트 모먼트", "best moments from", "하이라이트 모음", "명장면 모음",
+    # FINAL 90+ QUALITY CORRECTION PASS (confirmed real defect): an
+    # artist's music being used/removed on a POLITICAL FIGURE's social
+    # media is a celebrity-politics conflict story, not a real music-
+    # business/rights consequence, UNLESS it actually uses real
+    # rights/licensing language (in which case the LEGAL/RIGHTS EXCEPTION
+    # above already exempts it before this check ever runs) -- general
+    # political-conflict terms, never one artist's name, so this applies
+    # to any celebrity-vs-politician story, not just one real example.
+    "백악관", "white house", "대통령 후보", "presidential campaign", "정치 캠페인", "political campaign",
+    "선거 캠페인", "election campaign", "정당 지지", "trump", "트럼프",
+    # COMPOSER/PRODUCER EDITORIAL PRIORITY PASS (2026-08-17): a pure
+    # idol-gossip controversy (no rights/business/production signal a
+    # composer could act on) is noise for this reader, same as
+    # 가십/열애 above -- still exempt whenever the LEGAL/RIGHTS EXCEPTION
+    # already classified the story as real rights/copyright/publishing/
+    # royalty/licensing business (e.g. a real "저작권 논란" lawsuit),
+    # since that check runs first.
+    "논란", "controversy",
+    # SUPER NEWS FINAL ROLLBACK-RESTORE PASS (2026-08-17): a fan/pundit
+    # social-media comment spat (deleted tweet/comment, fan-vs-artist or
+    # fan-vs-fan feud) carries no songwriting/production/A&R/business
+    # signal -- real example seen: an artist's deleted TikTok-comment reply
+    # to a fan. Still exempt whenever the LEGAL/RIGHTS EXCEPTION above
+    # already classified the story as real rights/copyright/publishing/
+    # royalty/licensing business, since that check runs first.
+    "삭제된 댓글", "deleted comment", "deleted tiktok comment", "deleted tweet",
+    "팬덤 갈등", "fan feud", "trolled", "claps back at",
 )
 _MUSIC_INDUSTRY_UNRANKED_PRIORITY = 9
 _MUSIC_INDUSTRY_DOWNRANKED_PRIORITY = 10
@@ -1603,6 +1630,30 @@ _TODAY_MUSIC_INTELLIGENCE_MAX_SIGNALS = 5
 
 def _music_track_label(entry):
     return f'{entry["canonical_artist"]} - {entry["canonical_title"]}'
+
+
+def _chart_entity_key(canonical_artist, canonical_title):
+    return f"{(canonical_artist or '').strip().lower()}::{(canonical_title or '').strip().lower()}"
+
+
+def known_chart_entity_keys(spotify_chart):
+    """SEMANTIC DUPLICATION GUARD (content-quality hardening pass,
+    2026-08-17): the real, CLOSED vocabulary of today's chart track
+    identities -- normalized "artist::title" key -> real "Artist - Title"
+    display label -- built directly from spotify_chart's own real top10
+    entries, never invented or fuzzy-matched. Used by report.web_render_v2
+    to detect which real chart entity a signal/synthesis entry's own text
+    is actually ABOUT, for cross-section semantic-duplication suppression
+    (see _apply_full_music_cross_section_dedup). Empty when the chart
+    itself isn't NORMAL that day -- never a fabricated entity."""
+    if spotify_chart.get("state") != "NORMAL":
+        return {}
+    mapping = {}
+    for entry in spotify_chart.get("top10") or []:
+        artist, title = entry.get("canonical_artist"), entry.get("canonical_title")
+        if artist and title:
+            mapping[_chart_entity_key(artist, title)] = _music_track_label(entry)
+    return mapping
 
 
 def _collect_music_signal_candidates(data):

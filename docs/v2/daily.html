@@ -6,7 +6,7 @@
 <title>SUPER NEWS DAILY — 2026.08.17</title>
 <style>
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
   --bg: #f7f6f2;
   --surface: #ffffff;
   --ink: #17181c;
@@ -26,28 +26,11 @@
   --good-up: #15803d;
   --new-badge: #1d4ed8;
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #121317;
-    --surface: #191b20;
-    --ink: #eef0f3;
-    --ink-soft: rgba(238,240,243,0.72);
-    --ink-faint: rgba(238,240,243,0.5);
-    --rule: rgba(238,240,243,0.14);
-    --chip-bg: rgba(238,240,243,0.08);
-    --masthead: #7ea1d6;
-    --hue-music: #3ddc9a;
-    --hue-music-tint: rgba(61,220,154,0.09);
-    --hue-music-tint2: #4fd6c8;
-    --hue-ai: #7fa6e6;
-    --hue-economy: #d4b866;
-    --hue-society: #d98a9a;
-    --hue-sources: #9aa0aa;
-    --bad-down: #f87171;
-    --good-up: #4ade80;
-    --new-badge: #93c5fd;
-  }
-}
+/* REFERENCE DESIGN BRAND: SUPER NEWS MUSIC/DAILY are an intentional light
+   editorial publication, not a system-theme-following app -- no automatic
+   @media (prefers-color-scheme: dark) switch (a real defect found in a
+   prior pass: it silently overrode the reference's light neutral
+   background/dark-navy-on-white brand whenever the OS was in dark mode). */
 * { box-sizing: border-box; }
 html { background: var(--bg); }
 body {
@@ -60,12 +43,19 @@ a { color: inherit; }
 
 .masthead { max-width: 1280px; margin: 0 auto; padding: 24px 20px 0; border-bottom: 1px solid var(--rule); padding-bottom: 16px; }
 .brand-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-.brand { font-family: Georgia, "Times New Roman", ui-serif, serif; font-size: 0.82rem; font-weight: 700;
-  letter-spacing: 0.22em; color: var(--masthead); }
-.tagline { font-size: 0.72rem; letter-spacing: 0.08em; opacity: 0.5; text-transform: uppercase; }
-.meta-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 2px; }
-.date { font-family: Georgia, "Times New Roman", ui-serif, serif; font-size: clamp(1.5rem, 2.6vw, 2rem);
-  font-weight: 700; margin: 0; letter-spacing: -0.01em; }
+/* BRAND: SUPER NEWS is the publication's own name and must be the first
+   thing the eye notices in the masthead -- substantially larger than the
+   date below it, which stays clearly secondary. The edition word (MUSIC/
+   DAILY) picks up a restrained accent color via .brand-edition-*; SUPER
+   NEWS itself stays the single navy brand color. */
+.brand { font-family: Georgia, "Times New Roman", ui-serif, serif; font-size: clamp(1.8rem, 2.6vw, 2.2rem);
+  font-weight: 800; letter-spacing: -0.01em; line-height: 1.15; color: var(--masthead); }
+.brand-edition-music { color: var(--hue-music); }
+.brand-edition-daily { color: var(--hue-ai); }
+.tagline { font-size: 0.86rem; letter-spacing: 0.01em; color: var(--ink-soft); margin-top: 2px; }
+.meta-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 8px; }
+.date { font-family: Georgia, "Times New Roman", ui-serif, serif; font-size: clamp(1.05rem, 1.6vw, 1.3rem);
+  font-weight: 700; margin: 0; letter-spacing: -0.01em; color: var(--ink-soft); }
 .read-time { font-size: 0.76rem; color: var(--ink-faint); letter-spacing: 0.02em; white-space: nowrap; }
 
 /* ---- thin horizontal publication nav, just under the masthead ---- */
@@ -113,7 +103,7 @@ a { color: inherit; }
 .lead-why-row:first-of-type { border-top: 1px solid var(--rule); }
 .lead-why-label { flex: 0 0 auto; width: 22px; height: 22px; margin-top: 1px; border-radius: 999px;
   background: var(--masthead); color: #fff; font-size: 0; text-transform: none; text-align: center; }
-.lead-why-label::before { content: "¹3"; font-size: 0.68rem; font-weight: 800; line-height: 22px; }
+.lead-why-label::before { content: "✓"; font-size: 0.68rem; font-weight: 800; line-height: 22px; }
 .lead-why-row p { margin: 0; }
 .lead-meta { margin-top: 18px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .lead-meta .item-byline { margin: 0; }
@@ -141,7 +131,13 @@ a { color: inherit; }
 section.block { margin-bottom: 34px; padding-bottom: 24px; border-bottom: 1px solid var(--rule); }
 section.block:last-of-type { border-bottom: none; }
 .block-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px; }
-.block-head h2 { font-size: 0.98rem; font-weight: 800; margin: 0; letter-spacing: 0.01em; }
+/* REFERENCE DESIGN: a short accent bar beside every primary section
+   heading (currentColor -- reuses whichever per-category h2 color already
+   applies below, never a separate color system). */
+.block-head h2 { font-size: 0.98rem; font-weight: 800; margin: 0; letter-spacing: 0.01em;
+  display: inline-flex; align-items: center; gap: 8px; }
+.block-head h2::before { content: ""; display: inline-block; width: 4px; height: 15px;
+  background: currentColor; border-radius: 2px; }
 .block-head .block-sub { font-size: 0.78rem; color: var(--ink-faint); }
 .block-MUSICTODAY .block-head h2, .block-CHARTPULSE .block-head h2, .block-INDUSTRY .block-head h2,
 .block-GENRE .block-head h2, .block-PRODUCTION .block-head h2, .block-PRODUCER .block-head h2,
@@ -301,13 +297,30 @@ section.block.block-quiet .state-message { font-size: 0.86rem; }
    module docstring's REFERENCE DESIGN note. Reuses --masthead (already
    theme-aware light/dark) as the single navy accent -- no new color
    tokens needed. ---- */
+/* DESKTOP: the media wrapper OWNS the image frame (align-items: stretch
+   on .ed-card makes .ed-card-media match the card's full content height;
+   the image itself has NO aspect-ratio constraint and simply fills that
+   wrapper via width/height: 100% + object-fit: cover) -- so the photo
+   fills the entire left-side slot vertically, never a smaller fixed-
+   ratio box leaving blank space beneath it. Cropping stays proportional
+   (object-fit: cover), never stretched/distorted. */
 .ed-card { background: var(--surface); border: 1px solid var(--rule); border-radius: 14px;
   box-shadow: 0 1px 3px rgba(16,24,40,0.06), 0 1px 2px rgba(16,24,40,0.05);
-  padding: 24px; margin: 0 0 20px; display: flex; gap: 28px; align-items: flex-start; }
-.ed-card-media { flex: 0 0 42%; max-width: 420px; }
-.ed-card-media img { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover;
-  border-radius: 10px; background: var(--chip-bg); }
+  padding: 24px; margin: 0 0 20px; display: flex; gap: 28px; align-items: stretch; }
+.ed-card-media { flex: 0 0 42%; max-width: 420px; align-self: stretch;
+  overflow: hidden; border-radius: 10px; background: var(--chip-bg); }
+.ed-card-media img { display: block; width: 100%; height: 100%; object-fit: cover;
+  object-position: center; border-radius: 0; }
 .ed-card-body { flex: 1 1 auto; min-width: 0; }
+/* DAILY ONLY (page-daily): article photos get more visual presence --
+   a wider image column (48%/480px vs MUSIC Industry's 42%/420px) --
+   still fills its full frame via the same stretched-wrapper mechanism
+   above; only the column WIDTH differs here. Scoped to .page-daily so
+   MUSIC's Music Industry cards and hero (its own separate .lead-image/
+   .lead-media rules) never inherit this. Mobile is unaffected -- the
+   existing top-image/16:9 mobile rule below already applies identically
+   to every page. */
+.page-daily .ed-card-media { flex: 0 0 48%; max-width: 480px; }
 .ed-pill { display: inline-block; font-size: 0.74rem; font-weight: 700; padding: 4px 12px;
   border-radius: 999px; background: var(--chip-bg); color: var(--masthead); margin: 0 0 12px; }
 .ed-headline { font-weight: 800; line-height: 1.35; color: var(--masthead); margin: 0 0 10px; }
@@ -330,12 +343,17 @@ section.block.block-quiet .state-message { font-size: 0.86rem; }
 .ed-cta:hover { opacity: 0.88; text-decoration: none; }
 .ed-byline { font-size: 0.78rem; color: var(--ink-faint); margin: 0 0 14px; }
 @media (max-width: 640px) {
-  .ed-card { flex-direction: column; padding: 16px; gap: 14px; }
-  .ed-card-media { flex: none; max-width: none; width: 100%; }
+  .ed-card { flex-direction: column; align-items: stretch; padding: 16px; gap: 14px; }
+  .ed-card-media { flex: none; max-width: none; width: 100%; align-self: auto;
+    aspect-ratio: 16 / 9; }
   .ed-card-media img { aspect-ratio: 16 / 9; }
   .ed-card-lead .ed-headline { font-size: 1.3rem; }
   .ed-card-standard .ed-headline { font-size: 1.1rem; }
-  .ed-cta { width: 100%; justify-content: center; padding: 13px 22px; }
+  /* REFERENCE DESIGN: the reference's mobile CTA is a compact,
+     left-aligned button (not a full-width bar) -- width: auto/fit-content
+     keeps it that way while padding stays comfortable for a real tap
+     target. */
+  .ed-cta { width: auto; padding: 13px 24px; }
 }
 
 /* ---- progressive disclosure ---- */
@@ -445,9 +463,10 @@ footer { max-width: 1280px; margin: 40px auto 0; padding: 0 20px; font-size: 0.7
      line removes any ambiguity -- neither is ever cut off, real content
      never lost, only re-flowed. */
   .brand-row { flex-wrap: wrap; }
+  .brand { font-size: clamp(1.5rem, 5.5vw, 1.7rem); }
   .tagline { flex-basis: 100%; }
   .meta-row { flex-direction: column; align-items: flex-start; gap: 2px; }
-  .date { font-size: clamp(1.3rem, 6vw, 1.7rem); }
+  .date { font-size: clamp(0.95rem, 4vw, 1.15rem); }
   .pub-nav { padding: 8px 16px; gap: 12px; }
   .today-intel { padding: 0 16px; margin-top: 16px; }
   .lead-story { padding-top: 16px; }
@@ -459,14 +478,14 @@ footer { max-width: 1280px; margin: 40px auto 0; padding: 0 20px; font-size: 0.7
 }
 </style>
 </head>
-<body>
+<body class="page-daily">
 <div class="masthead">
-<div class="brand-row"><span class="brand">SUPER NEWS DAILY</span><span class="tagline">AI · 경제 · 사회</span></div>
-<div class="meta-row"><div class="date num">2026.08.17</div><span class="read-time num">읽는 시간 5분</span></div>
+<div class="brand-row"><span class="brand">SUPER NEWS <span class="brand-edition-daily">DAILY</span></span><span class="tagline">AI · 경제 · 사회 핵심 브리핑</span></div>
+<div class="meta-row"><div class="date num">2026.08.17</div><span class="read-time num">읽는 시간 2분</span></div>
 </div>
 <nav class="pub-nav" aria-label="Section navigation"><span class="pub-nav-badge">SUPER NEWS DAILY</span><div class="pub-nav-links"><a class="pub-nav-link" href="#section-AI">AI</a><a class="pub-nav-link" href="#section-ECONOMY">경제</a><a class="pub-nav-link" href="#section-SOCIETY">사회</a></div></nav>
 <main class="main">
-<section class="block block-AI" id="section-AI"><div class="block-head"><h2>AI</h2></div><div class="news-list"><article class="news-card ed-card ed-card-lead"><div class="ed-card-body"><span class="ed-pill">The Verge</span><h2 class="ed-headline"><a class="headline-link" href="https://www.theverge.com/ai-artificial-intelligence/980817/openai-disbands-preparedness-team" target="_blank" rel="noopener noreferrer">OpenAI reportedly disbanded its preparedness team</a></h2><p class="ed-summary">According to the Financial Times, OpenAI disbanded its preparedness team at the end of last month. The job of the preparedness team was to assess if models posed serious risks and develop ways to mitigate those risks. (You know, like the possibility that it could go rogue and hack another company.) According to FT, responsibility […]</p><hr class="ed-divider"><ul class="ed-bullets"><li class="ed-bullet"><span class="ed-bullet-icon" aria-hidden="true">&#10003;</span><span>FT 보도에 따르면 OpenAI가 지난달 말 모델의 심각한 위험을 평가하고 완화 방안을 마련하던 &#x27;프리페어드니스(preparedness)&#x27; 팀을 해체했다.</span></li><li class="ed-bullet"><span class="ed-bullet-icon" aria-hidden="true">&#10003;</span><span>AI 모델의 위험 평가·대응을 전담하던 조직이 사라지면서 향후 위험 식별과 대응 체계가 다른 부서로 분산되거나 약화될 가능성을 시사한다. 다만 이는 단일 매체(FT) 보도에 근거한 것으로 추가 확인이 필요한 사안이다.</span></li><li class="ed-bullet"><span class="ed-bullet-icon" aria-hidden="true">&#10003;</span><span>OpenAI가 해당 조직 해체 사실을 공식적으로 확인하는지, 그리고 위험 평가 기능이 다른 팀으로 이관되는지 지켜볼 필요가 있다.</span></li></ul><p class="item-byline ed-byline">The Verge · <span class="num">2026.08.17</span></p><a class="ed-cta" href="https://www.theverge.com/ai-artificial-intelligence/980817/openai-disbands-preparedness-team" target="_blank" rel="noopener noreferrer">기사 보기 <span aria-hidden="true">&rarr;</span></a></div></article><article class="news-card ed-card ed-card-standard"><div class="ed-card-body"><span class="ed-pill">TechCrunch</span><h3 class="ed-headline"><a class="headline-link" href="https://techcrunch.com/2026/08/16/stripe-will-reportedly-acquire-ai-gateway-startup-openrouter-for-7b/" target="_blank" rel="noopener noreferrer">Stripe will reportedly acquire AI gateway startup OpenRouter for $7B+</a></h3><p class="ed-summary">OpenRouter&#x27;s CEO recently described the startup as Stripe for AI.</p><hr class="ed-divider"><ul class="ed-bullets"><li class="ed-bullet"><span class="ed-bullet-icon" aria-hidden="true">&#10003;</span><span>OpenRouter&#x27;s CEO recently described the startup as Stripe for AI.</span></li><li class="ed-bullet"><span class="ed-bullet-icon" aria-hidden="true">&#10003;</span><span>Stripe의 OpenRouter 70억 달러 이상 인수설은 AI 인프라 시장의 대형 M&amp;A로 업계 지형을 바꿀 수 있다.</span></li></ul><p class="item-byline ed-byline">TechCrunch · <span class="num">2026.08.17</span></p><a class="ed-cta" href="https://techcrunch.com/2026/08/16/stripe-will-reportedly-acquire-ai-gateway-startup-openrouter-for-7b/" target="_blank" rel="noopener noreferrer">기사 보기 <span aria-hidden="true">&rarr;</span></a></div></article><article class="news-card ed-card ed-card-standard"><div class="ed-card-body"><span class="ed-pill">TechCrunch</span><h3 class="ed-headline"><a class="headline-link" href="https://techcrunch.com/2026/08/16/anthropic-ceo-says-ai-backlash-is-fundamentally-a-crisis-of-trust/" target="_blank" rel="noopener noreferrer">Anthropic CEO says AI backlash is ‘fundamentally a crisis of trust’</a></h3><p class="ed-summary">Dario Amodei is pushing back against the idea that he&#x27;s been painting an overly pessimistic picture of AI.</p><hr class="ed-divider"><ul class="ed-bullets"><li class="ed-bullet"><span class="ed-bullet-icon" aria-hidden="true">&#10003;</span><span>Dario Amodei is pushing back against the idea that he&#x27;s been painting an overly pessimistic picture of AI.</span></li><li class="ed-bullet"><span class="ed-bullet-icon" aria-hidden="true">&#10003;</span><span>Anthropic CEO의 &#x27;AI 백래시는 신뢰의 위기&#x27;라는 발언은 AI 산업 전반의 신뢰 문제를 짚는 시사점이 크다.</span></li></ul><p class="item-byline ed-byline">TechCrunch · <span class="num">2026.08.17</span></p><a class="ed-cta" href="https://techcrunch.com/2026/08/16/anthropic-ceo-says-ai-backlash-is-fundamentally-a-crisis-of-trust/" target="_blank" rel="noopener noreferrer">기사 보기 <span aria-hidden="true">&rarr;</span></a></div></article><article class="news-card ed-card ed-card-standard"><div class="ed-card-body"><span class="ed-pill">TechCrunch</span><h3 class="ed-headline"><a class="headline-link" href="https://techcrunch.com/2026/08/16/why-people-arent-buying-mark-zuckerbergs-ai-future/" target="_blank" rel="noopener noreferrer">Why people aren’t buying Mark Zuckerberg’s AI future</a></h3><p class="ed-summary">On the latest episode of Equity podcast, we discuss why not everyone is buying Zuckerberg’s vision.</p><hr class="ed-divider"><ul class="ed-bullets"><li class="ed-bullet"><span class="ed-bullet-icon" aria-hidden="true">&#10003;</span><span>On the latest episode of Equity podcast, we discuss why not everyone is buying Zuckerberg’s vision.</span></li><li class="ed-bullet"><span class="ed-bullet-icon" aria-hidden="true">&#10003;</span><span>저커버그의 AI 비전에 대한 대중의 회의론은 빅테크의 AI 투자 방향성에 대한 여론 변화를 보여준다.</span></li></ul><p class="item-byline ed-byline">TechCrunch · <span class="num">2026.08.17</span></p><a class="ed-cta" href="https://techcrunch.com/2026/08/16/why-people-arent-buying-mark-zuckerbergs-ai-future/" target="_blank" rel="noopener noreferrer">기사 보기 <span aria-hidden="true">&rarr;</span></a></div></article><article class="news-card news-compact"><h4 class="news-title news-title-compact"><a class="headline-link" href="https://www.theverge.com/ai-artificial-intelligence/980742/chatgpts-computer-history-tracks-your-clicks-and-keystrokes" target="_blank" rel="noopener noreferrer">ChatGPT’s Computer History tracks your clicks and keystrokes</a></h4><p class="item-byline">The Verge · <span class="num">2026.08.16</span></p><a class="item-link" href="https://www.theverge.com/ai-artificial-intelligence/980742/chatgpts-computer-history-tracks-your-clicks-and-keystrokes" target="_blank" rel="noopener noreferrer">원문 기사 보기 →</a></article></div></section><section class="block block-ECONOMY block-quiet" id="section-ECONOMY"><div class="block-head"><h2>경제</h2></div><p class="state-message state-degraded">현재 데이터 수집 문제로 이 섹션의 브리핑이 제한됩니다.</p></section><section class="block block-SOCIETY" id="section-SOCIETY"><div class="block-head"><h2>사회</h2></div><div class="news-list"><article class="news-card ed-card ed-card-lead"><div class="ed-card-media"><img src="https://img.yna.co.kr/photo/yna/YH/2026/08/17/PYH2026081701230005200_P2.jpg" alt="거제 옥포동서 산사태…아파트 1층 덮쳐 1명 사망·2명 구조(종합)" loading="lazy"></div><div class="ed-card-body"><span class="ed-pill">연합뉴스</span><h2 class="ed-headline"><a class="headline-link" href="https://www.yna.co.kr/view/AKR20260817014251052" target="_blank" rel="noopener noreferrer">거제 옥포동서 산사태…아파트 1층 덮쳐 1명 사망·2명 구조(종합)</a></h2><p class="ed-summary">(창원=연합뉴스) 이정훈 기자 = 17일 오전 4시 42분께 경남 거제시 옥포동의 한 아파트 인근에서 산사태가 발생해 아파트 1층을 덮쳤다.</p><hr class="ed-divider"><ul class="ed-bullets"><li class="ed-bullet"><span class="ed-bullet-icon" aria-hidden="true">&#10003;</span><span>17일 오전 경남 거제시 옥포동의 한 아파트 인근에서 산사태가 발생해 아파트 1층을 덮쳤고, 이로 인해 1명이 사망하고 2명이 구조됐다.</span></li><li class="ed-bullet"><span class="ed-bullet-icon" aria-hidden="true">&#10003;</span><span>주거지 바로 인근에서 산사태로 인명피해가 발생했다는 점은 해당 지역의 지반·배수 안전성 및 재해 대응 체계에 대한 점검 필요성을 드러낸다.</span></li><li class="ed-bullet"><span class="ed-bullet-icon" aria-hidden="true">&#10003;</span><span>산사태 발생 원인에 대한 조사 결과, 추가 인명 피해 여부, 그리고 인근 주민 대피·안전 조치가 이어지는지 확인할 필요가 있다.</span></li></ul><p class="item-byline ed-byline">연합뉴스 · <span class="num">2026.08.17</span></p><a class="ed-cta" href="https://www.yna.co.kr/view/AKR20260817014251052" target="_blank" rel="noopener noreferrer">기사 보기 <span aria-hidden="true">&rarr;</span></a></div></article><article class="news-card ed-card ed-card-standard"><div class="ed-card-media"><img src="https://img.yna.co.kr/photo/yna/YH/2026/02/25/PYH2026022505460001300_P2.jpg" alt="&#x27;180일 종합특검&#x27; 종료 일주일 남기고 20여명 &#x27;무더기 기소&#x27;할듯" loading="lazy"></div><div class="ed-card-body"><span class="ed-pill">연합뉴스</span><h3 class="ed-headline"><a class="headline-link" href="https://www.yna.co.kr/view/AKR20260817034000004" target="_blank" rel="noopener noreferrer">&#x27;180일 종합특검&#x27; 종료 일주일 남기고 20여명 &#x27;무더기 기소&#x27;할듯</a></h3><p class="ed-summary">(서울=연합뉴스) 이밝음 기자 = 3대 특검 이후 남은 의혹을 수사하는 권창영 2차 종합 특별검사팀이 이번 주 수사 종료를 앞두고 막판 무더기 ...</p><hr class="ed-divider"><ul class="ed-bullets"><li class="ed-bullet"><span class="ed-bullet-icon" aria-hidden="true">&#10003;</span><span>(서울=연합뉴스) 이밝음 기자 = 3대 특검 이후 남은 의혹을 수사하는 권창영 2차 종합 특별검사팀이 이번 주 수사 종료를 앞두고 막판 무더기 ...</span></li><li class="ed-bullet"><span class="ed-bullet-icon" aria-hidden="true">&#10003;</span><span>180일 종합특검 종료를 앞두고 20여명이 무더기 기소될 것으로 보여 정치적 파장이 클 전망이다.</span></li></ul><p class="item-byline ed-byline">연합뉴스 · <span class="num">2026.08.17</span></p><a class="ed-cta" href="https://www.yna.co.kr/view/AKR20260817034000004" target="_blank" rel="noopener noreferrer">기사 보기 <span aria-hidden="true">&rarr;</span></a></div></article><article class="news-card news-compact"><h4 class="news-title news-title-compact"><a class="headline-link" href="https://www.news1.kr/politics/assembly/6260823" target="_blank" rel="noopener noreferrer">與전당대회 오늘 결판…김민석 1차 과반, 최고위원 1위·5위 주목</a></h4><p class="item-byline">네이버뉴스 · <span class="num">2026.08.17</span></p><a class="item-link" href="https://www.news1.kr/politics/assembly/6260823" target="_blank" rel="noopener noreferrer">원문 기사 보기 →</a></article><article class="news-card news-compact"><h4 class="news-title news-title-compact"><a class="headline-link" href="https://www.yna.co.kr/view/AKR20260814145300063" target="_blank" rel="noopener noreferrer">극한 호우 일상…가능최대강수량·댐 설계기준 22년만에 손본다</a></h4><p class="item-byline">연합뉴스 · <span class="num">2026.08.17</span></p><a class="item-link" href="https://www.yna.co.kr/view/AKR20260814145300063" target="_blank" rel="noopener noreferrer">원문 기사 보기 →</a></article><article class="news-card news-compact"><h4 class="news-title news-title-compact"><a class="headline-link" href="https://www.yna.co.kr/view/AKR20260815048000004" target="_blank" rel="noopener noreferrer">출범 앞둔 &#x27;선관위 특검&#x27;…투표율 조작·외유성 출장 등 정조준</a></h4><p class="item-byline">연합뉴스 · <span class="num">2026.08.17</span></p><a class="item-link" href="https://www.yna.co.kr/view/AKR20260815048000004" target="_blank" rel="noopener noreferrer">원문 기사 보기 →</a></article></div></section><section class="block block-SOURCES" id="section-SOURCES"><div class="block-head"><h2>출처</h2></div><ul class="source-status-list"><li class="source-status-chip status-active"><span class="status-dot"></span>Apple Music 연동됨</li><li class="source-status-chip status-active"><span class="status-dot"></span>Spotify 연동됨</li><li class="source-status-chip status-unavailable"><span class="status-dot"></span>TikTok 미연동</li></ul></section>
+<section class="block block-AI" id="section-AI"><div class="block-head"><h2>AI</h2></div><div class="news-list"><article class="news-card news-compact"><h4 class="news-title news-title-compact"><a class="headline-link" href="https://www.theverge.com/ai-artificial-intelligence/980817/openai-disbands-preparedness-team" target="_blank" rel="noopener noreferrer">OpenAI reportedly disbanded its preparedness team</a></h4><p class="item-byline">The Verge · <span class="num">2026.08.17</span></p><a class="item-link" href="https://www.theverge.com/ai-artificial-intelligence/980817/openai-disbands-preparedness-team" target="_blank" rel="noopener noreferrer">기사 보기 →</a></article><article class="news-card news-compact"><h4 class="news-title news-title-compact"><a class="headline-link" href="https://techcrunch.com/2026/08/16/stripe-will-reportedly-acquire-ai-gateway-startup-openrouter-for-7b/" target="_blank" rel="noopener noreferrer">Stripe will reportedly acquire AI gateway startup OpenRouter for $7B+</a></h4><p class="item-byline">TechCrunch · <span class="num">2026.08.17</span></p><a class="item-link" href="https://techcrunch.com/2026/08/16/stripe-will-reportedly-acquire-ai-gateway-startup-openrouter-for-7b/" target="_blank" rel="noopener noreferrer">기사 보기 →</a></article><article class="news-card news-compact"><h4 class="news-title news-title-compact"><a class="headline-link" href="https://www.theverge.com/ai-artificial-intelligence/980742/chatgpts-computer-history-tracks-your-clicks-and-keystrokes" target="_blank" rel="noopener noreferrer">ChatGPT’s Computer History tracks your clicks and keystrokes</a></h4><p class="item-byline">The Verge · <span class="num">2026.08.16</span></p><a class="item-link" href="https://www.theverge.com/ai-artificial-intelligence/980742/chatgpts-computer-history-tracks-your-clicks-and-keystrokes" target="_blank" rel="noopener noreferrer">기사 보기 →</a></article><article class="news-card news-compact"><h4 class="news-title news-title-compact"><a class="headline-link" href="https://techcrunch.com/2026/08/16/why-people-arent-buying-mark-zuckerbergs-ai-future/" target="_blank" rel="noopener noreferrer">Why people aren’t buying Mark Zuckerberg’s AI future</a></h4><p class="item-byline">TechCrunch · <span class="num">2026.08.17</span></p><a class="item-link" href="https://techcrunch.com/2026/08/16/why-people-arent-buying-mark-zuckerbergs-ai-future/" target="_blank" rel="noopener noreferrer">기사 보기 →</a></article><article class="news-card news-compact"><h4 class="news-title news-title-compact"><a class="headline-link" href="https://techcrunch.com/2026/08/16/anthropic-ceo-says-ai-backlash-is-fundamentally-a-crisis-of-trust/" target="_blank" rel="noopener noreferrer">Anthropic CEO says AI backlash is ‘fundamentally a crisis of trust’</a></h4><p class="item-byline">TechCrunch · <span class="num">2026.08.17</span></p><a class="item-link" href="https://techcrunch.com/2026/08/16/anthropic-ceo-says-ai-backlash-is-fundamentally-a-crisis-of-trust/" target="_blank" rel="noopener noreferrer">기사 보기 →</a></article></div></section><section class="block block-ECONOMY" id="section-ECONOMY"><div class="block-head"><h2>경제</h2></div><div class="news-list"><article class="news-card ed-card ed-card-lead"><div class="ed-card-media"><img src="https://img.yna.co.kr/photo/yna/YH/2026/06/30/PYH2026063018250005400_P2.jpg" alt="경총 &quot;성과급은 쟁의대상 제외해야…메가특구 노동유연성 필요&quot;" loading="lazy"></div><div class="ed-card-body"><span class="ed-pill">연합뉴스</span><h2 class="ed-headline"><a class="headline-link" href="https://www.yna.co.kr/view/AKR20260817032200003" target="_blank" rel="noopener noreferrer">경총 &quot;성과급은 쟁의대상 제외해야…메가특구 노동유연성 필요&quot;</a></h2><p class="ed-summary">(서울=연합뉴스) 김윤구 기자 = 한국경영자총협회는 영업이익에 연동한 성과 배분이나 공장 신설 등 기업의 고도의 경영상 의사결정은 노동쟁의 대상...</p><hr class="ed-divider"><p class="item-byline ed-byline">연합뉴스 · <span class="num">2026.08.17</span></p><a class="ed-cta" href="https://www.yna.co.kr/view/AKR20260817032200003" target="_blank" rel="noopener noreferrer">기사 보기 <span aria-hidden="true">&rarr;</span></a></div></article><article class="news-card ed-card ed-card-standard"><div class="ed-card-media"><img src="https://pimg.mk.co.kr/news/cms/202608/17/news-p.v1.20260811.1577361467e94f29a9a9eff126479d73_R.png" alt="“영업익 20배 뛰고 순익도 흑자”…덩치키운 컬리, IPO 다시 시동" loading="lazy"></div><div class="ed-card-body"><span class="ed-pill">매일경제</span><h3 class="ed-headline"><a class="headline-link" href="https://www.mk.co.kr/news/stock/12129255" target="_blank" rel="noopener noreferrer">“영업익 20배 뛰고 순익도 흑자”…덩치키운 컬리, IPO 다시 시동</a></h3><p class="ed-summary">2분기 매출액 전년비 27%↑ 영업익 역대 최대 실적 기록 컬리N마트 등 신사업 성장세컬리가 외형 성장과 수익성 개선을 동시에 이어가며 기업공개(IPO) 재추진을 위한 기반을 다지..</p><hr class="ed-divider"><p class="item-byline ed-byline">매일경제 · <span class="num">2026.08.17</span></p><a class="ed-cta" href="https://www.mk.co.kr/news/stock/12129255" target="_blank" rel="noopener noreferrer">기사 보기 <span aria-hidden="true">&rarr;</span></a></div></article><article class="news-card news-compact"><h4 class="news-title news-title-compact"><a class="headline-link" href="https://www.mk.co.kr/news/economy/12129237" target="_blank" rel="noopener noreferrer">김밥 한끼도 부담스러워지겠네…쌀·계란값 오르자 한 줄 4000원 육박</a></h4><p class="item-byline">매일경제 · <span class="num">2026.08.17</span></p><a class="item-link" href="https://www.mk.co.kr/news/economy/12129237" target="_blank" rel="noopener noreferrer">기사 보기 →</a></article><article class="news-card news-compact"><h4 class="news-title news-title-compact"><a class="headline-link" href="https://www.etnews.com/20260817000027" target="_blank" rel="noopener noreferrer">경총 “영업이익 연동 성과 배분 요구, 노동쟁의 대상 아냐”</a></h4><p class="item-byline">전자신문 · <span class="num">2026.08.17</span></p><a class="item-link" href="https://www.etnews.com/20260817000027" target="_blank" rel="noopener noreferrer">기사 보기 →</a></article><article class="news-card news-compact"><h4 class="news-title news-title-compact"><a class="headline-link" href="https://www.segye.com/newsView/20260817503071" target="_blank" rel="noopener noreferrer">“생수만 그런 줄 알았는데”…커피·이온음료까지 ‘라벨’ 사라진다</a></h4><p class="item-byline">세계일보</p><a class="item-link" href="https://www.segye.com/newsView/20260817503071" target="_blank" rel="noopener noreferrer">기사 보기 →</a></article></div></section><section class="block block-SOCIETY" id="section-SOCIETY"><div class="block-head"><h2>사회</h2></div><div class="news-list"><article class="news-card ed-card ed-card-lead"><div class="ed-card-body"><span class="ed-pill">네이버뉴스</span><h2 class="ed-headline"><a class="headline-link" href="https://www.nocutnews.co.kr/news/6563703?utm_source=naver&amp;utm_medium=article&amp;utm_campaign=20260817114705" target="_blank" rel="noopener noreferrer">손수호 &quot;하영 증조부 재산 환수? 20가지 요건 너무 엄격해&quot;[손수호의 몽...</a></h2><p class="ed-summary">왜냐하면 민족정기 회복, 사회정의 실현의 필요성도 있지만 당연히 강하고. 반면 법적 안정성, 그리고 재산권 보호도 대단히 중요하거든요.</p><hr class="ed-divider"><p class="item-byline ed-byline">네이버뉴스 · <span class="num">2026.08.17</span></p><a class="ed-cta" href="https://www.nocutnews.co.kr/news/6563703?utm_source=naver&amp;utm_medium=article&amp;utm_campaign=20260817114705" target="_blank" rel="noopener noreferrer">기사 보기 <span aria-hidden="true">&rarr;</span></a></div></article><article class="news-card ed-card ed-card-standard"><div class="ed-card-body"><span class="ed-pill">뉴시스</span><h3 class="ed-headline"><a class="headline-link" href="https://www.newsis.com/view/NISX20260817_0003751398" target="_blank" rel="noopener noreferrer">제주 한라산에 사흘 동안 376㎜ 폭우…&quot;가뭄 완전 해갈&quot;</a></h3><p class="ed-summary">제주에 사흘간 많은 비가 내리면서 가뭄도 해갈됐다. 17일 제주지방기상청에 따르면 지난 15일부터 이날 오전 11시까지 주요 지점 누적 강수량은 한라산 남벽 376㎜, 성산 수산 375㎜, 진달래밭 372㎜, 윗세오름 266.5㎜, 우도 240.5㎜, 가시리 235.5㎜, 영실…</p><hr class="ed-divider"><p class="item-byline ed-byline">뉴시스 · <span class="num">2026.08.17</span></p><a class="ed-cta" href="https://www.newsis.com/view/NISX20260817_0003751398" target="_blank" rel="noopener noreferrer">기사 보기 <span aria-hidden="true">&rarr;</span></a></div></article><article class="news-card news-compact"><h4 class="news-title news-title-compact"><a class="headline-link" href="https://www.yna.co.kr/view/AKR20260817035300527" target="_blank" rel="noopener noreferrer">남해 동부 먼바다 풍랑주의보 해제…경남 거제 호우경보 유지</a></h4><p class="item-byline">연합뉴스 · <span class="num">2026.08.17</span></p><a class="item-link" href="https://www.yna.co.kr/view/AKR20260817035300527" target="_blank" rel="noopener noreferrer">기사 보기 →</a></article><article class="news-card news-compact"><h4 class="news-title news-title-compact"><a class="headline-link" href="https://www.ohmynews.com/NWS_Web/View/at_pg.aspx?CNTN_CD=A0003258551" target="_blank" rel="noopener noreferrer">해외는 물부터 확보하고 투자... 한국만 거꾸로</a></h4><p class="item-byline">오마이뉴스 · <span class="num">2026.08.17</span></p><a class="item-link" href="https://www.ohmynews.com/NWS_Web/View/at_pg.aspx?CNTN_CD=A0003258551" target="_blank" rel="noopener noreferrer">기사 보기 →</a></article><article class="news-card news-compact"><h4 class="news-title news-title-compact"><a class="headline-link" href="https://www.koreatimes.co.kr/southkorea/environment-animals/20260817/battling-blazes-after-dark-korea-deploys-nighttime-helitankers-to-fight-forest-fires?utm_source=rss" target="_blank" rel="noopener noreferrer">Battling blazes after dark: Korea deploys nighttime helitankers to fight forest fires</a></h4><p class="item-byline">코리아타임스 · <span class="num">2026.08.17</span></p><a class="item-link" href="https://www.koreatimes.co.kr/southkorea/environment-animals/20260817/battling-blazes-after-dark-korea-deploys-nighttime-helitankers-to-fight-forest-fires?utm_source=rss" target="_blank" rel="noopener noreferrer">기사 보기 →</a></article></div></section>
 </main>
 <footer>이 페이지는 매일 자동으로 갱신됩니다.</footer>
 </body>

@@ -43,6 +43,21 @@ _KO_UNIT_PATTERN = "|".join(re.escape(k) for k in _KO_MAGNITUDE)
 _KO_SEGMENT_RE = re.compile(rf"([\d,]+(?:\.\d+)?)\s*({_KO_UNIT_PATTERN})")
 _KO_COMPOUND_CURRENCY_RE = re.compile(rf"(?:{_KO_SEGMENT_RE.pattern}\s*)+(?:{_KO_CURRENCY_WORDS})")
 
+# CONTEXTUAL BARE-UNIT CURRENCY FALLBACK (2026-08-17, confirmed real
+# false-positive: a real ECONOMY headline "가계빚 사상 첫 2000조…" omits
+# the trailing currency word entirely, as Korean financial headlines
+# routinely do when the amount is obviously KRW from context -- the
+# compound regex above requires that word, so it never counted this real
+# figure as evidence). Restricted to ONLY 조/억 (never 천만/만/천, which
+# are commonly non-currency counts -- a population, a date, a plain
+# quantity) since those two units are used almost exclusively for money in
+# Korean economic/financial reporting. Excludes any match immediately
+# preceded by "제" -- Article/clause numbering ("제3조" = "Article 3") is
+# never a currency amount, and this is the one common bare "숫자+조/억"
+# pattern that genuinely isn't money.
+_KO_BARE_LARGE_UNIT_PATTERN = "|".join(re.escape(k) for k in ("조", "억"))
+_KO_BARE_CURRENCY_RE = re.compile(rf"(?<!제)([\d,]+(?:\.\d+)?)\s*({_KO_BARE_LARGE_UNIT_PATTERN})")
+
 _MAGNITUDE_RELATIVE_TOLERANCE = 0.02
 
 _HANGUL_RE = re.compile(r"[가-힣]")
@@ -101,13 +116,29 @@ def _en_currency_values(text):
 
 def _ko_currency_values(text):
     """Sums every unit segment in a compound Korean magnitude expression
-    ("6억 6,800만" -> 6억 + 6,800만), not just the last one."""
+    ("6억 6,800만" -> 6억 + 6,800만), not just the last one. ALSO counts a
+    bare "숫자+조/억" with no trailing currency word (see
+    _KO_BARE_CURRENCY_RE's own docstring) -- never a bare 만/천, and never
+    one immediately preceded by "제" (article/clause numbering).
+
+    The bare-unit scan runs ONLY over text left after masking out every
+    span the compound regex already matched -- otherwise "4억 2천만
+    달러" (a single real compound value, 420000000) would ALSO bare-match
+    its own inner "4억" segment as an unrelated second value (400000000),
+    a real double-count defect that made an already-grounded currency
+    figure look unsupported."""
     values = []
+    remaining = list(text)
     for match in _KO_COMPOUND_CURRENCY_RE.finditer(text):
         total = 0.0
         for number_str, unit in _KO_SEGMENT_RE.findall(match.group(0)):
             total += float(number_str.replace(",", "")) * _KO_MAGNITUDE[unit]
         values.append(total)
+        start, end = match.span()
+        for i in range(start, end):
+            remaining[i] = " "
+    for number_str, unit in _KO_BARE_CURRENCY_RE.findall("".join(remaining)):
+        values.append(float(number_str.replace(",", "")) * _KO_MAGNITUDE[unit])
     return values
 
 

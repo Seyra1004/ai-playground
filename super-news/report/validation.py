@@ -78,6 +78,77 @@ class ProducerValidationError(Exception):
 
 _PRODUCER_INSIGHT_TEXT_FIELDS = ("what_is_moving", "why_it_matters", "what_to_watch", "what_could_i_make_now")
 
+# FINAL 90+ QUALITY CORRECTION PASS (confirmed real, systemic defect: every
+# recent what_could_i_make_now value recommended writing a newsletter/
+# article/explainer about the news itself instead of a real music-making
+# action). A producer/composer reader has no use for editorial-content-
+# creation advice -- deterministic keyword reject, shared with report/
+# web_render_v2.py's render-time suppression of already-cached bad rows.
+CONTENT_CREATION_ADVICE_KEYWORDS = (
+    "뉴스레터", "newsletter", "explainer", "브리핑", "briefing", "타임라인", "timeline",
+    "카드뉴스", "요약 카드", "정리 카드", "뉴스 카드", "기사를 작성", "기사를 쓸", "아티클", "article",
+    "블로그", "blog post", "포스트를 작성", "recap", "리캡", "뉴스레터 섹션", "콘텐츠를 제작",
+    "글을 작성", "글을 쓸", "정리 글", "요약 글", "리스티클",
+    "분석 메모", "메모를 작성", "메모 작성", "정리 메모",
+)
+
+
+def is_content_creation_advice(text):
+    """True when `text` recommends making a piece of EDITORIAL CONTENT
+    (a newsletter/article/explainer/briefing/recap about the news) rather
+    than a real music-making/A&R/business action -- see
+    report.producer_synthesis's own what_could_i_make_now prompt fix for
+    the forward-looking half of this guard."""
+    if not text:
+        return False
+    lowered = text.lower()
+    return any(keyword in lowered for keyword in CONTENT_CREATION_ADVICE_KEYWORDS)
+
+
+# SUPER NEWS FINAL ROLLBACK-RESTORE PASS (2026-08-17, confirmed real
+# defect): Producer/A&R Takeaways draws from its OWN evidence catalog
+# (report.producer_synthesis / music_trend_intelligence's kpop_ar_notes/
+# producer_references), a separate pipeline from the INDUSTRY-section/
+# hero gossip downrank in report.web_data_v2's
+# _MUSIC_INDUSTRY_DOWNRANK_KEYWORDS -- so a pure fan/social-comment
+# gossip item (no songwriting/production/A&R/business signal) can still
+# reach a Producer/A&R card even though the same item would already be
+# downranked out of INDUSTRY/hero placement. Deterministic keyword
+# reject, same style as CONTENT_CREATION_ADVICE_KEYWORDS above: only
+# rejects when the text carries a real gossip/social-comment marker AND
+# none of the topics a composer/producer reader actually needs.
+GOSSIP_MARKER_KEYWORDS = (
+    "삭제된", "deleted comment", "deleted tweet", "deleted tiktok",
+    "댓글 논란", "trolled", "claps back", "clapped back", "팬덤 갈등", "fan feud",
+    "논란", "controversy", "가십", "gossip", "열애설", "dating rumor",
+    "이혼", "divorce", "결별", "breakup", "루머", "rumor",
+)
+MUSIC_RELEVANCE_KEYWORDS = (
+    "프로듀싱", "production", "작곡", "songwriting", "편곡", "arrangement",
+    "사운드", "sound design", "믹싱", "mixing", "보컬", "vocal",
+    "a&r", "레이블", "label", "저작권", "copyright", "라이선스", "licensing",
+    "로열티", "royalty", "플랫폼 정책", "platform policy", "차트", "chart",
+    "시장", "market", "장르", "genre", "발매", "release", "계약", "deal",
+)
+
+
+def is_low_value_gossip_takeaway(text):
+    """True when `text` is a fan/social-comment gossip item (a deleted-
+    comment spat, a fandom feud, an idol-controversy story) that carries
+    NONE of the production/songwriting/A&R/label-business/platform-
+    policy/rights-copyright/royalty-licensing/market-signal topics a
+    composer/producer reader actually needs -- see GOSSIP_MARKER_KEYWORDS/
+    MUSIC_RELEVANCE_KEYWORDS. A story that happens to mention a gossip
+    marker (e.g. a real rights "논란"/controversy that IS a genuine
+    licensing dispute) is never rejected as long as it also carries a
+    real relevance keyword."""
+    if not text:
+        return False
+    lowered = text.lower()
+    has_gossip_marker = any(keyword in lowered for keyword in GOSSIP_MARKER_KEYWORDS)
+    has_relevance = any(keyword in lowered for keyword in MUSIC_RELEVANCE_KEYWORDS)
+    return has_gossip_marker and not has_relevance
+
 
 def validate_producer_insights(parsed_output, valid_refs, evidence_by_ref=None):
     """parsed_output: the raw value the LLM returned for the Producer
@@ -123,6 +194,11 @@ def validate_producer_insights(parsed_output, valid_refs, evidence_by_ref=None):
         for field in _PRODUCER_INSIGHT_TEXT_FIELDS:
             if not isinstance(insight[field], str) or not insight[field].strip():
                 raise ProducerValidationError(f"empty {field}: {insight!r}")
+        if is_content_creation_advice(insight["what_could_i_make_now"]):
+            raise ProducerValidationError(
+                f"what_could_i_make_now recommends editorial content creation, not a real "
+                f"music-making/A&R action: {insight['what_could_i_make_now']!r}"
+            )
         if not isinstance(insight["evidence_refs"], list) or not insight["evidence_refs"]:
             raise ProducerValidationError(f"evidence_refs must be a non-empty list: {insight!r}")
         for ref in insight["evidence_refs"]:
@@ -215,11 +291,23 @@ def validate_music_trend_signals(parsed_output, valid_refs, evidence_by_ref=None
     return parsed_output
 
 
-def validate_all_categories(parsed_output, candidates_by_category):
+def validate_all_categories(parsed_output, candidates_by_category, snippet_by_id=None):
     """Returns (valid, errors): valid is dict[category -> selections] for
     categories that passed; errors is dict[category -> CategoryValidationError]
     for categories that didn't. Every category in candidates_by_category
-    appears in exactly one of the two dicts."""
+    appears in exactly one of the two dicts.
+
+    snippet_by_id (FINAL 90+ QUALITY CORRECTION PASS -- confirmed real
+    defect): optional {id: snippet_text} map. The fact-check evidence text
+    used to be the candidate's normalized_title ONLY -- a real ECONOMY
+    story's headline read "선 넘은 가계빚, 사상첫 2000조" (no currency-unit
+    word after "조"), so the currency-magnitude extractor found nothing
+    there even though the item's own real snippet said "2000조원대에
+    진입", producing a FALSE-POSITIVE "unsupported fact" rejection on a
+    genuinely well-supported figure. When provided, snippet_by_id's text is
+    appended to the title for fact-checking (never REPLACES the title --
+    still real, already-collected text, just more of it); omitted (None,
+    the default) keeps prior behavior for existing callers/tests."""
     valid = {}
     errors = {}
 
@@ -230,9 +318,14 @@ def validate_all_categories(parsed_output, candidates_by_category):
             )
         return valid, errors
 
+    snippet_by_id = snippet_by_id or {}
     for category, candidates in candidates_by_category.items():
         candidate_ids = {c["id"] for c in candidates}
-        title_by_id = {c["id"]: c.get("normalized_title") for c in candidates}
+        title_by_id = {}
+        for c in candidates:
+            title = c.get("normalized_title") or ""
+            snippet = snippet_by_id.get(c["id"])
+            title_by_id[c["id"]] = f"{title} {snippet}".strip() if snippet else title
         selections = parsed_output.get(category)
         try:
             if selections is None and category not in parsed_output:
@@ -242,3 +335,46 @@ def validate_all_categories(parsed_output, candidates_by_category):
             errors[category] = exc
 
     return valid, errors
+
+
+# ---- INCOMPLETE SUMMARY DETECTION (content-quality hardening pass,
+# 2026-08-17) -- deterministic, keyword-presence check: when the
+# INGESTED snippet (the only source text this pipeline's synthesis layer
+# ever has access to -- RSS-only ingestion never fetches the full
+# original article body) mentions a high-severity fact that the
+# GENERATED summary/why_it_matters text omits entirely, the event's real
+# meaning may be understated without it. Deliberately narrow in scope:
+# this can only ever catch "did the synthesis drop a fact that WAS
+# present in its own available input" -- it structurally CANNOT detect a
+# fact that exists only in the full original article but never made it
+# into the ingested snippet at all (confirmed real case: a TechCrunch
+# article's stepfather-suicide detail was never in the RSS snippet this
+# pipeline ingested, so no synthesis-layer fix could have surfaced it --
+# that is an ingestion-scope limitation, not a synthesis defect this
+# check is meant to catch). A diagnostic signal, not a hard content-
+# generation rule -- never used to reject/regenerate output on its own,
+# since a real editorial summary is legitimately allowed to omit a
+# secondary detail while keeping the primary fact; it flags candidates
+# for human/editorial review. ----
+_HIGH_SEVERITY_FACT_KEYWORDS = (
+    "사망", "사망자", "숨졌다", "숨진", "자살", "살해", "피살", "사살", "폭발",
+    "died", "death", "dead", "killed", "suicide", "fatality", "fatalities",
+)
+
+
+def is_incomplete_summary(source_snippet, generated_text):
+    """True when `source_snippet` (the real, already-ingested article
+    snippet -- never the full original article) mentions a high-severity
+    fact that `generated_text` (a synthesized summary/why_it_matters/
+    bullet, or several such fields concatenated) omits entirely. False
+    when either argument is empty, or when the snippet carries none of
+    the tracked high-severity keywords -- an ordinary summary is never
+    flagged just for being shorter than its source."""
+    if not source_snippet or not generated_text:
+        return False
+    snippet_lower = source_snippet.lower()
+    generated_lower = generated_text.lower()
+    return any(
+        keyword in snippet_lower and keyword not in generated_lower
+        for keyword in _HIGH_SEVERITY_FACT_KEYWORDS
+    )

@@ -62,9 +62,11 @@ import re
 from datetime import datetime, timedelta, timezone
 
 from report.source_metadata import source_display_name
+from report.validation import is_content_creation_advice, is_low_value_gossip_takeaway
 from report.web_data_v2 import (
     _MUSIC_INDUSTRY_DOWNRANKED_PRIORITY,
     _MUSIC_INDUSTRY_UNRANKED_PRIORITY,
+    known_chart_entity_keys,
     music_industry_priority_rank,
     rank_music_industry_items,
     resolve_producer_enrichment,
@@ -224,7 +226,7 @@ def _estimate_reading_minutes(*html_fragments):
     return max(1, round(char_count / _READING_CHARS_PER_MINUTE))
 
 
-def _link_html(source_url, label="원문 기사 보기 →", css_class="item-link"):
+def _link_html(source_url, label="기사 보기 →", css_class="item-link"):
     """MOBILE LINK FUNCTIONAL BUG FIX: every real external article link
     gets target="_blank" (opens independently of this page/any embedding
     iframe -- a real, confirmed cause of "links don't open" on mobile,
@@ -262,6 +264,8 @@ def _linked_headline_html(tag, css_class, title_text, source_url):
 
 _DISPLAYABLE_TRANSLATION_STATUSES = ("TRANSLATED", "NOT_REQUIRED")
 
+_HANGUL_RE = re.compile(r"[가-힣]")
+
 
 def _display_title(item):
     """Korean-first UI contract: once a real translation succeeded, or the
@@ -278,10 +282,50 @@ def _display_title(item):
     return item["title"]
 
 
+def _has_korean_title(item):
+    """DAILY KOREAN-READINESS GUARD (AI/ECONOMY/SOCIETY only -- see
+    _render_compact_news_section's `korean_lead_guard` param): checks the
+    ACTUAL text _display_title would render, not an internal status flag,
+    so it stays correct regardless of how translation-status bookkeeping
+    evolves. An untranslated raw-English headline must never become the
+    Level A/B lead on a DAILY card -- a reader's first real impression of
+    a section must never be raw English while a real Korean-ready
+    alternative exists."""
+    return bool(_HANGUL_RE.search(_display_title(item)))
+
+
+_RHETORICAL_QUESTION_ONLY_RE = re.compile(r"^(?:[^.!?]*[?？]\s*)+$")
+
+
+def _is_rhetorical_question_only(text):
+    """SUMMARY QUALITY (CURRENT-CACHE SAFETY, content-quality hardening
+    pass, 2026-08-17): True when `text` is ENTIRELY composed of one or
+    more question-ended sentences with no real declarative sentence
+    anywhere in it -- a literal '~까요?' teaser-question translation
+    (confirmed real example: "워터마킹은 실제로 어떻게 작동할까요? 편집으로
+    숨길 수 있을까요?") reads awkwardly as a news summary line. See
+    report.translation_anthropic's own system-prompt fix for the
+    forward-looking half of this guard (future translations normalize
+    this at the source, never producing this shape to begin with); this
+    detector is the render-time half, for an ALREADY-cached translation.
+    A text with even one real non-question sentence never matches."""
+    if not text:
+        return False
+    return bool(_RHETORICAL_QUESTION_ONLY_RE.match(text.strip()))
+
+
 def _display_snippet(item):
     if item.get("snippet_translation_status") in _DISPLAYABLE_TRANSLATION_STATUSES and item.get("ko_snippet"):
-        return item["ko_snippet"]
-    return item.get("snippet")
+        snippet = item["ko_snippet"]
+    else:
+        snippet = item.get("snippet")
+    # CURRENT-CACHE SAFETY: never shown when it's purely a rhetorical-
+    # question-style translation -- suppressed, never rewritten/
+    # fabricated, falling back to the card's own real declarative
+    # bullets (see _is_rhetorical_question_only's own docstring).
+    if snippet and _is_rhetorical_question_only(snippet):
+        return None
+    return snippet
 
 
 def _item_byline(item):
@@ -356,7 +400,7 @@ def _pulse_status_badge(entry):
 
 _STYLE = """
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
   --bg: #f7f6f2;
   --surface: #ffffff;
   --ink: #17181c;
@@ -376,28 +420,11 @@ _STYLE = """
   --good-up: #15803d;
   --new-badge: #1d4ed8;
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #121317;
-    --surface: #191b20;
-    --ink: #eef0f3;
-    --ink-soft: rgba(238,240,243,0.72);
-    --ink-faint: rgba(238,240,243,0.5);
-    --rule: rgba(238,240,243,0.14);
-    --chip-bg: rgba(238,240,243,0.08);
-    --masthead: #7ea1d6;
-    --hue-music: #3ddc9a;
-    --hue-music-tint: rgba(61,220,154,0.09);
-    --hue-music-tint2: #4fd6c8;
-    --hue-ai: #7fa6e6;
-    --hue-economy: #d4b866;
-    --hue-society: #d98a9a;
-    --hue-sources: #9aa0aa;
-    --bad-down: #f87171;
-    --good-up: #4ade80;
-    --new-badge: #93c5fd;
-  }
-}
+/* REFERENCE DESIGN BRAND: SUPER NEWS MUSIC/DAILY are an intentional light
+   editorial publication, not a system-theme-following app -- no automatic
+   @media (prefers-color-scheme: dark) switch (a real defect found in a
+   prior pass: it silently overrode the reference's light neutral
+   background/dark-navy-on-white brand whenever the OS was in dark mode). */
 * { box-sizing: border-box; }
 html { background: var(--bg); }
 body {
@@ -410,12 +437,19 @@ a { color: inherit; }
 
 .masthead { max-width: 1280px; margin: 0 auto; padding: 24px 20px 0; border-bottom: 1px solid var(--rule); padding-bottom: 16px; }
 .brand-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-.brand { font-family: Georgia, "Times New Roman", ui-serif, serif; font-size: 0.82rem; font-weight: 700;
-  letter-spacing: 0.22em; color: var(--masthead); }
-.tagline { font-size: 0.72rem; letter-spacing: 0.08em; opacity: 0.5; text-transform: uppercase; }
-.meta-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 2px; }
-.date { font-family: Georgia, "Times New Roman", ui-serif, serif; font-size: clamp(1.5rem, 2.6vw, 2rem);
-  font-weight: 700; margin: 0; letter-spacing: -0.01em; }
+/* BRAND: SUPER NEWS is the publication's own name and must be the first
+   thing the eye notices in the masthead -- substantially larger than the
+   date below it, which stays clearly secondary. The edition word (MUSIC/
+   DAILY) picks up a restrained accent color via .brand-edition-*; SUPER
+   NEWS itself stays the single navy brand color. */
+.brand { font-family: Georgia, "Times New Roman", ui-serif, serif; font-size: clamp(1.8rem, 2.6vw, 2.2rem);
+  font-weight: 800; letter-spacing: -0.01em; line-height: 1.15; color: var(--masthead); }
+.brand-edition-music { color: var(--hue-music); }
+.brand-edition-daily { color: var(--hue-ai); }
+.tagline { font-size: 0.86rem; letter-spacing: 0.01em; color: var(--ink-soft); margin-top: 2px; }
+.meta-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 8px; }
+.date { font-family: Georgia, "Times New Roman", ui-serif, serif; font-size: clamp(1.05rem, 1.6vw, 1.3rem);
+  font-weight: 700; margin: 0; letter-spacing: -0.01em; color: var(--ink-soft); }
 .read-time { font-size: 0.76rem; color: var(--ink-faint); letter-spacing: 0.02em; white-space: nowrap; }
 
 /* ---- thin horizontal publication nav, just under the masthead ---- */
@@ -463,7 +497,7 @@ a { color: inherit; }
 .lead-why-row:first-of-type { border-top: 1px solid var(--rule); }
 .lead-why-label { flex: 0 0 auto; width: 22px; height: 22px; margin-top: 1px; border-radius: 999px;
   background: var(--masthead); color: #fff; font-size: 0; text-transform: none; text-align: center; }
-.lead-why-label::before { content: "\2713"; font-size: 0.68rem; font-weight: 800; line-height: 22px; }
+.lead-why-label::before { content: "✓"; font-size: 0.68rem; font-weight: 800; line-height: 22px; }
 .lead-why-row p { margin: 0; }
 .lead-meta { margin-top: 18px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .lead-meta .item-byline { margin: 0; }
@@ -491,7 +525,13 @@ a { color: inherit; }
 section.block { margin-bottom: 34px; padding-bottom: 24px; border-bottom: 1px solid var(--rule); }
 section.block:last-of-type { border-bottom: none; }
 .block-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px; }
-.block-head h2 { font-size: 0.98rem; font-weight: 800; margin: 0; letter-spacing: 0.01em; }
+/* REFERENCE DESIGN: a short accent bar beside every primary section
+   heading (currentColor -- reuses whichever per-category h2 color already
+   applies below, never a separate color system). */
+.block-head h2 { font-size: 0.98rem; font-weight: 800; margin: 0; letter-spacing: 0.01em;
+  display: inline-flex; align-items: center; gap: 8px; }
+.block-head h2::before { content: ""; display: inline-block; width: 4px; height: 15px;
+  background: currentColor; border-radius: 2px; }
 .block-head .block-sub { font-size: 0.78rem; color: var(--ink-faint); }
 .block-MUSICTODAY .block-head h2, .block-CHARTPULSE .block-head h2, .block-INDUSTRY .block-head h2,
 .block-GENRE .block-head h2, .block-PRODUCTION .block-head h2, .block-PRODUCER .block-head h2,
@@ -651,13 +691,30 @@ section.block.block-quiet .state-message { font-size: 0.86rem; }
    module docstring's REFERENCE DESIGN note. Reuses --masthead (already
    theme-aware light/dark) as the single navy accent -- no new color
    tokens needed. ---- */
+/* DESKTOP: the media wrapper OWNS the image frame (align-items: stretch
+   on .ed-card makes .ed-card-media match the card's full content height;
+   the image itself has NO aspect-ratio constraint and simply fills that
+   wrapper via width/height: 100% + object-fit: cover) -- so the photo
+   fills the entire left-side slot vertically, never a smaller fixed-
+   ratio box leaving blank space beneath it. Cropping stays proportional
+   (object-fit: cover), never stretched/distorted. */
 .ed-card { background: var(--surface); border: 1px solid var(--rule); border-radius: 14px;
   box-shadow: 0 1px 3px rgba(16,24,40,0.06), 0 1px 2px rgba(16,24,40,0.05);
-  padding: 24px; margin: 0 0 20px; display: flex; gap: 28px; align-items: flex-start; }
-.ed-card-media { flex: 0 0 42%; max-width: 420px; }
-.ed-card-media img { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover;
-  border-radius: 10px; background: var(--chip-bg); }
+  padding: 24px; margin: 0 0 20px; display: flex; gap: 28px; align-items: stretch; }
+.ed-card-media { flex: 0 0 42%; max-width: 420px; align-self: stretch;
+  overflow: hidden; border-radius: 10px; background: var(--chip-bg); }
+.ed-card-media img { display: block; width: 100%; height: 100%; object-fit: cover;
+  object-position: center; border-radius: 0; }
 .ed-card-body { flex: 1 1 auto; min-width: 0; }
+/* DAILY ONLY (page-daily): article photos get more visual presence --
+   a wider image column (48%/480px vs MUSIC Industry's 42%/420px) --
+   still fills its full frame via the same stretched-wrapper mechanism
+   above; only the column WIDTH differs here. Scoped to .page-daily so
+   MUSIC's Music Industry cards and hero (its own separate .lead-image/
+   .lead-media rules) never inherit this. Mobile is unaffected -- the
+   existing top-image/16:9 mobile rule below already applies identically
+   to every page. */
+.page-daily .ed-card-media { flex: 0 0 48%; max-width: 480px; }
 .ed-pill { display: inline-block; font-size: 0.74rem; font-weight: 700; padding: 4px 12px;
   border-radius: 999px; background: var(--chip-bg); color: var(--masthead); margin: 0 0 12px; }
 .ed-headline { font-weight: 800; line-height: 1.35; color: var(--masthead); margin: 0 0 10px; }
@@ -680,12 +737,17 @@ section.block.block-quiet .state-message { font-size: 0.86rem; }
 .ed-cta:hover { opacity: 0.88; text-decoration: none; }
 .ed-byline { font-size: 0.78rem; color: var(--ink-faint); margin: 0 0 14px; }
 @media (max-width: 640px) {
-  .ed-card { flex-direction: column; padding: 16px; gap: 14px; }
-  .ed-card-media { flex: none; max-width: none; width: 100%; }
+  .ed-card { flex-direction: column; align-items: stretch; padding: 16px; gap: 14px; }
+  .ed-card-media { flex: none; max-width: none; width: 100%; align-self: auto;
+    aspect-ratio: 16 / 9; }
   .ed-card-media img { aspect-ratio: 16 / 9; }
   .ed-card-lead .ed-headline { font-size: 1.3rem; }
   .ed-card-standard .ed-headline { font-size: 1.1rem; }
-  .ed-cta { width: 100%; justify-content: center; padding: 13px 22px; }
+  /* REFERENCE DESIGN: the reference's mobile CTA is a compact,
+     left-aligned button (not a full-width bar) -- width: auto/fit-content
+     keeps it that way while padding stays comfortable for a real tap
+     target. */
+  .ed-cta { width: auto; padding: 13px 24px; }
 }
 
 /* ---- progressive disclosure ---- */
@@ -795,9 +857,10 @@ footer { max-width: 1280px; margin: 40px auto 0; padding: 0 20px; font-size: 0.7
      line removes any ambiguity -- neither is ever cut off, real content
      never lost, only re-flowed. */
   .brand-row { flex-wrap: wrap; }
+  .brand { font-size: clamp(1.5rem, 5.5vw, 1.7rem); }
   .tagline { flex-basis: 100%; }
   .meta-row { flex-direction: column; align-items: flex-start; gap: 2px; }
-  .date { font-size: clamp(1.3rem, 6vw, 1.7rem); }
+  .date { font-size: clamp(0.95rem, 4vw, 1.15rem); }
   .pub-nav { padding: 8px 16px; gap: 12px; }
   .today-intel { padding: 0 16px; margin-top: 16px; }
   .lead-story { padding-top: 16px; }
@@ -879,16 +942,34 @@ def _render_lead_story(signal):
     image_html = _lead_image_html(item, title_text)
 
     summary_html = ""
+    snippet = None
     if item:
         snippet = _display_snippet(item)
         if snippet:
             summary_html = f'<p class="lead-summary">{_e(snippet)}</p>'
 
+    # SUMMARY/BULLET DEDUP (FINAL 90+ QUALITY CORRECTION PASS): never
+    # render a why-row that's a near-duplicate of the summary or of an
+    # already-kept row -- see _ed_bullets_html's own docstring for the
+    # same rule applied to the ed-card bullets.
     why_rows = ""
-    if signal.get("why_it_matters"):
-        why_rows += f'<div class="lead-why-row"><span class="lead-why-label">왜 중요한가</span><p>{_e(signal["why_it_matters"])}</p></div>'
-    if signal.get("watch_next"):
-        why_rows += f'<div class="lead-why-row"><span class="lead-why-label">프로듀서 시사점</span><p>{_e(signal["watch_next"])}</p></div>'
+    kept_rows = []
+    for label, text in (("왜 중요한가", signal.get("why_it_matters")), ("프로듀서 시사점", signal.get("watch_next"))):
+        if not text:
+            continue
+        # CURRENT-CACHE SAFETY: watch_next can carry a cached Producer
+        # Intelligence "make now" suggestion -- never shown when it
+        # recommends editorial content creation instead of a real
+        # music-making/A&R action (same guard as _render_producer_
+        # takeaway_card's own action_row).
+        if label == "프로듀서 시사점" and is_content_creation_advice(text):
+            continue
+        if _is_near_duplicate_text(text, snippet):
+            continue
+        if any(_is_near_duplicate_text(text, kept) for kept in kept_rows):
+            continue
+        kept_rows.append(text)
+        why_rows += f'<div class="lead-why-row"><span class="lead-why-label">{_e(label)}</span><p>{_e(text)}</p></div>'
 
     meta_html = ""
     if item:
@@ -1195,6 +1276,178 @@ def _apply_music_event_exposure_budget(entry_lists, lead_event_key, lead_refs, t
     return result
 
 
+# ---- SEMANTIC DUPLICATION GUARD (content-quality hardening pass,
+# 2026-08-17) -- extends the MUSIC EVENT EXPOSURE BUDGET above, which
+# only ever compares each section against the LEAD, never against its
+# OWN sibling sections, and has no identity concept at all for a
+# chart-fact-only signal (no backing article/event_key -- see
+# _resolve_entry_event_key's own documented limitation). Confirmed real
+# defect: the SAME underlying Spotify chart fact (an artist's rank
+# change) independently resurfaced, reworded, across FIVE separate
+# sections (오늘의 음악 소식/hero secondary, 뮤직 투데이, 장르 레이더,
+# 프로듀서 A&R 테이크어웨이, 크로스플랫폼 시그널) purely because each
+# section's own synthesis pass has no visibility into what its siblings
+# already showed. ----
+
+# Every real text field ANY of these entry shapes may carry -- a single
+# generic scan, not one adapter per section shape (hero/music_today
+# candidates: fact_text/why_it_matters/watch_next; genre/production
+# radar + producer references/kpop notes: observed/interpretation;
+# producer insights: what_is_moving/why_it_matters/what_to_watch/
+# what_could_i_make_now).
+_MUSIC_ENTITY_TEXT_FIELDS = (
+    "fact_text", "why_it_matters", "watch_next", "producer_implication",
+    "observed", "interpretation", "what_is_moving", "what_to_watch", "what_could_i_make_now",
+)
+
+
+def _entry_text_blob(entry):
+    return " ".join(str(entry[field]) for field in _MUSIC_ENTITY_TEXT_FIELDS if entry.get(field))
+
+
+def _entry_chart_entity_keys(entry, known_chart_keys):
+    """Real chart-entity identity for one entry -- checks that BOTH the
+    real artist name AND the real track title (known_chart_keys' values
+    are "Artist - Title" labels; split into two independent substring
+    checks) appear SOMEWHERE in the entry's own real text, never requiring
+    the exact joined "Artist - Title" phrasing. Confirmed real gap the
+    exact-joined-string version had: an LLM-synthesized ANALYSIS entry
+    naturally rephrases a track mention in natural Korean prose (e.g.
+    "Shakira의 'Dai Dai'는 순위가...") rather than the canonical
+    "Artist - Title" format a raw chart-fact candidate uses -- an exact
+    substring match on the joined label silently missed every such
+    rephrasing. Still never fuzzy/invented: both parts must be real,
+    closed-vocabulary strings drawn directly from that day's real
+    spotify_chart top10. An entry can genuinely reference more than one
+    real track (a combined 'chart movements' narrative), so this returns
+    a set. A headline_item's own title/snippet is also scanned when
+    present (INDUSTRY_NEWS-shaped hero/music_today candidates)."""
+    item = entry.get("headline_item")
+    text = _entry_text_blob(entry)
+    if item:
+        text = f'{text} {item.get("title") or ""} {item.get("snippet") or ""}'
+    if not text:
+        return set()
+    found = set()
+    for key, label in known_chart_keys.items():
+        artist, _, title = label.partition(" - ")
+        if artist and title and artist in text and title in text:
+            found.add(key)
+    return found
+
+
+def _apply_full_music_cross_section_dedup(
+    hero_secondary, music_today, genre_signals, production_notes,
+    producer_insights, producer_references, kpop_ar_notes,
+    lead_event_key, title_to_event_key, known_chart_keys,
+):
+    """ONE combined identity per entry -- its real event_key (article-
+    backed, via _synthesis_entry_event_identity/_signal_event_identity)
+    UNION any real chart-entity keys its own text mentions (see
+    _entry_chart_entity_keys) -- walked across ALL of these sections in
+    ONE fixed editorial order (exactly the page's own top-to-bottom
+    order: hero secondary -> music_today -> genre -> production ->
+    producer insights -> producer references -> kpop/A&R notes). The
+    FIRST entry carrying a given identity is kept; every later entry
+    sharing ANY of that identity -- in any of these lists -- is
+    suppressed: simple re-wording of an already-shown fact is never a
+    second real exposure ("한 사건은 최대 1개 primary section"). The
+    LEAD's own identity seeds the seen-set first, so an entry that only
+    repeats what the lead already showed is caught too (belt-and-braces
+    with the existing exposure-budget pass above, which already removes
+    most of those).
+
+    크로스플랫폼 시그널 (cross_platform) is NOT passed here -- see its
+    own call site, which is deliberately exempt as the one designated
+    short cross-reference slot ("+ 필요할 경우 1개 짧은 cross-reference").
+
+    Never invents a replacement entry -- suppression only ever removes.
+    A section can legitimately end up with fewer (or zero) real items on
+    a day the real music news is genuinely thin; "정보 밀도" is preferred
+    over forcing every section to stay visually non-empty."""
+    # Seeded with the lead's own event_key when it has one (an
+    # article-backed lead) -- a chart-fact-only lead resolves no
+    # event_key at all (see _signal_event_identity), and TIER 1
+    # (_shares_lead_evidence) in the exposure-budget pass above already
+    # covers literal-source overlap for that case, so lead_refs itself
+    # needs no separate handling here.
+    seen = {lead_event_key} if lead_event_key else set()
+
+    def _identity_for(entry, is_signal):
+        if is_signal:
+            event_key, _refs = _signal_event_identity(entry, title_to_event_key)
+        else:
+            event_key, _refs = _synthesis_entry_event_identity(entry, title_to_event_key)
+        keys = _entry_chart_entity_keys(entry, known_chart_keys)
+        if event_key:
+            keys = keys | {event_key}
+        return keys
+
+    def _filter(entries, is_signal):
+        kept = []
+        for entry in entries:
+            identity = _identity_for(entry, is_signal)
+            if identity and identity & seen:
+                continue
+            kept.append(entry)
+            seen.update(identity)
+        return kept
+
+    return (
+        _filter(hero_secondary, True),
+        _filter(music_today, True),
+        _filter(genre_signals, False),
+        _filter(production_notes, False),
+        _filter(producer_insights, False),
+        _filter(producer_references, False),
+        _filter(kpop_ar_notes, False),
+    )
+
+
+def _today_intel_parts(signals, secondary_override=None):
+    """Returns (today_intel_lead_html, today_secondary_html) as two
+    SEPARATE fragments so a caller can position them independently -- see
+    render_music_page_html_v2, which places section-INDUSTRY between them
+    (SUPER NEWS MUSIC visible-order fix: 업계 뉴스 lead -> 뮤직 인더스트리
+    -> 오늘의 음악 소식). today_secondary_html carries no width/padding of
+    its own (see .today-secondary CSS) -- it relies on whichever parent
+    renders it for its 900px publication width, exactly like every other
+    section inside <main class="main"> (also max-width: 900px; margin: 0
+    auto; padding: 0 20px) -- so relocating it needs no new CSS.
+    _render_today_music_intelligence (below) recombines both fragments in
+    their original adjacent nested order, byte-identical to before this
+    split, for render_dashboard_html_v2's own unchanged legacy page.
+
+    `secondary_override`, when given, REPLACES the internally-computed
+    secondary list (e.g. render_music_page_html_v2 passes its own
+    already cross-section-deduped list -- see
+    _apply_full_music_cross_section_dedup) -- None (the default)
+    preserves the original internal computation exactly."""
+    strongest = _lead_signal(signals)
+    if strongest is None:
+        return "", ""
+    secondary = (
+        secondary_override if secondary_override is not None
+        else [s for s in signals if s is not strongest][:_HERO_SECONDARY_MAX]
+    )
+
+    lead_html = _render_lead_story(strongest)
+    today_intel_lead_html = (
+        '<div class="today-intel" id="today-intel"><h1>오늘의 뮤직 인텔리전스</h1>'
+        f'{lead_html}</div>'
+    )
+
+    today_secondary_html = ""
+    if secondary:
+        cards = "".join(_render_secondary_signal_card(s) for s in secondary)
+        today_secondary_html = (
+            '<div class="today-secondary" id="today-in-music">'
+            '<h2 class="today-secondary-head">오늘의 음악 소식</h2>'
+            f'<div class="today-secondary-list">{cards}</div></div>'
+        )
+    return today_intel_lead_html, today_secondary_html
+
+
 def _render_today_music_intelligence(signals):
     """CATEGORY-CONTIGUOUS IA REFINEMENT: the hero is MUSIC ONLY -- never
     mixes in AI/ECONOMY/SOCIETY.
@@ -1204,27 +1457,20 @@ def _render_today_music_intelligence(signals):
     weight, followed by a TODAY IN MUSIC list of at most
     _HERO_SECONDARY_MAX compact secondary signals stacked underneath
     (never a side-by-side grid, which is what produced the old large-
-    blank-space defect when the two columns had uneven real content)."""
-    strongest = _lead_signal(signals)
-    if strongest is None:
+    blank-space defect when the two columns had uneven real content).
+
+    Used as-is (lead + secondary nested in one .today-intel div, original
+    markup) by render_dashboard_html_v2's legacy combined page; see
+    _today_intel_parts for the split version render_music_page_html_v2
+    uses to relocate 오늘의 음악 소식 after Music Industry."""
+    lead_only_html, secondary_html = _today_intel_parts(signals)
+    if not lead_only_html:
         return ""
-    secondary = [s for s in signals if s is not strongest][:_HERO_SECONDARY_MAX]
-
-    lead_html = _render_lead_story(strongest)
-
-    secondary_html = ""
-    if secondary:
-        cards = "".join(_render_secondary_signal_card(s) for s in secondary)
-        secondary_html = (
-            '<div class="today-secondary" id="today-in-music">'
-            '<h2 class="today-secondary-head">오늘의 음악 소식</h2>'
-            f'<div class="today-secondary-list">{cards}</div></div>'
-        )
-
-    return (
-        '<div class="today-intel" id="today-intel"><h1>오늘의 뮤직 인텔리전스</h1>'
-        f'{lead_html}{secondary_html}</div>'
-    )
+    # Re-nest secondary_html INSIDE the same .today-intel div it always
+    # rendered in here -- closing </div> moved from lead_only_html to
+    # after secondary_html, exactly reproducing the original single nested
+    # structure.
+    return lead_only_html[:-len("</div>")] + secondary_html + "</div>"
 
 
 # ---------------------------------------------------------------------
@@ -1251,8 +1497,13 @@ def _render_music_today_card(candidate):
     if candidate.get("why_it_matters"):
         why_html = f'<p class="mt-why"><b>왜 중요한가</b>{_e(candidate["why_it_matters"])}</p>'
     implication_html = ""
-    if candidate.get("producer_implication"):
-        implication_html = f'<p class="mt-implication"><b>프로듀서 시사점</b>{_e(candidate["producer_implication"])}</p>'
+    # CURRENT-CACHE SAFETY: same guard as the hero lead story's watch_next
+    # row and _render_producer_takeaway_card's action_row -- a cached
+    # producer_implication can recommend editorial content creation
+    # instead of a real music-making/A&R action.
+    implication = candidate.get("producer_implication")
+    if implication and not is_content_creation_advice(implication):
+        implication_html = f'<p class="mt-implication"><b>프로듀서 시사점</b>{_e(implication)}</p>'
 
     return (
         f'<article class="mt-card">{kicker}{headline_html}{byline_html}'
@@ -1408,36 +1659,112 @@ def _ed_cta_html(source_url):
     return f'<a class="ed-cta" href="{safe_url}" target="_blank" rel="noopener noreferrer">기사 보기 <span aria-hidden="true">&rarr;</span></a>'
 
 
+_DEDUP_STRIP_RE = re.compile(r"[\s.,!?~·\-–—:;'\"()\[\]“”‘’]+")
+
+
+def _normalize_for_dedup(text):
+    """Deterministic near-duplicate normalization (FINAL 90+ QUALITY
+    CORRECTION PASS): lowercased, whitespace/punctuation collapsed -- good
+    enough to catch "same fact, trivial formatting difference" without any
+    semantic/LLM comparison."""
+    return _DEDUP_STRIP_RE.sub("", text.lower()) if text else ""
+
+
+def _is_near_duplicate_text(a, b):
+    na, nb = _normalize_for_dedup(a), _normalize_for_dedup(b)
+    if not na or not nb:
+        return False
+    return na == nb or na in nb or nb in na
+
+
 def _ed_bullets_html(item):
     """Same real-field selection _feature_bullets_html already uses
     (핵심/영향/지켜볼 점 -> up to 3 real key points) -- never invents a
     bullet; renders fewer than 3 (including zero) when fewer real fields
-    exist, matching the evidence-integrity rule in the module docstring."""
+    exist, matching the evidence-integrity rule in the module docstring.
+
+    SUMMARY/BULLET DEDUP (FINAL 90+ QUALITY CORRECTION PASS, confirmed real
+    defect: several cards repeated the summary almost verbatim as bullet
+    #1): every candidate bullet is rejected if it's a near-duplicate of the
+    summary/snippet, or of an already-kept bullet -- never replaced with an
+    invented substitute. Showing fewer than 3 (including zero) bullets is
+    correct when fewer genuinely additive points survive."""
     snippet = _display_snippet(item)
-    bullets = []
+    candidates = []
     if item.get("ai_intelligence_status") == "AVAILABLE":
         if item.get("what_happened"):
-            bullets.append(item["what_happened"])
+            candidates.append(item["what_happened"])
         if item.get("why_it_matters"):
-            bullets.append(item["why_it_matters"])
+            candidates.append(item["why_it_matters"])
         if item.get("what_to_watch"):
-            bullets.append(item["what_to_watch"])
+            candidates.append(item["what_to_watch"])
     else:
         if snippet:
-            bullets.append(snippet)
+            candidates.append(snippet)
         reason = item.get("reason")
         if reason and reason != snippet:
-            bullets.append(reason)
+            candidates.append(reason)
+
+    bullets = []
+    for candidate in candidates:
+        if _is_near_duplicate_text(candidate, snippet):
+            continue
+        if any(_is_near_duplicate_text(candidate, kept) for kept in bullets):
+            continue
+        bullets.append(candidate)
+        if len(bullets) == 3:
+            break
     if not bullets:
         return ""
     rows = "".join(
         f'<li class="ed-bullet"><span class="ed-bullet-icon" aria-hidden="true">&#10003;</span><span>{_e(text)}</span></li>'
-        for text in bullets[:3]
+        for text in bullets
     )
     return f'<ul class="ed-bullets">{rows}</ul>'
 
 
-def _editorial_article_card(item, tag="h2", size="standard", show_story_type=False):
+_DAILY_SUMMARY_MAX_SENTENCES = 2
+_DAILY_SUMMARY_MAX_CHARS = 160
+
+# WIRE-SERVICE BOILERPLATE (confirmed real defect: Newis/연합뉴스-style
+# bylines like "[전남광주=뉴시스]이현행 기자 =" leaking into the visible
+# DAILY summary). Only ever strips a real leading "[datelineーagency]
+# reporter title =" prefix -- never rewrites or invents replacement text,
+# and a summary that doesn't match this exact shape is returned untouched.
+_WIRE_BOILERPLATE_RE = re.compile(r"^\[[^\]]{1,30}\]\s*[^=\[\]]{0,20}=\s*")
+
+# SENTENCE SPACING NORMALIZATION (DAILY visible summaries only, confirmed
+# real defect: source snippets like "경신했다.16일" render with no space
+# after the sentence-ending mark). Only triggers when a Hangul character
+# sits immediately BEFORE the mark -- a digit before it (as in a real
+# decimal number like "66.4") never matches, so decimals are never
+# touched. Deterministic, no rewriting -- inserts exactly one space.
+_DAILY_SENTENCE_SPACING_RE = re.compile(r"(?<=[가-힣])([.!?])(?=[가-힣0-9])")
+
+
+def _cap_daily_summary(text):
+    """DAILY (AI/ECONOMY/SOCIETY) is a scanning-focused awareness feed --
+    its summaries stay to at most 2 sentences within a bounded length,
+    never MUSIC's own deeper editorial summaries. Strips real leading wire
+    -service boilerplate and normalizes missing sentence-end spacing
+    first, then truncates -- never fabricates replacement text; a summary
+    already within the cap is returned with only boilerplate/spacing
+    fixed."""
+    if not text:
+        return text
+    text = _WIRE_BOILERPLATE_RE.sub("", text.strip(), count=1).strip()
+    text = _DAILY_SENTENCE_SPACING_RE.sub(r"\1 ", text)
+    sentences = re.split(r"(?<=[.!?])\s+", text)
+    capped = " ".join(sentences[:_DAILY_SUMMARY_MAX_SENTENCES]).strip()
+    if len(capped) > _DAILY_SUMMARY_MAX_CHARS:
+        capped = capped[:_DAILY_SUMMARY_MAX_CHARS].rstrip()
+        if " " in capped:
+            capped = capped.rsplit(" ", 1)[0]
+        capped = capped.rstrip(".,!?") + "…"
+    return capped
+
+
+def _editorial_article_card(item, tag="h2", size="standard", show_story_type=False, cap_summary=False):
     """REFERENCE DESIGN CARD (see module docstring): real article image
     left (desktop) / top (mobile) via CSS, category/source pill, large
     Korean headline, Korean summary, up to 3 real supported key points,
@@ -1455,6 +1782,8 @@ def _editorial_article_card(item, tag="h2", size="standard", show_story_type=Fal
         pill_label = _source_label(item["source_name"])
     pill_html = f'<span class="ed-pill">{_e(pill_label)}</span>' if pill_label else ""
     snippet = _display_snippet(item)
+    if cap_summary:
+        snippet = _cap_daily_summary(snippet)
     summary_html = f'<p class="ed-summary">{_e(snippet)}</p>' if snippet else ""
     bullets_html = _ed_bullets_html(item)
     cta_html = _ed_cta_html(source_url)
@@ -1476,7 +1805,7 @@ def _editorial_article_card(item, tag="h2", size="standard", show_story_type=Fal
     return f'<article class="news-card ed-card {size_class}">{image_html}{body_html}</article>'
 
 
-def _compact_news_card(item, level="B", feature_label=None, show_story_type=False):
+def _compact_news_card(item, level="B", feature_label=None, show_story_type=False, cap_summary=False):
     """NEWSLETTER ARTICLE SYSTEM: three visual levels for one real news
     item, never a mechanically identical box repeated for every story --
     Level A (featured, very sparing -- see _render_compact_news_section's
@@ -1492,10 +1821,12 @@ def _compact_news_card(item, level="B", feature_label=None, show_story_type=Fals
     render a chip even if their real text incidentally contains a
     music-priority keyword."""
     if level == "A":
-        return _editorial_article_card(item, tag="h2", size="lead", show_story_type=show_story_type)
+        return _editorial_article_card(item, tag="h2", size="lead", show_story_type=show_story_type,
+                                        cap_summary=cap_summary)
 
     if level == "B":
-        return _editorial_article_card(item, tag="h3", size="standard", show_story_type=show_story_type)
+        return _editorial_article_card(item, tag="h3", size="standard", show_story_type=show_story_type,
+                                        cap_summary=cap_summary)
 
     # level == "C": compact brief -- headline + byline + link only,
     # deliberately lighter than the A/B editorial card so it never
@@ -1547,7 +1878,7 @@ def _render_ultra_compact_row(item):
 
 def _render_compact_news_section(block_class, section_id, label, data, primary_cap, featured=True, secondary_end=4,
                                   show_overflow=True, feature_label=None, ultra_compact=False,
-                                  show_story_type=False):
+                                  show_story_type=False, cap_summary=False, korean_lead_guard=False):
     state = data["state"]
     message, css_class = _news_state_message(state)
     if message:
@@ -1572,16 +1903,31 @@ def _render_compact_news_section(block_class, section_id, label, data, primary_c
         # (Level B, up to `secondary_end` real items) -> BRIEFING
         # (Level C, the rest of the real primary list) -- never a flat
         # list of equal-weight cards.
+        #
+        # DAILY KOREAN-READINESS GUARD (korean_lead_guard, AI/ECONOMY/
+        # SOCIETY only): Korean-ready items sort before untranslated
+        # English-only items for DISPLAY ONLY -- data["items"]/the real DB
+        # ordering is never mutated, only this local rendering-order list.
+        # An English-only item can never be Level A or B, only ever the
+        # compact Level C brief (headline + byline + link, no summary).
+        # Python's sort is stable, so relative order within each group is
+        # preserved.
+        ordered = (
+            sorted(primary, key=lambda item: not _has_korean_title(item))
+            if korean_lead_guard else primary
+        )
         cards = []
-        for i, item in enumerate(primary):
-            if featured and i == 0:
+        for i, item in enumerate(ordered):
+            if korean_lead_guard and not _has_korean_title(item):
+                level = "C"
+            elif featured and i == 0:
                 level = "A"
             elif i < secondary_end:
                 level = "B"
             else:
                 level = "C"
             cards.append(_compact_news_card(item, level=level, feature_label=feature_label,
-                                             show_story_type=show_story_type))
+                                             show_story_type=show_story_type, cap_summary=cap_summary))
     body = f'<div class="news-list">{"".join(cards)}</div>'
     # CATEGORY-CONTIGUOUS IA REFINEMENT: ECONOMY/SOCIETY get an exact hard
     # cap with NO "more" archive at all (show_overflow=False) -- real
@@ -1728,9 +2074,11 @@ def _render_spotify_watch_section(candidates, lead_event_key, producer_intellige
     byline_html = _item_byline(top)
     rows = ""
     if why_it_matters:
-        rows += f'<p class="spotify-watch-row"><b>WHY IT MATTERS</b> {_e(why_it_matters)}</p>'
-    if producer_implication:
-        rows += f'<p class="spotify-watch-row"><b>PRODUCER IMPACT</b> {_e(producer_implication)}</p>'
+        rows += f'<p class="spotify-watch-row"><b>왜 중요한가</b> {_e(why_it_matters)}</p>'
+    # CURRENT-CACHE SAFETY: same content-creation-advice guard as every
+    # other producer_implication/what_could_i_make_now render path above.
+    if producer_implication and not is_content_creation_advice(producer_implication):
+        rows += f'<p class="spotify-watch-row"><b>프로듀서 시사점</b> {_e(producer_implication)}</p>'
     return (
         '<section class="block block-SPOTIFY" id="section-SPOTIFY">'
         '<div class="block-head"><h2>스포티파이 워치</h2></div>'
@@ -1850,7 +2198,14 @@ def _render_producer_takeaway_card(insight):
     the synthesis itself assigned."""
     evidence_html = _evidence_disclosure_html(insight.get("evidence", []))
     confidence = insight.get("confidence", "LOW")
-    if confidence == "LOW":
+    # CURRENT-CACHE SAFETY (FINAL 90+ QUALITY CORRECTION PASS): some
+    # already-cached insights (generated before report.producer_synthesis's
+    # own prompt fix) recommend writing a newsletter/article/explainer
+    # instead of a real music-making action -- never shown as producer
+    # advice, regardless of confidence. Falls back to WATCH-only exactly
+    # like the LOW-confidence path when the action is suppressed.
+    show_action = not is_content_creation_advice(insight["what_could_i_make_now"])
+    if confidence == "LOW" or not show_action:
         action_row = f'<p class="takeaway-row"><b>지켜볼 점</b> {_e(insight["what_to_watch"])}</p>'
     else:
         action_row = (
@@ -1914,6 +2269,19 @@ def _render_producer_section(producer_intelligence, trend):
     reference_items = trend.get("producer_references") or [] if trend.get("state") == "NORMAL" else []
     kpop_items = trend.get("kpop_ar_notes") or [] if trend.get("state") == "NORMAL" else []
     producer_insights = producer_intelligence["insights"] if producer_intelligence["state"] == "NORMAL" else []
+    # PRODUCER/A&R GOSSIP GUARD (2026-08-17, confirmed real defect): this
+    # section draws from THREE separate real pipelines (Producer
+    # Intelligence's own insights, plus music_trend_intelligence's
+    # producer_references/kpop_ar_notes) -- none of which is filtered by
+    # the INDUSTRY-section/hero gossip downrank keywords in report.
+    # web_data_v2, so a pure fan/social-comment gossip item could still
+    # reach a Producer/A&R card even though the identical item is already
+    # downranked out of INDUSTRY/hero. Applied here, before the quality
+    # cap below, so a rejected gossip item never counts as "the only
+    # insight" that cap would otherwise fall back to keeping.
+    producer_insights = [i for i in producer_insights if not is_low_value_gossip_takeaway(i.get("what_is_moving"))]
+    reference_items = [i for i in reference_items if not is_low_value_gossip_takeaway(i.get("observed"))]
+    kpop_items = [i for i in kpop_items if not is_low_value_gossip_takeaway(i.get("observed"))]
     # PRODUCER/A&R QUALITY CAP (EDITORIAL INTEGRITY PASS): a quality
     # ceiling, not a quota -- a real LOW-confidence insight must not
     # survive merely to pad the count when genuinely stronger (MEDIUM/
@@ -2151,11 +2519,11 @@ def render_dashboard_html_v2(dashboard_data):
     sections_html = "".join([
         music_sections_html,
         _category_transition_html("AI", "AI INTELLIGENCE"),
-        _render_compact_news_section("block-AI", "section-AI", "AI", news["AI"], _AI_PRIMARY_CAP, secondary_end=4),
+        _render_compact_news_section("block-AI", "section-AI", "AI", news["AI"], _AI_PRIMARY_CAP, secondary_end=4, cap_summary=True, korean_lead_guard=True),
         _category_transition_html("ECONOMY", "ECONOMY"),
-        _render_compact_news_section("block-ECONOMY", "section-ECONOMY", "경제", news["ECONOMY"], _ECON_SOCIETY_PRIMARY_CAP, secondary_end=2, show_overflow=False),
+        _render_compact_news_section("block-ECONOMY", "section-ECONOMY", "경제", news["ECONOMY"], _ECON_SOCIETY_PRIMARY_CAP, secondary_end=2, show_overflow=False, cap_summary=True, korean_lead_guard=True),
         _category_transition_html("SOCIETY", "SOCIETY"),
-        _render_compact_news_section("block-SOCIETY", "section-SOCIETY", "사회", news["SOCIETY"], _ECON_SOCIETY_PRIMARY_CAP, secondary_end=2, show_overflow=False),
+        _render_compact_news_section("block-SOCIETY", "section-SOCIETY", "사회", news["SOCIETY"], _ECON_SOCIETY_PRIMARY_CAP, secondary_end=2, show_overflow=False, cap_summary=True, korean_lead_guard=True),
         _render_sources_section(intelligence),
     ])
 
@@ -2196,8 +2564,9 @@ def render_dashboard_html_v2(dashboard_data):
 # ---------------------------------------------------------------------
 
 _NAV_MUSIC_LINKS = (
-    ("음악", "today-intel"), ("차트", "section-CHARTPULSE"), ("음악 산업", "section-INDUSTRY"),
+    ("음악", "today-intel"), ("음악 산업", "section-INDUSTRY"),
     ("Spotify", "section-SPOTIFY"), ("레이더", "section-GENRE"), ("프로듀서", "section-PRODUCER"),
+    ("차트", "section-CHARTPULSE"),
 )
 _NAV_DAILY_LINKS = (
     ("AI", "section-AI"), ("경제", "section-ECONOMY"), ("사회", "section-SOCIETY"),
@@ -2228,13 +2597,15 @@ def render_music_page_html_v2(dashboard_data):
     spotify_chart = dashboard_data["spotify_chart"]
     y, m, d = report_date_kst.split("-")
 
-    today_intel_html = _render_today_music_intelligence(dashboard_data["today_music_intelligence"])
-
     lead_signal = _lead_signal(dashboard_data["today_music_intelligence"])
     title_to_event_key = _news_title_to_event_key_map(news)
     lead_event_key, lead_refs = (None, set())
     if lead_signal:
         lead_event_key, lead_refs = _signal_event_identity(lead_signal, title_to_event_key)
+
+    hero_secondary_raw = [
+        s for s in dashboard_data["today_music_intelligence"] if s is not lead_signal
+    ][:_HERO_SECONDARY_MAX]
 
     music_today = _exclude_lead_event_from_today_in_music(
         dashboard_data["music_today"], lead_event_key, lead_refs, title_to_event_key,
@@ -2252,8 +2623,32 @@ def render_music_page_html_v2(dashboard_data):
             lead_event_key, lead_refs, title_to_event_key,
         )
     )
+    # SEMANTIC DUPLICATION GUARD (second pass, cross-section vs EACH
+    # OTHER -- not just vs the lead like the exposure-budget pass above):
+    # see _apply_full_music_cross_section_dedup's own docstring for the
+    # confirmed real defect this closes.
+    known_chart_keys = known_chart_entity_keys(spotify_chart)
+    (
+        hero_secondary, music_today, genre_signals, production_notes,
+        producer_insights, producer_references, kpop_ar_notes,
+    ) = _apply_full_music_cross_section_dedup(
+        hero_secondary_raw, music_today, genre_signals, production_notes,
+        producer_insights, producer_references, kpop_ar_notes,
+        lead_event_key, title_to_event_key, known_chart_keys,
+    )
     producer_insights, producer_references, kpop_ar_notes = _dedupe_producer_section_exact_duplicates(
         producer_insights, producer_references, kpop_ar_notes, title_to_event_key,
+    )
+
+    # VISIBLE ORDER FIX: 오늘의 음악 소식 (today-secondary) moves out of
+    # .today-intel and renders AFTER section-INDUSTRY instead -- required
+    # visible order is 업계 뉴스 lead -> 뮤직 인더스트리 -> 오늘의 음악 소식
+    # -> 뮤직 투데이 -> 차트 펄스. today_intel_html here is the LEAD-ONLY
+    # fragment (heading + lead story); today_secondary_html is inserted
+    # into sections_html below, right after Music Industry. Uses the
+    # already cross-section-deduped hero_secondary list computed above.
+    today_intel_html, today_secondary_html = _today_intel_parts(
+        dashboard_data["today_music_intelligence"], secondary_override=hero_secondary,
     )
     trend_for_render = {
         **trend, "genre_signals": genre_signals, "production_notes": production_notes,
@@ -2271,9 +2666,14 @@ def render_music_page_html_v2(dashboard_data):
         viral_new_top = new_notable[0] if new_notable else None
 
     sections_html = "".join([
-        _render_music_today_section(music_today),
-        _render_chart_pulse_section(spotify_chart, cross_platform, viral_hot_top, viral_new_top),
+        # SECTION ORDER: Music Industry groups the industry-reading flow
+        # together immediately after the lead, followed by 오늘의 음악
+        # 소식 (relocated here from .today-intel, see above), then Music
+        # Today and the chart-heavy sections -- internal design of these
+        # sections is unchanged, this is a position-only change.
         _render_industry_section(news, exclude_event_key=lead_event_key),
+        today_secondary_html,
+        _render_music_today_section(music_today),
         _render_spotify_watch_section(
             dashboard_data.get("spotify_watch_candidates") or [], lead_event_key, producer_intelligence,
         ),
@@ -2282,6 +2682,10 @@ def render_music_page_html_v2(dashboard_data):
         _render_producer_section(producer_intelligence_for_render, trend_for_render),
         _render_signals_section(intelligence),
         _render_outlook_section(intelligence),
+        # CHART PULSE MOVED TO THE BOTTOM (position-only change, design/
+        # data untouched): the last REAL content section, still before the
+        # technical source-status section.
+        _render_chart_pulse_section(spotify_chart, cross_platform, viral_hot_top, viral_new_top),
         _render_sources_section(intelligence),
     ])
 
@@ -2296,9 +2700,9 @@ def render_music_page_html_v2(dashboard_data):
 <title>SUPER NEWS MUSIC — {y}.{m}.{d}</title>
 <style>{_STYLE}</style>
 </head>
-<body>
+<body class="page-music">
 <div class="masthead">
-<div class="brand-row"><span class="brand">SUPER NEWS MUSIC</span><span class="tagline">데일리 뮤직 인텔리전스</span></div>
+<div class="brand-row"><span class="brand">SUPER NEWS <span class="brand-edition-music">MUSIC</span></span><span class="tagline">작곡가·프로듀서를 위한 오늘의 음악 인텔리전스</span></div>
 <div class="meta-row"><div class="date num">{y}.{m}.{d}</div><span class="read-time num">읽는 시간 {reading_minutes}분</span></div>
 </div>
 {nav_html}
@@ -2318,14 +2722,16 @@ def render_daily_page_html_v2(dashboard_data):
     render_music_page_html_v2's docstring for the MUSIC counterpart."""
     report_date_kst = dashboard_data["report_date_kst"]
     news = dashboard_data["news"]
-    intelligence = dashboard_data["intelligence"]
     y, m, d = report_date_kst.split("-")
 
+    # DAILY drops the Apple Music/Spotify/TikTok source-status section
+    # entirely -- that status is a MUSIC-product concept (see
+    # render_music_page_html_v2, which still shows it), meaningless on a
+    # pure AI/ECONOMY/SOCIETY page.
     sections_html = "".join([
-        _render_compact_news_section("block-AI", "section-AI", "AI", news["AI"], _AI_PRIMARY_CAP, secondary_end=4),
-        _render_compact_news_section("block-ECONOMY", "section-ECONOMY", "경제", news["ECONOMY"], _ECON_SOCIETY_PRIMARY_CAP, secondary_end=2, show_overflow=False),
-        _render_compact_news_section("block-SOCIETY", "section-SOCIETY", "사회", news["SOCIETY"], _ECON_SOCIETY_PRIMARY_CAP, secondary_end=2, show_overflow=False),
-        _render_sources_section(intelligence),
+        _render_compact_news_section("block-AI", "section-AI", "AI", news["AI"], _AI_PRIMARY_CAP, secondary_end=4, cap_summary=True, korean_lead_guard=True),
+        _render_compact_news_section("block-ECONOMY", "section-ECONOMY", "경제", news["ECONOMY"], _ECON_SOCIETY_PRIMARY_CAP, secondary_end=2, show_overflow=False, cap_summary=True, korean_lead_guard=True),
+        _render_compact_news_section("block-SOCIETY", "section-SOCIETY", "사회", news["SOCIETY"], _ECON_SOCIETY_PRIMARY_CAP, secondary_end=2, show_overflow=False, cap_summary=True, korean_lead_guard=True),
     ])
 
     reading_minutes = _estimate_reading_minutes(sections_html)
@@ -2339,9 +2745,9 @@ def render_daily_page_html_v2(dashboard_data):
 <title>SUPER NEWS DAILY — {y}.{m}.{d}</title>
 <style>{_STYLE}</style>
 </head>
-<body>
+<body class="page-daily">
 <div class="masthead">
-<div class="brand-row"><span class="brand">SUPER NEWS DAILY</span><span class="tagline">AI · 경제 · 사회</span></div>
+<div class="brand-row"><span class="brand">SUPER NEWS <span class="brand-edition-daily">DAILY</span></span><span class="tagline">AI · 경제 · 사회 핵심 브리핑</span></div>
 <div class="meta-row"><div class="date num">{y}.{m}.{d}</div><span class="read-time num">읽는 시간 {reading_minutes}분</span></div>
 </div>
 {nav_html}

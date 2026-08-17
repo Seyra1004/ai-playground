@@ -4,6 +4,7 @@ text (report.translation_validation) and LLM-native synthesis text
 (report.validation, report.news_intelligence_synthesis)."""
 
 from report.text_quality import (
+    _ko_currency_values,
     has_internal_id_leak,
     has_refusal_marker,
     is_malformed_synthesis_text,
@@ -111,6 +112,16 @@ def test_unsupported_fact_tokens_currency_mutated_is_unsupported():
 
 def test_unsupported_fact_tokens_no_checkable_tokens_is_never_a_defect():
     assert unsupported_fact_tokens("이 소식은 업계에서 주목받고 있다.", "Industry watchers noted the news.") == []
+
+
+def test_unsupported_fact_tokens_bare_korean_currency_grounded():
+    text = "가계빚이 사상 첫 2000조원을 넘어섰다."
+    evidence = "영끌·빚투에 가계빚 사상 첫 2000조…기준금리 인상땐 치명타"
+    assert unsupported_fact_tokens(text, evidence) == []
+
+
+def test_ko_currency_values_ignores_article_number_reference():
+    assert _ko_currency_values("제3조에 따르면 계약은 무효다.") == []
 
 
 def test_unsupported_fact_tokens_empty_evidence_flags_any_real_token():
