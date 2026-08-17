@@ -4,6 +4,7 @@ never contains a full TOP10 list, never fabricates TikTok data."""
 from report.kakao_render import split_message
 from report.kakao_render_v2 import (
     MAX_TEXT_LENGTH,
+    _compact_korean_display_text,
     render_daily_kakao_digest,
     render_full_digest_text,
     render_kakao_digest,
@@ -212,7 +213,7 @@ def test_music_digest_within_limit_and_never_contains_daily_content():
     assert "SUPER NEWS MUSIC" in text
     assert "AI 뉴스 제목" not in text
     assert "경제 뉴스 제목" not in text
-    assert "TikTok:" in text and "Spotify:" in text
+    assert "LEAD:" in text and "INDUSTRY:" in text
 
 
 def test_daily_digest_within_limit_and_never_contains_music_content():
@@ -235,7 +236,8 @@ def test_daily_digest_within_limit_and_never_contains_music_content():
 
 def test_music_digest_honest_empty_state():
     text = render_music_kakao_digest(_empty_dashboard())
-    assert "데이터 소스 미가동" in text  # TikTok honest-empty
+    assert "LEAD: 오늘 보고할 소식 없음" in text
+    assert "INDUSTRY: 오늘 보고할 뮤직 인더스트리 뉴스 없음" in text
 
 
 def test_daily_digest_honest_empty_state():
@@ -277,3 +279,302 @@ def test_music_digest_industry_line_omits_rather_than_shows_only_gossip():
     text = render_music_kakao_digest(data)
     assert "Chris Brown" not in text
     assert "오늘 보고할 뮤직 인더스트리 뉴스 없음" in text
+
+
+# =============================================================================
+# SUPER NEWS MUSIC KAKAO ALIGNMENT PASS (2026-08-18): Kakao must consume the
+# SAME accepted MUSIC content web's report.web_render_v2.
+# resolve_music_lead_and_industry() computes -- never an independently
+# re-derived second selection.
+# =============================================================================
+
+
+def test_music_digest_industry_prioritizes_professional_item_regardless_of_list_order():
+    """WEB/KAKAO ALIGNMENT: a genuine rights/AI-music-class story
+    (report.web_data_v2.music_industry_priority_rank) must win the
+    Industry line even when a generic story appears first in the raw
+    list -- the SAME real ranking the web page's Industry section
+    already applies, never plain "first selected" order."""
+    data = _empty_dashboard()
+    data["news"]["SPOTIFY"] = {"state": "NORMAL", "items": [
+        {"title": "Some Artist Announces Tour Dates", "reason": "x", "source_url": "https://x",
+         "event_key": "ev-generic", "source_count": 1},
+        {"title": "Platform bans fully AI-generated songs", "reason": "x", "source_url": "https://x",
+         "event_key": "ev-ai", "source_count": 1},
+    ]}
+    text = render_music_kakao_digest(data)
+    assert "AI-generated" in text
+    assert "Tour Dates" not in text
+
+
+def test_music_digest_industry_excludes_the_same_event_already_shown_as_lead():
+    """WEB/KAKAO ALIGNMENT: the Industry line must never repeat the SAME
+    real event already shown as LEAD -- matches the web page's own
+    exclude_event_key rule (report.web_render_v2._merge_music_industry_
+    items), never a second, independent notion of "already shown."""
+    data = _empty_dashboard()
+    lead_item = {"title": "Megan deal", "ko_title": "메간 계약", "translation_status": "TRANSLATED",
+                 "event_key": "ev-lead", "source_url": "https://x"}
+    data["today_music_intelligence"] = [
+        {"type": "INDUSTRY_NEWS", "headline_item": lead_item, "is_strongest": True},
+    ]
+    data["news"]["SPOTIFY"] = {"state": "NORMAL", "items": [
+        {"title": "Megan deal", "reason": "x", "source_url": "https://x", "event_key": "ev-lead", "source_count": 1},
+        {"title": "Second real industry story", "reason": "x", "source_url": "https://x",
+         "event_key": "ev-second", "source_count": 1},
+    ]}
+    text = render_music_kakao_digest(data)
+    assert "LEAD: 메간 계약" in text
+    assert "INDUSTRY: Second real industry story" in text
+    assert "INDUSTRY: Megan deal" not in text
+
+
+def test_music_digest_producer_line_skips_insight_about_the_same_event_as_lead():
+    """WEB/KAKAO ALIGNMENT: the Producer/A&R line must not repeat the SAME
+    real event already shown as LEAD -- falls through to the next
+    genuinely distinct insight, reusing report.web_render_v2.
+    _synthesis_entry_event_identity, the SAME real event-identity
+    resolution the web page's own cross-section dedup already applies."""
+    data = _empty_dashboard()
+    lead_item = {"title": "Lead Story Title", "ko_title": "리드 스토리", "translation_status": "TRANSLATED",
+                 "event_key": "ev-lead", "source_url": "https://x"}
+    data["today_music_intelligence"] = [
+        {"type": "INDUSTRY_NEWS", "headline_item": lead_item, "is_strongest": True},
+    ]
+    data["news"]["SPOTIFY"] = {"state": "NORMAL", "items": [
+        {"title": "Lead Story Title", "reason": "x", "source_url": "https://x",
+         "event_key": "ev-lead", "source_count": 1},
+    ]}
+    data["producer_intelligence"] = {"state": "NORMAL", "insights": [
+        {"what_is_moving": "리드와 같은 이벤트에 대한 재해석", "confidence": "HIGH",
+         "evidence": [{"ref": "E1", "summary": "Lead Story Title"}]},
+        {"what_is_moving": "완전히 다른 실제 프로듀서 인사이트", "confidence": "HIGH",
+         "evidence": [{"ref": "E1", "summary": "Some Unrelated Fact"}]},
+    ]}
+    text = render_music_kakao_digest(data)
+    assert "완전히 다른 실제 프로듀서 인사이트" in text
+    assert "리드와 같은 이벤트에 대한 재해석" not in text
+
+
+def test_music_digest_no_duplicate_event_across_lead_industry_and_producer_lines():
+    """No-duplication requirement: LEAD, Industry, and Producer/A&R lines
+    must each cover a genuinely distinct real event when the underlying
+    data supports it."""
+    data = _empty_dashboard()
+    lead_item = {"title": "Lead Story", "ko_title": "리드 스토리", "translation_status": "TRANSLATED",
+                 "event_key": "ev-lead", "source_url": "https://x"}
+    data["today_music_intelligence"] = [
+        {"type": "INDUSTRY_NEWS", "headline_item": lead_item, "is_strongest": True},
+    ]
+    data["news"]["SPOTIFY"] = {"state": "NORMAL", "items": [
+        {"title": "Lead Story", "reason": "x", "source_url": "https://x", "event_key": "ev-lead", "source_count": 1},
+        {"title": "Distinct industry story", "reason": "x", "source_url": "https://x",
+         "event_key": "ev-industry", "source_count": 1},
+    ]}
+    data["producer_intelligence"] = {"state": "NORMAL", "insights": [
+        {"what_is_moving": "산업 뉴스와 같은 이벤트", "confidence": "HIGH",
+         "evidence": [{"ref": "E1", "summary": "Distinct industry story"}]},
+        {"what_is_moving": "진짜 별개의 프로듀서 인사이트", "confidence": "HIGH",
+         "evidence": [{"ref": "E1", "summary": "Yet another unrelated fact"}]},
+    ]}
+    text = render_music_kakao_digest(data)
+    assert "리드 스토리" in text
+    assert "Distinct industry story" in text
+    assert "진짜 별개의 프로듀서 인사이트" in text
+    assert "산업 뉴스와 같은 이벤트" not in text
+
+
+def test_music_digest_never_shows_empty_signal_line_when_no_real_signal():
+    text = render_music_kakao_digest(_empty_dashboard())
+    assert "Signal:" not in text
+
+
+def test_music_digest_omits_signal_line_even_when_real_signal_data_exists():
+    """EDITORIAL QUALITY PASS: cross-platform chart Signal is structurally
+    low-value filler that crowds out real professional content on almost
+    every real day -- never shown, even when real early_signal data is
+    present."""
+    data = _empty_dashboard()
+    data["intelligence"]["early_signal"]["spotify_chart"] = [
+        {"canonical_artist": "Shakira", "canonical_title": "Dai Dai", "rank_delta": 2},
+    ]
+    text = render_music_kakao_digest(data)
+    assert "Signal:" not in text
+    assert "Shakira" not in text
+
+
+def test_music_digest_ar_line_omitted_when_only_medium_confidence_available():
+    """PRODUCER/A&R RULE: a borderline (MEDIUM-confidence) insight must
+    never be forced in merely to fill a third slot -- 2 excellent items
+    beat 3 mediocre ones."""
+    data = _empty_dashboard()
+    data["producer_intelligence"] = {"state": "NORMAL", "insights": [
+        {"what_is_moving": "애매한 신뢰도의 시그널", "confidence": "MEDIUM",
+         "evidence": [{"ref": "E1", "summary": "Some Unrelated Fact"}]},
+    ]}
+    text = render_music_kakao_digest(data)
+    assert "A&R:" not in text
+    assert "애매한 신뢰도의 시그널" not in text
+
+
+def test_music_digest_ar_line_included_when_high_confidence_and_distinct():
+    data = _empty_dashboard()
+    data["producer_intelligence"] = {"state": "NORMAL", "insights": [
+        {"what_is_moving": "확실한 프로듀서 인사이트", "why_it_matters": "실행 가능한 근거 있는 시사점",
+         "confidence": "HIGH", "evidence": [{"ref": "E1", "summary": "Some Unrelated Fact"}]},
+    ]}
+    text = render_music_kakao_digest(data)
+    assert "A&R: 확실한 프로듀서 인사이트" in text
+    assert "→ 실행 가능한 근거 있는 시사점" in text
+
+
+def test_music_digest_industry_why_line_omitted_when_no_reason_and_no_class_match():
+    """A backfilled Industry item (report.web_data_v2.
+    professional_evidence_backfill) never has a real `reason`, and a
+    title matching none of music_industry_priority_rank's real priority
+    classes gets no class-fallback why either -- the "→" line must be
+    omitted entirely, never fabricated."""
+    data = _empty_dashboard()
+    data["news"]["SPOTIFY"] = {"state": "NORMAL", "items": [
+        {"title": "Backfilled professional story", "reason": None, "source_url": "https://x",
+         "event_key": "ev-1", "source_count": 1},
+    ]}
+    text = render_music_kakao_digest(data)
+    assert "INDUSTRY: Backfilled professional story" in text
+    assert "INDUSTRY: Backfilled professional story\n→" not in text
+
+
+def test_music_digest_industry_why_line_uses_real_priority_class_when_no_reason():
+    """A backfilled Industry item whose title DOES match a real priority
+    class (report.web_data_v2.music_industry_priority_rank) gets that
+    class's real, general (never title-specific) why-fallback -- never
+    left with no professional framing just because it was backfilled
+    rather than NEWS_COMBINED-selected."""
+    data = _empty_dashboard()
+    data["news"]["SPOTIFY"] = {"state": "NORMAL", "items": [
+        {"title": "Platform bans fully AI-generated songs", "reason": None, "source_url": "https://x",
+         "event_key": "ev-1", "source_count": 1},
+    ]}
+    text = render_music_kakao_digest(data)
+    assert "INDUSTRY: Platform bans fully AI-generated songs" in text
+    assert "→ AI 음악 유통 기준 변화 신호" in text
+
+
+def test_music_digest_industry_why_line_shown_when_real_reason_exists():
+    data = _empty_dashboard()
+    data["news"]["SPOTIFY"] = {"state": "NORMAL", "items": [
+        {"title": "Selected industry story", "reason": "실제 근거 있는 이유",
+         "source_url": "https://x", "event_key": "ev-1", "source_count": 1},
+    ]}
+    text = render_music_kakao_digest(data)
+    assert "INDUSTRY: Selected industry story" in text
+    assert "→ 실제 근거 있는 이유" in text
+
+
+def test_music_digest_does_not_clip_a_title_that_fits_the_budget():
+    """TITLE RULE: a real title within budget must render complete, never
+    truncated with an ellipsis just because it's on the longer side."""
+    data = _empty_dashboard()
+    long_but_fitting_title = "메건 디 스탤리언, 인터스코프 계약에도 마스터권 유지"
+    lead_item = {"title": long_but_fitting_title, "ko_title": long_but_fitting_title,
+                 "translation_status": "TRANSLATED", "event_key": "ev-lead", "source_url": "https://x"}
+    data["today_music_intelligence"] = [
+        {"type": "INDUSTRY_NEWS", "headline_item": lead_item, "is_strongest": True},
+    ]
+    text = render_music_kakao_digest(data)
+    assert f"LEAD: {long_but_fitting_title}" in text
+    assert "…" not in text
+
+
+def test_music_digest_within_real_kakao_send_limit():
+    """The real, documented Kakao API limit for the 기본 텍스트 템플릿 `text`
+    field (kakao.client.MAX_TEXT_LENGTH) -- not an arbitrary internal
+    choice -- must never be exceeded even on a full real 2026-08-18-shaped
+    candidate (LEAD + INDUSTRY + A&R, each with a real why/interpretation
+    line)."""
+    from kakao.client import MAX_TEXT_LENGTH as REAL_KAKAO_LIMIT
+
+    data = _empty_dashboard()
+    lead_item = {"title": "Megan Thee Stallion inks deal with UMG's Interscope",
+                 "ko_title": "Megan Thee Stallion, UMG의 Interscope와 계약 체결 – 마스터 소유권 유지",
+                 "translation_status": "TRANSLATED", "event_key": "ev-lead", "source_url": "https://x"}
+    data["today_music_intelligence"] = [
+        {"type": "INDUSTRY_NEWS", "headline_item": lead_item, "is_strongest": True,
+         "why_it_matters": "메간 디 스탤리언의 UMG 인터스코프 계약(마스터권 유지)은 아티스트 권리 협상의 새 기준을 제시한다."},
+    ]
+    data["news"]["SPOTIFY"] = {"state": "NORMAL", "items": [
+        {"title": "Beatport is now banning fully AI-generated songs",
+         "ko_title": "Beatport, 완전히 AI로 생성된 곡 금지", "translation_status": "TRANSLATED",
+         "reason": None, "source_url": "https://x", "event_key": "ev-industry", "source_count": 1},
+    ]}
+    data["producer_intelligence"] = {"state": "NORMAL", "insights": [
+        {"what_is_moving": "확실한 프로듀서 인사이트", "why_it_matters": "실행 가능한 근거 있는 시사점",
+         "confidence": "HIGH", "evidence": [{"ref": "E1", "summary": "Some Unrelated Fact"}]},
+    ]}
+    text = render_music_kakao_digest(data)
+    assert len(text) <= REAL_KAKAO_LIMIT == MAX_TEXT_LENGTH
+
+
+def test_daily_digest_unaffected_by_music_content_identity_consolidation():
+    """DAILY Kakao is untouched by this pass: render_daily_kakao_digest
+    never calls report.web_render_v2.resolve_music_lead_and_industry and
+    its output shape is unchanged."""
+    data = _empty_dashboard()
+    data["news"]["AI"] = {"state": "NORMAL", "items": [{
+        "title": "AI 뉴스 제목", "reason": "x", "source_url": "https://x"}]}
+    text = render_daily_kakao_digest(data)
+    assert "AI: AI 뉴스 제목" in text
+    assert "LEAD:" not in text and "Industry:" not in text
+
+
+# =============================================================================
+# COPY QUALITY MICRO-FIX (2026-08-18): _compact_korean_display_text
+# =============================================================================
+
+
+def test_compact_korean_display_text_drops_redundant_topic_clause_after_paren():
+    text = "메간 디 스탤리언의 UMG 인터스코프 계약(마스터권 유지)은 아티스트 권리 협상의 새 기준을 제시한다."
+    assert _compact_korean_display_text(text) == "아티스트 권리 협상의 새 기준"
+
+
+def test_compact_korean_display_text_leaves_verb_ending_sentence_untouched():
+    """CORRECTNESS OVER COVERAGE: a real relative-clause verb ending
+    ("지키는") must never be mistaken for a topic-marker split point --
+    there is no closing-paren-anchored topic marker here, so the real
+    sentence is returned completely unchanged rather than mangled."""
+    text = "신보마다 연속으로 빌보드 200 정상을 지키는 것은 팬덤 기반 초동 판매력이 매우 안정적임을 보여준다."
+    assert _compact_korean_display_text(text) == text
+
+
+def test_compact_korean_display_text_leaves_short_class_fallback_untouched():
+    text = "AI 음악 유통 기준 변화 신호"
+    assert _compact_korean_display_text(text) == text
+
+
+def test_compact_korean_display_text_handles_none():
+    assert _compact_korean_display_text(None) is None
+
+
+def test_music_digest_shows_no_ellipsis_for_current_2026_08_18_shaped_candidate():
+    """HARD QUALITY RULE: the compact structural rewrite must eliminate
+    the ellipsis entirely for a real Megan/Beatport-shaped candidate,
+    never merely shrink it."""
+    data = _empty_dashboard()
+    lead_item = {"title": "Megan Thee Stallion inks deal with UMG's Interscope",
+                 "ko_title": "Megan Thee Stallion, UMG의 Interscope와 계약 체결 – 마스터 소유권 유지",
+                 "translation_status": "TRANSLATED", "event_key": "ev-lead", "source_url": "https://x"}
+    data["today_music_intelligence"] = [
+        {"type": "INDUSTRY_NEWS", "headline_item": lead_item, "is_strongest": True,
+         "why_it_matters": "메간 디 스탤리언의 UMG 인터스코프 계약(마스터권 유지)은 아티스트 권리 협상의 새 기준을 제시한다."},
+    ]
+    data["news"]["SPOTIFY"] = {"state": "NORMAL", "items": [
+        {"title": "Beatport is now banning fully AI-generated songs",
+         "ko_title": "Beatport, 완전히 AI로 생성된 곡 금지", "translation_status": "TRANSLATED",
+         "reason": None, "source_url": "https://x", "event_key": "ev-industry", "source_count": 1},
+    ]}
+    text = render_music_kakao_digest(data)
+    assert "…" not in text
+    assert "LEAD: Megan Thee Stallion, UMG의 Interscope와 계약 체결 – 마스터 소유권 유지" in text
+    assert "→ 아티스트 권리 협상의 새 기준" in text
+    assert "INDUSTRY: Beatport, 완전히 AI로 생성된 곡 금지" in text
+    assert "→ AI 음악 유통 기준 변화 신호" in text

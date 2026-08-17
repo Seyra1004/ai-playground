@@ -249,7 +249,16 @@ def _extract_trustworthy_image_url(extra_json):
     thumbnail / media:content / an image-typed <enclosure>) -- never
     fetched, scraped, or guessed here or at render time. Returns None for
     anything that isn't a real, well-formed http(s) URL string, which is
-    exactly what "no image" looks like downstream -- never a placeholder."""
+    exactly what "no image" looks like downstream -- never a placeholder.
+
+    IMAGE QUALITY GATE (EDITORIAL QUALITY PASS, 2026-08-18, confirmed
+    real defect): a Google-News-aggregated feed can carry a feed-provided
+    image_url that is itself hosted on Google's own unreliable image
+    infrastructure (see report.image_enrichment.is_unreliable_image_url's
+    own docstring for the live-verified HTTP 400 this catches) -- a
+    well-formed http(s) URL string is necessary but not sufficient; this
+    is the SAME real reject rule the article-page-enrichment fallback
+    already applies, reused (not duplicated) so both image paths agree."""
     if not extra_json:
         return None
     try:
@@ -262,9 +271,13 @@ def _extract_trustworthy_image_url(extra_json):
     if not isinstance(image_url, str):
         return None
     image_url = image_url.strip()
-    if image_url.startswith("http://") or image_url.startswith("https://"):
-        return image_url
-    return None
+    if not (image_url.startswith("http://") or image_url.startswith("https://")):
+        return None
+    from report.image_enrichment import is_unreliable_image_url
+
+    if is_unreliable_image_url(image_url):
+        return None
+    return image_url
 
 
 # MULTI-PUBLISHER CLUSTERING GAP / SOURCE PRESENTATION FIX (EDITORIAL
@@ -1104,6 +1117,89 @@ def rank_music_industry_items(items):
     real relative order (freshness/tier/source-diversity, already decided
     upstream), never re-scored a second time."""
     return sorted(items, key=music_industry_priority_rank)
+
+
+# PROFESSIONAL EVIDENCE SELECTION RECOVERY (2026-08-18, confirmed real
+# defect via a read-only pipeline trace): report.ai_synthesis's
+# NEWS_COMBINED call is ONE generic "select the most important stories"
+# LLM prompt shared across AI/ECONOMY/SOCIETY/TIKTOK/SPOTIFY, capped at
+# MAX_SELECTIONS_PER_CATEGORY per category, with zero music-professional-
+# value awareness. Confirmed real example: a real Beatport AI-generated-
+# song-ban story (a genuine rights/AI-music-class story, priority class 1
+# under this module's own music_industry_priority_rank) was present in
+# the SAME real deterministic candidate pool report.candidate_selection.
+# select_news_candidates already computes (ranked #14 of 22 real SPOTIFY-
+# pooled candidates that day) but the LLM picked 5 more artist-prominent
+# stories instead -- never selected, so never translated, so never seen
+# by ANY downstream Music section (Industry/Music Today/Producer
+# Intelligence all read from this same narrow selected set). This is a
+# GENERAL class of problem (any real professional-class story can lose
+# this way on any day), not specific to Beatport -- backfilled by real
+# priority class only, never by title.
+#
+# MUSIC-page-ONLY, never touches DAILY (see callers: only
+# report.web_render_v2.render_music_page_html_v2 invokes this; DAILY's
+# render_dashboard_html_v2 is untouched and never calls it). Never a new
+# LLM call, never a new ingestion source, never new architecture: reuses
+# the SAME real deterministic candidate pool, the SAME real priority-
+# class ranking, and the SAME real report.translation pathway every
+# other displayed item already goes through.
+_PROFESSIONAL_BACKFILL_MAX_PRIORITY = 4
+_PROFESSIONAL_BACKFILL_LIMIT = 2
+
+
+def professional_evidence_backfill(conn, report_date_kst, existing_items, category):
+    """Returns a short list of additional, real, translated items for
+    `category` that NEWS_COMBINED did not select but that carry genuine
+    professional-business/rights/platform/AI-music value (real priority
+    class 1-4 -- see music_industry_priority_rank; classes 5-8/unranked/
+    downranked are ordinary or low-value and never backfilled). Empty
+    list on a day with nothing qualifying -- never pads with a generic
+    item to fill a quota, and never re-adds an id already present in
+    `existing_items`."""
+    existing_ids = {item.get("id") for item in existing_items}
+    candidates = select_news_candidates(conn, [category], report_date_kst)[category]
+    scored = []
+    for candidate in candidates:
+        if candidate["id"] in existing_ids:
+            continue
+        detail = _lookup_item_detail(conn, candidate["id"])
+        if detail is None:
+            continue
+        priority = music_industry_priority_rank({"title": detail["title"], "snippet": detail["snippet"]})
+        if priority > _PROFESSIONAL_BACKFILL_MAX_PRIORITY:
+            continue
+        scored.append((priority, candidate, detail))
+    scored.sort(key=lambda row: (row[0], -row[1]["source_count"], row[1]["event_key"]))
+    scored = scored[:_PROFESSIONAL_BACKFILL_LIMIT]
+    if not scored:
+        return []
+
+    provider = build_translation_provider()
+    backfilled = []
+    for index, (priority, candidate, detail) in enumerate(scored):
+        title = _fix_known_truncated_publisher_suffix(detail["title"])
+        snippet = _fix_known_truncated_publisher_suffix(detail["snippet"])
+        if _is_redundant(snippet, title):
+            snippet = None
+        item = {
+            "id": candidate["id"],
+            "title": title,
+            "reason": None,
+            "snippet": snippet,
+            "source_url": detail["source_url"],
+            "source_name": detail["source_name"],
+            "published_at": detail["published_at"],
+            "image_url": detail["image_url"],
+            "event_key": candidate["event_key"],
+            "source_count": candidate["source_count"],
+            "tier": _tier_for(
+                index, candidate.get("freshness_bucket"),
+                _is_lead_eligible_by_trust(candidate.get("source_names") or [], candidate["source_count"]),
+            ),
+        }
+        backfilled.append(_attach_translation(conn, provider, item))
+    return backfilled
 
 
 def _find_producer_insight_for_title(producer_intelligence, title):
@@ -2011,6 +2107,17 @@ def _build_music_today(data, exclude_keys=None):
             "headline_item": None, "fact_text": reason,
             "why_it_matters": None, "producer_implication": None,
             "source_url": item.get("source_url"),
+            # FINAL EDITORIAL QUALITY PASS (2026-08-18, confirmed real
+            # defect): headline_item is deliberately None here (see this
+            # function's own docstring -- the visible sentence must never
+            # be the bare headline Industry already shows), but that also
+            # stripped the real event_key report.web_render_v2._signal_
+            # event_identity needs to recognize "this backfilled item is
+            # the SAME real event Industry is already displaying" -- a
+            # plain top-level `event_key` field (never a headline_item)
+            # carries that real identity forward without reintroducing
+            # the bare headline.
+            "event_key": item.get("event_key"),
         }
         key = _candidate_key(backfill_candidate)
         if key in already_fresh_keys:
@@ -2139,4 +2246,14 @@ def build_dashboard_data_v2(conn, report_date_kst):
     data["today_music_intelligence"], used_music_keys = _build_today_music_intelligence(data)
     data["music_today"] = _build_music_today(data, exclude_keys=used_music_keys)
     data["spotify_watch_candidates"] = spotify_watch_candidates(data)
+    # PROFESSIONAL EVIDENCE SELECTION RECOVERY (2026-08-18): a NEW,
+    # separate dict key -- never merged into data["news"] itself -- so
+    # report.web_render_v2.render_dashboard_html_v2 (DAILY), which only
+    # ever reads data["news"], is provably unaffected; only
+    # render_music_page_html_v2 reads this key. See
+    # professional_evidence_backfill's own docstring for what/why.
+    data["music_professional_backfill"] = {
+        category: professional_evidence_backfill(conn, report_date_kst, news[category]["items"], category)
+        for category in ("SPOTIFY", "TIKTOK")
+    }
     return data

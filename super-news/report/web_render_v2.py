@@ -1119,15 +1119,22 @@ def _signal_event_identity(signal, title_to_event_key):
     """Real (event_key, evidence_refs) pair for a Hero/Today-in-Music
     signal or raw music-signal candidate. event_key comes directly from a
     real headline_item when present (INDUSTRY_NEWS -- already a real,
-    directly-known event_key, no resolution needed); otherwise resolved
-    from the signal's own real `_evidence` citations (GENRE_SIGNAL/
-    PRODUCTION_SIGNAL/KPOP_AR/PRODUCER_INSIGHT -- see report.web_data_v2.
+    directly-known event_key, no resolution needed); otherwise a direct
+    top-level `event_key` field when present (a deterministic MUSIC TODAY
+    backfill candidate -- see report.web_data_v2._build_music_today --
+    deliberately carries headline_item=None so its visible sentence is
+    never the bare headline Industry already shows, but still needs its
+    real event identity recognized here); otherwise resolved from the
+    signal's own real `_evidence` citations (GENRE_SIGNAL/PRODUCTION_
+    SIGNAL/KPOP_AR/PRODUCER_INSIGHT -- see report.web_data_v2.
     _collect_music_signal_candidates). evidence_refs is always the real
     ref-label set (report.web_data_v2's own `_evidence_refs`), used for
     the TIER 1 "cites the lead's own literal source" check below."""
     item = signal.get("headline_item")
     if item:
         event_key = item.get("event_key")
+    elif signal.get("event_key"):
+        event_key = signal.get("event_key")
     else:
         event_key = _resolve_entry_event_key({"evidence": signal.get("_evidence") or []}, title_to_event_key)
     return event_key, (signal.get("_evidence_refs") or set())
@@ -1166,23 +1173,30 @@ def _same_resolved_event(entry_event_key, lead_event_key):
     return bool(entry_event_key) and bool(lead_event_key) and entry_event_key == lead_event_key
 
 
-def _exclude_lead_event_from_today_in_music(music_today, lead_event_key, lead_refs, title_to_event_key):
-    """TODAY IN MUSIC: ZERO tolerance for the lead's own real event --
-    unlike Genre/Production/Producer below, an ordinary secondary signal
-    sitting immediately adjacent to the Lead on the same screen never
-    counts as the one allowed distinct interpretation merely because its
-    real representation (translation, paraphrase, different real outlet)
+def _exclude_lead_event_from_today_in_music(music_today, lead_event_key, lead_refs, title_to_event_key,
+                                             extra_excluded_event_keys=frozenset()):
+    """TODAY IN MUSIC: ZERO tolerance for the lead's own real event, AND
+    (FINAL EDITORIAL QUALITY PASS, 2026-08-18) for any real event already
+    displayed in Music Industry (`extra_excluded_event_keys`, see
+    _merge_music_industry_items) -- unlike Genre/Production/Producer
+    below, an ordinary secondary signal sitting immediately adjacent to
+    the Lead or to Music Industry on the same screen never counts as the
+    one allowed distinct interpretation merely because its real
+    representation (translation, paraphrase, different real outlet)
     differs (SUPER_NEWS_SPEC.md section 9's own "if an event is used as
     the lead, ordinary duplicate news cards should be suppressed" rule,
-    applied at the page's own most visually-adjacent position). Real
-    candidates never dropped for any OTHER reason here -- see report.
-    web_data_v2._build_music_today for the real "never padded" cap."""
-    if not lead_event_key and not lead_refs:
+    applied at the page's own most visually-adjacent position -- Music
+    Today sits directly beneath Music Industry, so the same "already
+    shown a moment ago" logic applies). Real candidates never dropped for
+    any OTHER reason here -- see report.web_data_v2._build_music_today
+    for the real "never padded" cap."""
+    excluded_event_keys = {key for key in ({lead_event_key} | set(extra_excluded_event_keys)) if key}
+    if not excluded_event_keys and not lead_refs:
         return music_today
     kept = []
     for candidate in music_today:
         event_key, refs = _signal_event_identity(candidate, title_to_event_key)
-        if _shares_lead_evidence(refs, lead_refs) or _same_resolved_event(event_key, lead_event_key):
+        if _shares_lead_evidence(refs, lead_refs) or (event_key and event_key in excluded_event_keys):
             continue
         kept.append(candidate)
     return kept
@@ -1249,7 +1263,8 @@ def _dedupe_producer_section_exact_duplicates(producer_insights, reference_items
     return _filter(producer_insights), _filter(reference_items), _filter(kpop_items)
 
 
-def _apply_music_event_exposure_budget(entry_lists, lead_event_key, lead_refs, title_to_event_key):
+def _apply_music_event_exposure_budget(entry_lists, lead_event_key, lead_refs, title_to_event_key,
+                                        extra_shown_event_keys=frozenset()):
     """GENRE RADAR -> PRODUCTION RADAR -> PRODUCER/A&R (insights,
     references, K-pop/A&R notes), in that real fixed editorial order --
     ONE single global decision governs every section, never an
@@ -1260,21 +1275,30 @@ def _apply_music_event_exposure_budget(entry_lists, lead_event_key, lead_refs, t
     _shares_lead_evidence) are ALWAYS suppressed, in every one of these
     lists, no budget consumed.
 
-    TIER 2 entries (resolve to the lead's SAME real event_key via
-    DIFFERENT real evidence -- see _same_resolved_event) consume the ONE
-    real allowed "distinct interpretation" slot: the FIRST such real
-    entry, walked in this fixed order across ALL these lists, is kept;
-    every subsequent real TIER 2 match, in ANY of these lists, is
-    suppressed -- even when it cites real evidence distinct from both the
-    lead AND the one already-kept exposure. "Cites different evidence" is
-    never sufficient, by itself, to earn a THIRD (or later) real exposure
-    of the same real event.
+    TIER 2 entries (resolve to the SAME real event_key as the lead OR as
+    any item already displayed in Music Industry -- `extra_shown_event_
+    keys`, see _merge_music_industry_items -- via DIFFERENT real
+    evidence) consume the ONE real allowed "distinct interpretation"
+    slot: the FIRST such real entry, walked in this fixed order across
+    ALL these lists, is kept; every subsequent real TIER 2 match, against
+    EITHER the lead OR any already-shown Industry event, in ANY of these
+    lists, is suppressed -- even when it cites real evidence distinct
+    from the one already-kept exposure (FINAL EDITORIAL QUALITY PASS,
+    2026-08-18, confirmed real defect: this budget previously only ever
+    tracked the lead's own identity, so a non-lead Industry item -- e.g.
+    a Spotify product-feature launch or a TikTok platform announcement --
+    could reappear, re-worded, in Genre/Production/Producer with no
+    limit at all; the reader experiences that as the same news repeated,
+    "different prose does NOT automatically make repetition useful").
+    "Cites different evidence" is never sufficient, by itself, to earn a
+    THIRD (or later) real exposure of the same real event.
 
     Entries matching neither tier (a genuinely unrelated real event, or
     one whose real identity could not be resolved at all -- see
     _resolve_entry_event_key's own documented limitation) are always
     kept, completely unaffected."""
-    if not lead_event_key and not lead_refs:
+    shown_event_keys = {key for key in ({lead_event_key} | set(extra_shown_event_keys)) if key}
+    if not shown_event_keys and not lead_refs:
         return entry_lists
     budget_claimed = False
     result = []
@@ -1284,7 +1308,7 @@ def _apply_music_event_exposure_budget(entry_lists, lead_event_key, lead_refs, t
             event_key, refs = _synthesis_entry_event_identity(entry, title_to_event_key)
             if _shares_lead_evidence(refs, lead_refs):
                 continue
-            if _same_resolved_event(event_key, lead_event_key):
+            if event_key and event_key in shown_event_keys:
                 if budget_claimed:
                     continue
                 budget_claimed = True
@@ -1357,6 +1381,7 @@ def _apply_full_music_cross_section_dedup(
     hero_secondary, music_today, genre_signals, production_notes,
     producer_insights, producer_references, kpop_ar_notes,
     lead_event_key, title_to_event_key, known_chart_keys,
+    extra_seed_event_keys=frozenset(),
 ):
     """ONE combined identity per entry -- its real event_key (article-
     backed, via _synthesis_entry_event_identity/_signal_event_identity)
@@ -1387,8 +1412,14 @@ def _apply_full_music_cross_section_dedup(
     # event_key at all (see _signal_event_identity), and TIER 1
     # (_shares_lead_evidence) in the exposure-budget pass above already
     # covers literal-source overlap for that case, so lead_refs itself
-    # needs no separate handling here.
-    seen = {lead_event_key} if lead_event_key else set()
+    # needs no separate handling here. ALSO seeded with
+    # `extra_seed_event_keys` (FINAL EDITORIAL QUALITY PASS, 2026-08-18:
+    # whichever real events are already displayed in Music Industry, see
+    # _merge_music_industry_items) -- an event already shown as an
+    # Industry headline is "already shown a moment ago" exactly like the
+    # lead, so a later section repeating it in different prose is still
+    # zero new information for the reader.
+    seen = {key for key in ({lead_event_key} | set(extra_seed_event_keys)) if key}
 
     def _identity_for(entry, is_signal):
         if is_signal:
@@ -1970,7 +2001,7 @@ def _render_compact_news_section(block_class, section_id, label, data, primary_c
     )
 
 
-def _merge_music_industry_items(news, exclude_event_key=None):
+def _merge_music_industry_items(news, exclude_event_key=None, extra_items=()):
     """PROFESSIONAL EDITORIAL QUALITY PASS: re-ranked by real USER
     (songwriter/producer) IMPACT -- see report.web_data_v2.
     rank_music_industry_items's own real priority-class keyword system --
@@ -2006,10 +2037,18 @@ def _merge_music_industry_items(news, exclude_event_key=None):
     classify into one of the 8 named classes, still has a real signal
     behind it (e.g. a widely-covered rights/takedown story) and is never
     swept out just because it lacks an exact keyword match -- only a
-    single-source promotional item is."""
+    single-source promotional item is.
+
+    `extra_items` (PROFESSIONAL EVIDENCE SELECTION RECOVERY, 2026-08-18):
+    real items report.web_data_v2.professional_evidence_backfill found --
+    genuine professional-class evidence NEWS_COMBINED's own generic
+    selection missed, never a fabricated item. Defaults to empty so any
+    caller that doesn't pass it (report.web_render_v2.
+    render_dashboard_html_v2/DAILY) is provably unaffected; only
+    render_music_page_html_v2 passes real backfilled items."""
     spotify_items = news["SPOTIFY"]["items"]
     tiktok_items = news["TIKTOK"]["items"]
-    merged = rank_music_industry_items(spotify_items + tiktok_items)
+    merged = rank_music_industry_items(spotify_items + tiktok_items + list(extra_items))
 
     def _passes_quality_floor(item):
         # CANDIDATE-SUPPLY BOTTLENECK FIX (2026-08-18, confirmed real
@@ -2042,13 +2081,16 @@ def _music_industry_state(news):
     return "QUIET"
 
 
-def _render_industry_section(news, exclude_event_key=None):
+def _render_industry_section(news, exclude_event_key=None, extra_items=()):
     # `_music_industry_state` reads the real, UNFILTERED news lists --
     # the lead-suppression above only ever changes which real items are
     # DISPLAYED, never whether the category honestly had real coverage
     # today (a day whose only industry item became the lead must still
     # read as real NORMAL coverage, never a false-negative "no news").
-    merged = {"state": _music_industry_state(news), "items": _merge_music_industry_items(news, exclude_event_key)}
+    merged = {
+        "state": _music_industry_state(news),
+        "items": _merge_music_industry_items(news, exclude_event_key, extra_items),
+    }
     return _render_compact_news_section(
         "block-INDUSTRY", "section-INDUSTRY", "뮤직 인더스트리", merged, _MUSIC_INDUSTRY_PRIMARY_CAP,
         secondary_end=4, feature_label="업계 뉴스", show_story_type=True,
@@ -2625,6 +2667,43 @@ def _render_product_nav(links, badge=None):
     )
 
 
+def resolve_music_lead_and_industry(dashboard_data):
+    """KAKAO/WEB CONTENT-IDENTITY CONSOLIDATION (2026-08-18, confirmed real
+    defect: report.kakao_render_v2.render_music_kakao_digest independently
+    re-derived its own Industry line straight from raw dashboard_data
+    ["news"]["TIKTOK"/"SPOTIFY"]["items"], bypassing the SAME real Lead-
+    exclusion / priority-ranking / professional-evidence-backfill /
+    quality-floor pipeline render_music_page_html_v2 already applies below
+    -- so Kakao could show a lower-priority or even lead-duplicate story
+    while the web page correctly showed a stronger one). The ONE real
+    computation of "today's Lead" and "today's final, deduped, backfilled
+    Industry pool" -- every MUSIC consumer (the web page below AND
+    report.kakao_render_v2.render_music_kakao_digest) calls this SAME
+    function so they can never independently diverge again. Returns
+    (lead_signal, lead_event_key, lead_refs, industry_items,
+    title_to_event_key)."""
+    news = dashboard_data["news"]
+    # .get(...) or [] -- not direct indexing: build_dashboard_data_v2
+    # always sets this key in production, but a minimal hand-built test
+    # dashboard (or a future caller assembling a partial dict) must not
+    # hard-crash just because it omitted a key this function itself
+    # never writes to.
+    lead_signal = _lead_signal(dashboard_data.get("today_music_intelligence") or [])
+    title_to_event_key = _news_title_to_event_key_map(news)
+    lead_event_key, lead_refs = (None, set())
+    if lead_signal:
+        lead_event_key, lead_refs = _signal_event_identity(lead_signal, title_to_event_key)
+
+    professional_backfill = dashboard_data.get("music_professional_backfill") or {}
+    industry_extra_items = (
+        list(professional_backfill.get("SPOTIFY") or []) + list(professional_backfill.get("TIKTOK") or [])
+    )
+    industry_items = _merge_music_industry_items(
+        news, exclude_event_key=lead_event_key, extra_items=industry_extra_items,
+    )
+    return lead_signal, lead_event_key, lead_refs, industry_items, title_to_event_key
+
+
 def render_music_page_html_v2(dashboard_data):
     """SUPER NEWS MUSIC -- a standalone product page: today's music
     intelligence, chart pulse, music industry news, genre/production
@@ -2638,18 +2717,38 @@ def render_music_page_html_v2(dashboard_data):
     spotify_chart = dashboard_data["spotify_chart"]
     y, m, d = report_date_kst.split("-")
 
-    lead_signal = _lead_signal(dashboard_data["today_music_intelligence"])
-    title_to_event_key = _news_title_to_event_key_map(news)
-    lead_event_key, lead_refs = (None, set())
-    if lead_signal:
-        lead_event_key, lead_refs = _signal_event_identity(lead_signal, title_to_event_key)
+    lead_signal, lead_event_key, lead_refs, industry_items_for_dedup, title_to_event_key = (
+        resolve_music_lead_and_industry(dashboard_data)
+    )
 
     hero_secondary_raw = [
         s for s in dashboard_data["today_music_intelligence"] if s is not lead_signal
     ][:_HERO_SECONDARY_MAX]
 
+    # FINAL EDITORIAL QUALITY PASS (2026-08-18, confirmed real defect):
+    # Music Industry is rendered near the TOP of this page (see
+    # sections_html below), but every downstream dedup pass here
+    # previously only ever tracked the LEAD's own identity -- a non-lead
+    # Industry item (e.g. a Spotify product-feature launch, a TikTok
+    # platform announcement) could reappear, reworded, in Today-in-Music/
+    # Genre/Production/Producer with no limit. Computed once, from the
+    # SAME real `_merge_music_industry_items` pool Industry itself
+    # renders from, so "already shown" always means the literal set of
+    # events the reader just saw a moment ago -- never a second guess.
+    # PROFESSIONAL EVIDENCE SELECTION RECOVERY (2026-08-18): real backfilled
+    # items report.web_data_v2.professional_evidence_backfill already
+    # computed (build_dashboard_data_v2 time, MUSIC-page-only key -- see
+    # its own docstring), already folded into industry_items_for_dedup by
+    # resolve_music_lead_and_industry above -- re-derived here only for
+    # _render_industry_section's own extra_items argument below (same
+    # values, not a second computation of the merge itself).
+    professional_backfill = dashboard_data.get("music_professional_backfill") or {}
+    industry_extra_items = list(professional_backfill.get("SPOTIFY") or []) + list(professional_backfill.get("TIKTOK") or [])
+    industry_event_keys = {item.get("event_key") for item in industry_items_for_dedup if item.get("event_key")}
+
     music_today = _exclude_lead_event_from_today_in_music(
         dashboard_data["music_today"], lead_event_key, lead_refs, title_to_event_key,
+        extra_excluded_event_keys=industry_event_keys,
     )
 
     trend = dashboard_data["music_trend_intelligence"]
@@ -2662,6 +2761,7 @@ def render_music_page_html_v2(dashboard_data):
                 trend.get("kpop_ar_notes") or [],
             ],
             lead_event_key, lead_refs, title_to_event_key,
+            extra_shown_event_keys=industry_event_keys,
         )
     )
     # SEMANTIC DUPLICATION GUARD (second pass, cross-section vs EACH
@@ -2676,6 +2776,7 @@ def render_music_page_html_v2(dashboard_data):
         hero_secondary_raw, music_today, genre_signals, production_notes,
         producer_insights, producer_references, kpop_ar_notes,
         lead_event_key, title_to_event_key, known_chart_keys,
+        extra_seed_event_keys=industry_event_keys,
     )
     producer_insights, producer_references, kpop_ar_notes = _dedupe_producer_section_exact_duplicates(
         producer_insights, producer_references, kpop_ar_notes, title_to_event_key,
@@ -2712,7 +2813,7 @@ def render_music_page_html_v2(dashboard_data):
         # 소식 (relocated here from .today-intel, see above), then Music
         # Today and the chart-heavy sections -- internal design of these
         # sections is unchanged, this is a position-only change.
-        _render_industry_section(news, exclude_event_key=lead_event_key),
+        _render_industry_section(news, exclude_event_key=lead_event_key, extra_items=industry_extra_items),
         today_secondary_html,
         _render_music_today_section(music_today),
         _render_spotify_watch_section(
