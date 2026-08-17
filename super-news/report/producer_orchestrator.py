@@ -33,7 +33,12 @@ from ingestion.orchestrator import finalize_run, start_run
 from report.persistence import persist_producer_intelligence
 from report.producer_synthesis import build_evidence_catalog, synthesize_producer_intelligence
 from report.validation import ProducerValidationError, validate_producer_insights
-from report.web_data_v2 import _MUSIC_INDUSTRY_DOWNRANKED_PRIORITY, build_dashboard_data_v2, music_industry_priority_rank
+from report.web_data_v2 import (
+    _MUSIC_INDUSTRY_DOWNRANKED_PRIORITY,
+    build_dashboard_data_v2,
+    music_industry_priority_rank,
+    synthesis_extra_industry_news,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +75,10 @@ def run_daily_producer_intelligence(conn, run_id, report_date_kst, llm=None):
         item for item in (dashboard_data["news"]["TIKTOK"]["items"] + dashboard_data["news"]["SPOTIFY"]["items"])
         if music_industry_priority_rank(item) != _MUSIC_INDUSTRY_DOWNRANKED_PRIORITY
     ]
+    # PRODUCER/A&R ROUTING FIX (2026-08-18): real professional/craft
+    # evidence NEWS_COMBINED's own narrow selection missed -- see
+    # report.web_data_v2.synthesis_extra_industry_news's own docstring.
+    industry_news += synthesis_extra_industry_news(dashboard_data, conn, report_date_kst)
 
     # Evidence-emptiness check BEFORE constructing an LLM client -- mirrors
     # report.orchestrator.run_daily_report's has_any_news_candidate gate.

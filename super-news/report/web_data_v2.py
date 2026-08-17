@@ -1202,6 +1202,99 @@ def professional_evidence_backfill(conn, report_date_kst, existing_items, catego
     return backfilled
 
 
+# PRODUCTION RADAR / PRODUCER-A&R ROUTING FIX (2026-08-18, confirmed real
+# defect via a read-only trace): report.music_trend_orchestrator.
+# run_daily_music_trend_intelligence and report.producer_orchestrator.
+# run_daily_producer_intelligence both build their own `industry_news`
+# list EXCLUSIVELY from dashboard_data["news"]["TIKTOK"/"SPOTIFY"]["items"]
+# -- the already-persisted NEWS_COMBINED selection -- never from
+# professional_evidence_backfill's own pool (rights/platform-policy/
+# AI-music/label-A&R, already deterministic, already excludes anything
+# NEWS_COMBINED selected) and never from any craft-class evidence at all,
+# since music_industry_priority_rank's 8 classes are entirely business/
+# rights-oriented -- there has never been a craft (songwriting/production/
+# arrangement/recording/mixing/mastering/sound-design) class. So even a
+# genuinely craft-relevant article (confirmed real example: Attack
+# Magazine production/sound-design tutorials) could never reach Production
+# Radar's evidence catalog, no matter how strong the underlying source
+# supply became.
+#
+# Real gossip/lifestyle keywords a craft term might incidentally appear
+# inside (see _MUSIC_INDUSTRY_DOWNRANK_KEYWORDS) are excluded here too --
+# the SAME real quality gate _merge_music_industry_items already applies,
+# never a second, weaker one.
+_CRAFT_EVIDENCE_KEYWORDS = (
+    "songwrit", "co-writ", "co writ", "composition", "composer", "arrange", "orchestrat",
+    "produced by", "music producer", "producer,", "producer.", "beatmaker", "beat maker",
+    "production credit", "recording session", "mixed by", "mixing", "mastered by",
+    "mastering", "sound design", "instrumentation", "studio session", "sound engineer",
+    "mix engineer", "master engineer", "engineered by",
+)
+_CRAFT_EVIDENCE_LIMIT = 3
+
+
+def craft_evidence_candidates(conn, report_date_kst, exclude_ids):
+    """Deterministic CRAFT-class filter (see module comment above) over
+    the SAME real candidate pool report.candidate_selection.
+    select_news_candidates already computes for SPOTIFY+TIKTOK (which
+    already pools MUSIC_INDUSTRY_NEWS -- see candidate_selection's own
+    CATEGORY_SOURCES) -- never a new source, never an LLM call at this
+    stage; only a small already-filtered set is ever handed to synthesis.
+    `exclude_ids` are real candidate ids already reaching Production/
+    Producer via another path (NEWS_COMBINED selection, professional_
+    evidence_backfill) -- never re-added here as a duplicate. Returns
+    plain {"title","snippet","event_key"} dicts, the exact shape report.
+    music_trend_synthesis.build_evidence_catalog / report.
+    producer_synthesis.build_evidence_catalog already expect from an
+    industry_news entry. Empty list on a day with no real craft evidence
+    -- never padded."""
+    candidates = select_news_candidates(conn, ["SPOTIFY", "TIKTOK"], report_date_kst)
+    pool = candidates["SPOTIFY"] + candidates["TIKTOK"]
+    matched = []
+    for candidate in pool:
+        if candidate["id"] in exclude_ids:
+            continue
+        detail = _lookup_item_detail(conn, candidate["id"])
+        if detail is None:
+            continue
+        priority = music_industry_priority_rank({"title": detail["title"], "snippet": detail["snippet"]})
+        if priority == _MUSIC_INDUSTRY_DOWNRANKED_PRIORITY:
+            continue
+        combined = f"{detail['title']} {detail.get('snippet') or ''}".lower()
+        if not any(keyword in combined for keyword in _CRAFT_EVIDENCE_KEYWORDS):
+            continue
+        matched.append((candidate, detail))
+    matched.sort(key=lambda pair: (-pair[0]["source_count"], pair[0]["event_key"]))
+    return [
+        {"title": detail["title"], "snippet": detail["snippet"], "event_key": candidate["event_key"]}
+        for candidate, detail in matched[:_CRAFT_EVIDENCE_LIMIT]
+    ]
+
+
+def synthesis_extra_industry_news(dashboard_data, conn, report_date_kst):
+    """Additional real industry_news-shaped items for report.
+    music_trend_orchestrator/report.producer_orchestrator to fold into
+    their own industry_news list, so Production Radar and Producer/A&R
+    can draw on evidence beyond NEWS_COMBINED's own narrow selection --
+    the SAME already-computed professional_evidence_backfill pool
+    (rights/platform-policy/AI-music/label-A&R -- directly relevant to
+    Producer/A&R's repertoire/rights/label-strategy ownership) PLUS
+    craft_evidence_candidates' new craft-class pool (directly relevant to
+    Production Radar's songwriting/production/arrangement/recording/
+    mixing/mastering ownership). Both deterministic, both already
+    excluding anything NEWS_COMBINED already selected or each other --
+    never a duplicate entry, never a new LLM call at this stage."""
+    existing_ids = {
+        item.get("id") for item in
+        dashboard_data["news"]["TIKTOK"]["items"] + dashboard_data["news"]["SPOTIFY"]["items"]
+    }
+    professional_backfill = dashboard_data.get("music_professional_backfill") or {}
+    extra = list(professional_backfill.get("SPOTIFY") or []) + list(professional_backfill.get("TIKTOK") or [])
+    extra_ids = existing_ids | {item.get("id") for item in extra if item.get("id") is not None}
+    extra += craft_evidence_candidates(conn, report_date_kst, extra_ids)
+    return extra
+
+
 def _find_producer_insight_for_title(producer_intelligence, title):
     """LEAD/SPOTIFY WATCH INTELLIGENCE GAP (PREMIUM INTELLIGENCE UPGRADE
     PASS, confirmed real defect: a no-LLM-fallback INDUSTRY_NEWS item --

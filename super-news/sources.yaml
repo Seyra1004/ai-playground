@@ -647,3 +647,66 @@ sources:
       backoff_jitter_seconds: 0.5
     auth:
       mode: none
+
+  # PROFESSIONAL SOURCE SUPPLY UPGRADE (2026-08-18, confirmed real gap): a
+  # keyword scan of the prior 7 days' MUSIC_INDUSTRY_NEWS/SPOTIFY_NEWS/
+  # TIKTOK_NEWS raw_items found essentially ZERO real songwriting/
+  # production/A&R CRAFT content -- every existing source above is general
+  # music trade press (deals, charts, AI/rights policy), never a
+  # songwriter/producer-specialist publication. The 3 sources below were
+  # each verified by a real, direct HTTP probe the same day (HTTP 200,
+  # parseable RSS, real current entries dated 2026-08-17) and were chosen
+  # FOR their craft/A&R specialization, not their fame -- e.g.
+  # americansongwriter.com and soundonsound.com/rss.xml were also probed
+  # (both real HTTP 200) but rejected: americansongwriter's general feed
+  # sampled as mostly music-history/nostalgia listicles, and soundonsound's
+  # feed is gear/hardware retail news, neither a genuine craft-technique
+  # fit for this gap. waterandmusic.com/feed and hypebot.com/feed both
+  # returned real HTTP 404 and were not added.
+  - source_name: musicrow_rss
+    enabled: true
+    source_type: rss
+    category: MUSIC_INDUSTRY_NEWS
+    region: GLOBAL
+    display_name: MusicRow
+    quality_tier: TIER_2
+    endpoint: https://musicrow.com/feed/
+    timeout_seconds: 10
+    retry:
+      max_attempts: 3
+      backoff_base_seconds: 1.0
+      backoff_jitter_seconds: 0.5
+    auth:
+      mode: none
+
+  - source_name: musictech_rss
+    enabled: true
+    source_type: rss
+    category: MUSIC_INDUSTRY_NEWS
+    region: GLOBAL
+    display_name: MusicTech
+    quality_tier: TIER_3
+    endpoint: https://musictech.net/feed/
+    timeout_seconds: 10
+    retry:
+      max_attempts: 3
+      backoff_base_seconds: 1.0
+      backoff_jitter_seconds: 0.5
+    auth:
+      mode: none
+
+  - source_name: attackmagazine_rss
+    enabled: true
+    source_type: rss
+    category: MUSIC_INDUSTRY_NEWS
+    region: GLOBAL
+    display_name: Attack Magazine
+    quality_tier: TIER_3
+    endpoint: https://www.attackmagazine.com/feed/
+    timeout_seconds: 10
+    retry:
+      max_attempts: 3
+      backoff_base_seconds: 1.0
+      backoff_jitter_seconds: 0.5
+    auth:
+      mode: none

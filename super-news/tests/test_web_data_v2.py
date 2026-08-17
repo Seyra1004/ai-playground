@@ -11,9 +11,11 @@ from report.web_data_v2 import (
     PRODUCER_INTELLIGENCE_CATEGORY,
     _collect_music_signal_candidates,
     build_dashboard_data_v2,
+    craft_evidence_candidates,
     music_industry_priority_rank,
     rank_economy_society_items,
     rank_music_industry_items,
+    synthesis_extra_industry_news,
 )
 
 
@@ -1948,3 +1950,125 @@ def test_collect_music_signal_candidates_skips_synthesis_card_matching_industry_
     types = [c["type"] for c in candidates]
     assert "INDUSTRY_NEWS" in types
     assert "GENRE_SIGNAL" not in types
+
+
+# =============================================================================
+# PRODUCTION RADAR / PRODUCER-A&R ROUTING FIX (2026-08-18):
+# craft_evidence_candidates / synthesis_extra_industry_news
+# =============================================================================
+
+
+def test_craft_evidence_candidates_matches_genuine_production_technique_article(conn):
+    _insert_raw_candidate(
+        conn, "craft1", "MUSIC_INDUSTRY_NEWS",
+        "Producer breaks down his mixing and mastering workflow for a hit single",
+        source_name="attackmagazine_rss", collected_at="2026-08-13T01:00:00+00:00",
+    )
+    results = craft_evidence_candidates(conn, "2026-08-13", exclude_ids=set())
+    titles = [r["title"] for r in results]
+    assert any("mixing and mastering" in t for t in titles)
+
+
+def test_craft_evidence_candidates_rejects_generic_tour_announcement(conn):
+    _insert_raw_candidate(
+        conn, "tour1", "MUSIC_INDUSTRY_NEWS",
+        "Dylan Gossett Plots UK Tour For 2027",
+        source_name="musicrow_rss", collected_at="2026-08-13T01:00:00+00:00",
+    )
+    results = craft_evidence_candidates(conn, "2026-08-13", exclude_ids=set())
+    assert results == []
+
+
+def test_craft_evidence_candidates_rejects_gossip_even_with_incidental_craft_keyword(conn):
+    """A craft keyword appearing INSIDE an otherwise-gossip story (the SAME
+    real defect music_industry_priority_rank's own DOWNRANK gate already
+    guards against for Industry) must not slip through here either."""
+    _insert_raw_candidate(
+        conn, "gossip1", "MUSIC_INDUSTRY_NEWS",
+        "Star Deletes TikTok Comment About Ex-Producer After Breakup Rumors",
+        source_name="tiktok_music_news_google", collected_at="2026-08-13T01:00:00+00:00",
+    )
+    results = craft_evidence_candidates(conn, "2026-08-13", exclude_ids=set())
+    assert results == []
+
+
+def test_craft_evidence_candidates_excludes_ids_already_used_elsewhere(conn):
+    _insert_raw_candidate(
+        conn, "craft2", "MUSIC_INDUSTRY_NEWS",
+        "How to make your own kick drums: a mixing and sound design walkthrough",
+        source_name="attackmagazine_rss", collected_at="2026-08-13T01:00:00+00:00",
+    )
+    pool = conn.execute("SELECT id FROM normalized_items WHERE normalized_title LIKE '%kick drums%'").fetchall()
+    already_used_ids = {row[0] for row in pool}
+    results = craft_evidence_candidates(conn, "2026-08-13", exclude_ids=already_used_ids)
+    assert results == []
+
+
+def test_craft_evidence_candidates_honest_empty_when_no_real_craft_evidence(conn):
+    _insert_raw_candidate(
+        conn, "generic1", "MUSIC_INDUSTRY_NEWS", "Artist Announces New Album Release Date",
+        source_name="billboard_rss", collected_at="2026-08-13T01:00:00+00:00",
+    )
+    results = craft_evidence_candidates(conn, "2026-08-13", exclude_ids=set())
+    assert results == []
+
+
+def test_synthesis_extra_industry_news_includes_backfill_and_craft(conn):
+    """A real NEWS_COMBINED selection exists (selecting a THIRD, unrelated
+    item) so report.web_data_v2._news_section's own no-selection-yet
+    fallback never kicks in and masks what this function actually adds --
+    both the rights/backfill item and the craft item must reach
+    synthesis_extra_industry_news's own output as genuinely additional
+    evidence, neither one NEWS_COMBINED itself picked."""
+    run_row_id = _insert_run(conn)
+    selected_id = _insert_normalized_item(
+        conn, "selected1", "SPOTIFY_NEWS", "Spotify launches a new playlist feature", event_key="ev-selected1",
+    )
+    _insert_reports_marker(conn, run_row_id)
+    _insert_category_status(conn, run_row_id, "SPOTIFY", "REPORT_GENERATED", 1, 1)
+    for cat in ("AI", "ECONOMY", "SOCIETY", "TIKTOK"):
+        _insert_category_status(conn, run_row_id, cat, "NOT_READY", 0, 0)
+    _insert_interpretation(conn, run_row_id, {
+        "AI": [], "ECONOMY": [], "SOCIETY": [], "TIKTOK": [],
+        "SPOTIFY": [{"id": selected_id, "reason": "real selection reason"}],
+    })
+    _insert_raw_candidate(
+        conn, "rights1", "MUSIC_INDUSTRY_NEWS",
+        "Label wins copyright lawsuit over unlicensed sample, royalties awarded",
+        source_name="music_business_worldwide_rss", collected_at="2026-08-13T01:00:00+00:00",
+    )
+    _insert_raw_candidate(
+        conn, "craft3", "MUSIC_INDUSTRY_NEWS",
+        "Producer breaks down his mixing and mastering workflow for a hit single",
+        source_name="musictech_rss", collected_at="2026-08-13T01:00:00+00:00",
+    )
+    data = build_dashboard_data_v2(conn, "2026-08-13")
+    extra = synthesis_extra_industry_news(data, conn, "2026-08-13")
+    titles = [item["title"] for item in extra]
+    assert any("copyright lawsuit" in t for t in titles)
+    assert any("mixing and mastering" in t for t in titles)
+    assert not any("playlist feature" in t for t in titles)
+
+
+def test_synthesis_extra_industry_news_never_duplicates_an_already_selected_event(conn):
+    """The SAME real event a NEWS_COMBINED selection already picked must
+    never also appear in the extra pool -- a second, independent
+    inclusion path is exactly the bug this fix must not reintroduce."""
+    run_row_id = _insert_run(conn)
+    item_id = _insert_normalized_item(
+        conn, "sel1", "SPOTIFY_NEWS",
+        "Producer breaks down his mixing and mastering workflow for a hit single",
+        source_name="musictech_rss", event_key="ev-sel1",
+    )
+    _insert_reports_marker(conn, run_row_id)
+    _insert_category_status(conn, run_row_id, "SPOTIFY", "REPORT_GENERATED", 1, 1)
+    for cat in ("AI", "ECONOMY", "SOCIETY", "TIKTOK"):
+        _insert_category_status(conn, run_row_id, cat, "NOT_READY", 0, 0)
+    _insert_interpretation(conn, run_row_id, {
+        "AI": [], "ECONOMY": [], "SOCIETY": [], "TIKTOK": [],
+        "SPOTIFY": [{"id": item_id, "reason": "real selection reason"}],
+    })
+    data = build_dashboard_data_v2(conn, "2026-08-13")
+    assert any(item.get("event_key") == "ev-sel1" for item in data["news"]["SPOTIFY"]["items"])
+    extra = synthesis_extra_industry_news(data, conn, "2026-08-13")
+    assert not any(item.get("event_key") == "ev-sel1" for item in extra)

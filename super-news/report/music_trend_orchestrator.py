@@ -24,7 +24,12 @@ from ingestion.orchestrator import finalize_run, start_run
 from report.music_trend_synthesis import build_evidence_catalog, synthesize_music_trend_intelligence
 from report.persistence import persist_music_trend_intelligence
 from report.validation import MusicTrendValidationError, validate_music_trend_signals
-from report.web_data_v2 import _MUSIC_INDUSTRY_DOWNRANKED_PRIORITY, build_dashboard_data_v2, music_industry_priority_rank
+from report.web_data_v2 import (
+    _MUSIC_INDUSTRY_DOWNRANKED_PRIORITY,
+    build_dashboard_data_v2,
+    music_industry_priority_rank,
+    synthesis_extra_industry_news,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +58,10 @@ def run_daily_music_trend_intelligence(conn, run_id, report_date_kst, llm=None):
         item for item in (dashboard_data["news"]["TIKTOK"]["items"] + dashboard_data["news"]["SPOTIFY"]["items"])
         if music_industry_priority_rank(item) != _MUSIC_INDUSTRY_DOWNRANKED_PRIORITY
     ]
+    # PRODUCTION RADAR ROUTING FIX (2026-08-18): real professional/craft
+    # evidence NEWS_COMBINED's own narrow selection missed -- see
+    # report.web_data_v2.synthesis_extra_industry_news's own docstring.
+    industry_news += synthesis_extra_industry_news(dashboard_data, conn, report_date_kst)
 
     catalog_preview = build_evidence_catalog(
         dashboard_data["spotify_chart"], dashboard_data["tiktok_chart"], industry_news
