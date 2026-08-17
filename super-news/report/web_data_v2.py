@@ -305,11 +305,62 @@ def _extract_real_publisher(title, source_name):
     return match.group(1).strip(), cleaned_title
 
 
+def _image_enrichment_already_attempted(extra_json):
+    """True when a prior call already tried the article-page og:image
+    fallback for this item (success OR failure) -- see
+    _enrich_image_from_article_page's own docstring for why this must be
+    checked before ever attempting a second fetch."""
+    if not extra_json:
+        return False
+    try:
+        extra = json.loads(extra_json)
+    except (ValueError, TypeError):
+        return False
+    return isinstance(extra, dict) and bool(extra.get("image_enrichment_attempted"))
+
+
+def _enrich_image_from_article_page(conn, raw_item_id, source_url, extra_json):
+    """ARTICLE-PAGE IMAGE FALLBACK (FIX ONLY: missing article images
+    pass, 2026-08-18): only ever reached from _lookup_item_detail below,
+    i.e. only for an item that is ACTUALLY selected for the final DAILY/
+    MUSIC report -- never for the full raw candidate pool -- and only
+    when report.web_data_v2._extract_trustworthy_image_url already found
+    no real feed-provided image. A real, bounded (one GET) fetch of the
+    article's OWN page via report.image_enrichment.fetch_article_image_
+    url (og:image first, twitter:image fallback, never any other
+    heuristic, never fabricated). The outcome -- a real image_url, or
+    None when the page has no usable meta tag or the fetch itself failed
+    -- is cached back into raw_items.extra_json (the SAME field
+    _extract_trustworthy_image_url already reads) alongside an
+    image_enrichment_attempted flag, so this fetch happens AT MOST ONCE
+    per article ever, across every future render, whether it succeeded
+    or not. Never raises -- a failure here must never break report
+    generation, exactly like a feed that simply never had an image."""
+    from report.image_enrichment import fetch_article_image_url
+
+    try:
+        image_url = fetch_article_image_url(source_url)
+    except Exception:
+        image_url = None
+
+    try:
+        extra = json.loads(extra_json) if extra_json else {}
+        if not isinstance(extra, dict):
+            extra = {}
+    except (ValueError, TypeError):
+        extra = {}
+    extra["image_url"] = image_url
+    extra["image_enrichment_attempted"] = True
+    conn.execute("UPDATE raw_items SET extra_json = ? WHERE id = ?", (json.dumps(extra), raw_item_id))
+    conn.commit()
+    return image_url
+
+
 def _lookup_item_detail(conn, normalized_item_id):
     row = conn.execute(
         """SELECT ni.normalized_title AS title, ni.event_key AS event_key,
-                  ri.source_url AS source_url, ri.snippet AS snippet, ri.source_name AS source_name,
-                  ri.published_at AS published_at, ri.extra_json AS extra_json
+                  ri.id AS raw_item_id, ri.source_url AS source_url, ri.snippet AS snippet,
+                  ri.source_name AS source_name, ri.published_at AS published_at, ri.extra_json AS extra_json
            FROM normalized_items ni
            JOIN raw_items ri ON ri.id = ni.raw_item_id
            WHERE ni.id = ?""",
@@ -318,11 +369,16 @@ def _lookup_item_detail(conn, normalized_item_id):
     if row is None:
         return None
     real_publisher, cleaned_title = _extract_real_publisher(row["title"], row["source_name"])
+    image_url = _extract_trustworthy_image_url(row["extra_json"])
+    if image_url is None and not _image_enrichment_already_attempted(row["extra_json"]):
+        image_url = _enrich_image_from_article_page(
+            conn, row["raw_item_id"], row["source_url"], row["extra_json"]
+        )
     return {
         "title": cleaned_title, "source_url": row["source_url"], "snippet": row["snippet"],
         "source_name": real_publisher or row["source_name"], "event_key": row["event_key"],
         "published_at": row["published_at"],
-        "image_url": _extract_trustworthy_image_url(row["extra_json"]),
+        "image_url": image_url,
     }
 
 

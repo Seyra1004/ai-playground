@@ -327,6 +327,95 @@ def test_item_image_url_rejects_non_http_values():
         "https://cdn.example.com/real.jpg"
 
 
+# ---- FIX ONLY: missing article images pass (2026-08-18) -- article-page
+# og:image/twitter:image fallback for a SELECTED item with no RSS image ----
+
+
+def test_selected_item_with_no_rss_image_gets_article_page_enrichment(conn, monkeypatch):
+    """The real fix this pass adds: an item whose feed carried no image
+    metadata at all still gets a real image when its own article page
+    exposes og:image -- only reached because this item is SELECTED
+    (present in the interpretation output), never for the raw pool."""
+    monkeypatch.setattr(
+        "report.image_enrichment.fetch_article_image_url",
+        lambda url, **kwargs: "https://cdn.example.com/og-fallback.jpg",
+    )
+    run_row_id = _insert_run(conn)
+    item_id = _insert_normalized_item(conn, "a2", "AI", "Story with no RSS image", extra_json=None)
+    _insert_reports_marker(conn, run_row_id)
+    _insert_category_status(conn, run_row_id, "AI", "REPORT_GENERATED", 1, 1)
+    for cat in ("ECONOMY", "SOCIETY", "TIKTOK", "SPOTIFY"):
+        _insert_category_status(conn, run_row_id, cat, "NOT_READY", 0, 0)
+    _insert_interpretation(conn, run_row_id, {
+        "AI": [{"id": item_id, "reason": "r1"}],
+        "ECONOMY": [], "SOCIETY": [], "TIKTOK": [], "SPOTIFY": [],
+    })
+    data = build_dashboard_data_v2(conn, "2026-08-13")
+    assert data["news"]["AI"]["items"][0]["image_url"] == "https://cdn.example.com/og-fallback.jpg"
+
+
+def test_image_enrichment_persists_and_is_never_attempted_twice(conn, monkeypatch):
+    """Efficiency requirement: a second lookup of the SAME article never
+    re-fetches its page, whether the first attempt succeeded or not."""
+    from report.web_data_v2 import _lookup_item_detail
+
+    call_count = {"n": 0}
+
+    def _fake_fetch(url, **kwargs):
+        call_count["n"] += 1
+        return "https://cdn.example.com/first-fetch.jpg"
+
+    monkeypatch.setattr("report.image_enrichment.fetch_article_image_url", _fake_fetch)
+    item_id = _insert_normalized_item(conn, "a3", "AI", "Story fetched once", extra_json=None)
+
+    first = _lookup_item_detail(conn, item_id)
+    second = _lookup_item_detail(conn, item_id)
+
+    assert first["image_url"] == "https://cdn.example.com/first-fetch.jpg"
+    assert second["image_url"] == "https://cdn.example.com/first-fetch.jpg"
+    assert call_count["n"] == 1  # NOT re-fetched on the second lookup
+
+
+def test_image_enrichment_failure_is_cached_and_never_retried(conn, monkeypatch):
+    """A page with no usable og:image/twitter:image (or a fetch failure)
+    must not be retried on every future render either -- same
+    attempted-once contract as a successful fetch."""
+    from report.web_data_v2 import _lookup_item_detail
+
+    call_count = {"n": 0}
+
+    def _fake_fetch(url, **kwargs):
+        call_count["n"] += 1
+        return None
+
+    monkeypatch.setattr("report.image_enrichment.fetch_article_image_url", _fake_fetch)
+    item_id = _insert_normalized_item(conn, "a4", "AI", "Story with genuinely no image", extra_json=None)
+
+    first = _lookup_item_detail(conn, item_id)
+    second = _lookup_item_detail(conn, item_id)
+
+    assert first["image_url"] is None
+    assert second["image_url"] is None
+    assert call_count["n"] == 1  # attempted once, never re-attempted despite no result
+
+
+def test_item_with_existing_rss_image_never_triggers_enrichment_fetch(conn, monkeypatch):
+    """The existing, already-working RSS-image path must never be
+    bypassed by a redundant article-page fetch."""
+    from report.web_data_v2 import _lookup_item_detail
+
+    def _fake_fetch(url, **kwargs):
+        raise AssertionError("must not be called when a real RSS image already exists")
+
+    monkeypatch.setattr("report.image_enrichment.fetch_article_image_url", _fake_fetch)
+    item_id = _insert_normalized_item(
+        conn, "a5", "AI", "Story with a real RSS image",
+        extra_json=json.dumps({"image_url": "https://cdn.example.com/rss-image.jpg"}),
+    )
+    detail = _lookup_item_detail(conn, item_id)
+    assert detail["image_url"] == "https://cdn.example.com/rss-image.jpg"
+
+
 def test_source_count_reflects_distinct_outlets_same_day(conn):
     run_row_id = _insert_run(conn)
     # Two raw_items from two different outlets, same event_key, same day.

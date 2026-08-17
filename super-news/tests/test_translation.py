@@ -145,6 +145,8 @@ def test_no_paid_api_override_forces_null_even_with_anthropic_configured(monkeyp
     monkeypatch.setenv("SUPER_NEWS_NO_PAID_API", "1")
     monkeypatch.setenv("TRANSLATION_PROVIDER", "anthropic")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-fake-not-real")
+    from report.translation_claude_cli import ClaudeCLITranslationProvider
+    monkeypatch.setattr(ClaudeCLITranslationProvider, "is_configured", lambda self: False)
     from report.translation import NullTranslationProvider
     provider = build_translation_provider()
     assert isinstance(provider, NullTranslationProvider)
@@ -162,6 +164,8 @@ def test_no_paid_api_null_provider_carries_anthropic_cache_lookup_hint(monkeypat
     monkeypatch.setenv("TRANSLATION_PROVIDER", "anthropic")
     monkeypatch.setenv("ANTHROPIC_TRANSLATION_MODEL", "claude-haiku-4-5-20251001")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-fake-not-real")
+    from report.translation_claude_cli import ClaudeCLITranslationProvider
+    monkeypatch.setattr(ClaudeCLITranslationProvider, "is_configured", lambda self: False)
     provider = build_translation_provider()
     assert provider.cache_lookup_hint == ("AnthropicTranslationProvider", "claude-haiku-4-5-20251001")
 
@@ -169,8 +173,36 @@ def test_no_paid_api_null_provider_carries_anthropic_cache_lookup_hint(monkeypat
 def test_no_paid_api_null_provider_no_hint_when_translation_provider_not_anthropic(monkeypatch):
     monkeypatch.setenv("SUPER_NEWS_NO_PAID_API", "1")
     monkeypatch.setenv("TRANSLATION_PROVIDER", "none")
+    from report.translation_claude_cli import ClaudeCLITranslationProvider
+    monkeypatch.setattr(ClaudeCLITranslationProvider, "is_configured", lambda self: False)
     provider = build_translation_provider()
     assert provider.cache_lookup_hint is None
+
+
+# ---- FIX ONLY: ENGLISH TITLES + IMAGES pass (2026-08-17): Claude CLI
+# translation selected under the no-paid-API cost gate ------------------
+
+
+def test_no_paid_api_selects_claude_cli_provider_when_cli_available(monkeypatch):
+    """The real fix this pass adds: a fresh, never-cached headline now
+    gets a real (free, subscription-CLI-backed) translation attempt
+    instead of unconditionally degrading to NullTranslationProvider."""
+    monkeypatch.setenv("SUPER_NEWS_NO_PAID_API", "1")
+    monkeypatch.delenv("TRANSLATION_PROVIDER", raising=False)
+    from report.translation_claude_cli import ClaudeCLITranslationProvider
+    monkeypatch.setattr(ClaudeCLITranslationProvider, "is_configured", lambda self: True)
+    provider = build_translation_provider()
+    assert isinstance(provider, ClaudeCLITranslationProvider)
+
+
+def test_no_paid_api_falls_back_to_null_when_claude_cli_unavailable(monkeypatch):
+    monkeypatch.setenv("SUPER_NEWS_NO_PAID_API", "1")
+    monkeypatch.delenv("TRANSLATION_PROVIDER", raising=False)
+    from report.translation_claude_cli import ClaudeCLITranslationProvider
+    from report.translation import NullTranslationProvider
+    monkeypatch.setattr(ClaudeCLITranslationProvider, "is_configured", lambda self: False)
+    provider = build_translation_provider()
+    assert isinstance(provider, NullTranslationProvider)
 
 
 def test_no_paid_api_cache_hit_reused_without_constructing_anthropic_provider(conn, monkeypatch):
@@ -182,6 +214,8 @@ def test_no_paid_api_cache_hit_reused_without_constructing_anthropic_provider(co
     monkeypatch.setenv("TRANSLATION_PROVIDER", "anthropic")
     monkeypatch.setenv("ANTHROPIC_TRANSLATION_MODEL", "claude-haiku-4-5-20251001")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-fake-not-real")
+    from report.translation_claude_cli import ClaudeCLITranslationProvider
+    monkeypatch.setattr(ClaudeCLITranslationProvider, "is_configured", lambda self: False)
 
     # Seed the cache exactly as a real, prior AnthropicTranslationProvider
     # call would have (same provider_name/model cache-key identity) --
@@ -214,6 +248,8 @@ def test_no_paid_api_cache_miss_degrades_safely_zero_network(conn, monkeypatch):
     monkeypatch.setenv("TRANSLATION_PROVIDER", "anthropic")
     monkeypatch.setenv("ANTHROPIC_TRANSLATION_MODEL", "claude-haiku-4-5-20251001")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-fake-not-real")
+    from report.translation_claude_cli import ClaudeCLITranslationProvider
+    monkeypatch.setattr(ClaudeCLITranslationProvider, "is_configured", lambda self: False)
 
     provider = build_translation_provider()
     result = translate_and_cache(conn, provider, "never before seen headline text")

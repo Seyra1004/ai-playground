@@ -202,6 +202,23 @@ def build_translation_provider():
 
     if (get_optional_env("SUPER_NEWS_NO_PAID_API", "") or "").strip().lower() in ("1", "true", "yes"):
         provider = (get_optional_env("TRANSLATION_PROVIDER", "none") or "none").strip().lower()
+        # FIX ONLY: ENGLISH TITLES + IMAGES pass (2026-08-17): a fresh
+        # (never-cached) headline had no free way to get a real ko_title
+        # under the paid-API cost gate -- report.translation_claude_cli.
+        # ClaudeCLITranslationProvider reuses the SAME already-
+        # authenticated Claude Code subscription CLI report.llm_claude_cli
+        # uses for synthesis, never api.anthropic.com. Tried FIRST, before
+        # the anthropic-cache-hint fallback below: it is real, live
+        # translation capability, not just a read of old cached rows.
+        # is_configured() is deterministic (an executable-on-PATH check,
+        # no network) so this never blocks page generation when the CLI
+        # genuinely isn't installed -- falls through to the exact same
+        # Null-based behavior as before.
+        from report.translation_claude_cli import ClaudeCLITranslationProvider
+
+        cli_provider = ClaudeCLITranslationProvider()
+        if cli_provider.is_configured():
+            return cli_provider
         if provider == "anthropic":
             # Mirrors report.translation_anthropic.AnthropicTranslationProvider's
             # own (class name, default model) cache-key identity WITHOUT
