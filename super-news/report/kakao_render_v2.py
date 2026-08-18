@@ -20,6 +20,7 @@ characters of the 200-char text budget.
 import re
 
 from report.validation import is_low_value_gossip_takeaway
+from report.web_render_v2 import _display_title
 
 MAX_TEXT_LENGTH = 200
 _FIELD_BUDGET = 28
@@ -35,10 +36,16 @@ def _clip(text, limit=_FIELD_BUDGET):
 
 
 def _first_news_line(news_section):
+    """Korean-first, same as the web page's own _display_title (report.
+    web_render_v2) -- confirmed real defect (2026-08-18): this used to read
+    items[0]["title"] directly, the raw/English fallback field, bypassing
+    ko_title entirely, so a real-time item that had a successful Korean
+    translation still showed English in Kakao while the SAME item's web
+    card correctly showed Korean."""
     items = news_section.get("items") or []
     if not items:
         return None
-    return _clip(items[0]["title"])
+    return _clip(_display_title(items[0]))
 
 
 def _spotify_line(spotify_chart):
