@@ -55,8 +55,20 @@ _KO_COMPOUND_CURRENCY_RE = re.compile(rf"(?:{_KO_SEGMENT_RE.pattern}\s*)+(?:{_KO
 # preceded by "제" -- Article/clause numbering ("제3조" = "Article 3") is
 # never a currency amount, and this is the one common bare "숫자+조/억"
 # pattern that genuinely isn't money.
+#
+# NON-CURRENCY COUNT EXCLUSION (2026-08-18, confirmed real false-
+# positive): "구글 제미니가 10억 사용자를 돌파" (Gemini surpassed 1
+# billion USERS) bare-matched "10억" as a ₩1B currency claim -- 억/조 are
+# also the standard magnitude words for large population/user counts, not
+# just money. Excludes any match immediately followed by a person/user
+# counter (명, 사용자) -- these two are the confirmed real case; not a
+# blanket weakening of the currency check, only ungrounds a match that was
+# never a currency figure in the first place.
 _KO_BARE_LARGE_UNIT_PATTERN = "|".join(re.escape(k) for k in ("조", "억"))
-_KO_BARE_CURRENCY_RE = re.compile(rf"(?<!제)([\d,]+(?:\.\d+)?)\s*({_KO_BARE_LARGE_UNIT_PATTERN})")
+_KO_NON_CURRENCY_COUNT_WORDS = "명|사용자"
+_KO_BARE_CURRENCY_RE = re.compile(
+    rf"(?<!제)([\d,]+(?:\.\d+)?)\s*({_KO_BARE_LARGE_UNIT_PATTERN})(?!\s*(?:{_KO_NON_CURRENCY_COUNT_WORDS}))"
+)
 
 _MAGNITUDE_RELATIVE_TOLERANCE = 0.02
 
