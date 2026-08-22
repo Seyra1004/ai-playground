@@ -11,6 +11,7 @@ is left uninvestigated, matching pipeline/discovery.py's existing contract
 (candidate absent from fact_sheets_by_candidate = not verifiable here).
 """
 
+import os
 import re
 import urllib.request
 from datetime import date as _date
@@ -121,14 +122,83 @@ def _extract_body_fss(html: str) -> str:
     return _clean_chunk(html[idx:end] if end != -1 else html[idx : idx + 3000])
 
 
+_NTS_FILE_BLOCK_RE = re.compile(r"\{[^{}]*\}")
+_NTS_EXTSN_RE = re.compile(r"nttExtsn=(\w+)")
+_NTS_DWLDURL_RE = re.compile(r"dwldUrl=([0-9a-fA-F]+)")
+_NTS_ATTACHMENT_CACHE_DB = os.path.join("data", "swipe_info.db")
+
+
+def _find_nts_pdf_download_url(html: str):
+    """The attached-file list is embedded as a JS string literal in Java
+    List.toString() form: [{bbsId=..., fileNm=..., dwldUrl=<hex>,
+    nttExtsn=pdf, ...}, {..., nttExtsn=hwpx, ...}, ...] (verified
+    2026-08-22). Deterministic regex parse; prefers pdf over hwp/hwpx.
+    Returns (download_url, dwld_url) or None."""
+    for block in _NTS_FILE_BLOCK_RE.findall(html):
+        m_ext = _NTS_EXTSN_RE.search(block)
+        m_url = _NTS_DWLDURL_RE.search(block)
+        if m_ext and m_url and m_ext.group(1).lower() == "pdf":
+            dwld_url = m_url.group(1)
+            return f"https://www.nts.go.kr/comm/nttFileDownload.do?fileKey={dwld_url}", dwld_url
+    return None
+
+
+def _extract_pdf_text(data: bytes, max_chars: int = 2000) -> str:
+    try:
+        import io
+
+        from pypdf import PdfReader
+
+        reader = PdfReader(io.BytesIO(data))
+        text = ""
+        for page in reader.pages:
+            text += page.extract_text() or ""
+            if len(text) >= max_chars:
+                break
+        return re.sub(r"\s+", " ", text).strip()[:max_chars]
+    except Exception:
+        return ""
+
+
 def _extract_body_nts(html: str) -> str:
-    """NTS press-release bodies are delivered only as an attached HWP/PDF
-    rendered through a JS document-viewer iframe -- no plain body text
-    exists in the static HTML at all (verified 2026-08-22). Nothing safe to
-    extract without executing JS or parsing a binary document (both out of
-    scope); returns "" so callers fall back to title-only evidence rather
-    than fabricate body text."""
-    return ""
+    """NTS press-release bodies aren't in the static page HTML -- they're
+    only in an attached PDF/HWP. Deterministically discovers the attached
+    PDF's download URL (preferred over HWP/HWPX), downloads it, and extracts
+    text locally with pypdf (free, offline, no PAYG). Caches extracted text
+    by the attachment's own dwldUrl (its stable file identity on NTS's
+    system) so a re-processed candidate never re-downloads/re-extracts.
+    Returns "" on any failure -- never raises, never fabricates -- so the
+    caller safely falls back to title-only evidence."""
+    found = _find_nts_pdf_download_url(html)
+    if found is None:
+        return ""
+    download_url, dwld_url = found
+
+    from core.cache import get_cached, set_cached
+    from core.database import get_connection, init_db
+
+    conn = get_connection(_NTS_ATTACHMENT_CACHE_DB)
+    init_db(conn)
+    cache_key = f"swipe_info:nts_attachment_text:{dwld_url}"
+    cached = get_cached(conn, cache_key)
+    if cached is not None:
+        conn.close()
+        return cached.get("text", "")
+
+    try:
+        req = urllib.request.Request(download_url, headers={"User-Agent": "Mozilla/5.0 (SWIPE_INFO discovery bot)"})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = resp.read()
+    except Exception:
+        conn.close()
+        return ""
+
+    text = _extract_pdf_text(data)
+    import hashlib
+
+    set_cached(conn, cache_key, {"text": text, "sha256": hashlib.sha256(data).hexdigest()}, "")
+    conn.close()
+    return text
 
 
 OFFICIAL_SOURCES = [

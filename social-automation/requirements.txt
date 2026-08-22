@@ -3,3 +3,5 @@ PyYAML>=6.0
 # (channel="chrome") -- no bundled browser download, no PAYG.
 playwright>=1.62
 Pillow>=12.0
+# NTS attachment text extraction: pure-Python, offline, no PAYG.
+pypdf>=6.0
