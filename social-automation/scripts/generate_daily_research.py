@@ -16,6 +16,7 @@ import argparse
 import dataclasses
 import json
 import os
+import shutil
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -72,6 +73,13 @@ def main() -> int:
     )
 
     out_dir = research_input_dir(ACCOUNT_ID, today)
+    # Deterministically reset ONLY this run-date's bundle dir before writing
+    # -- prevents a stale fact_sheets/*.json (e.g. from a prior verified
+    # candidate that no longer verifies today) from lingering alongside
+    # fresh output. Scoped to data/daily_input/<account>/<date>/ only: never
+    # touches other dates, the SQLite excerpt cache, or output/ packages.
+    if os.path.isdir(out_dir):
+        shutil.rmtree(out_dir)
     os.makedirs(os.path.join(out_dir, "fact_sheets"), exist_ok=True)
     os.makedirs(os.path.join(out_dir, "excerpts"), exist_ok=True)
 
