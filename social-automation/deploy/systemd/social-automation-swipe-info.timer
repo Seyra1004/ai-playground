@@ -1,8 +1,8 @@
 [Unit]
-Description=Run SWIPE_INFO daily pipeline at 07:30 KST (offset from SUPER_NEWS's 07:00 to avoid resource contention; well before Instagram 18:00 / Threads 18:10 publish targets)
+Description=Run SWIPE_INFO daily pipeline at 17:30 KST (before Instagram 18:00 / Threads 18:10 publish targets)
 
 [Timer]
-OnCalendar=*-*-* 07:30:00 Asia/Seoul
+OnCalendar=*-*-* 17:30:00 Asia/Seoul
 Persistent=true
 AccuracySec=1min
 
