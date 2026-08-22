@@ -1,0 +1,112 @@
+[
+  {
+    "excerpt_id": "exc-nhis-together-11005199",
+    "source_id": "src-nhis-together-11005199",
+    "text": "장기요양기관포털의 오류로 인한 개인정보 노출에 대해 진심으로 사과드립니다",
+    "extracted_fields": {
+      "title": "장기요양기관포털의 오류로 인한 개인정보 노출에 대해 진심으로 사과드립니다",
+      "published_date": "2025-09-09",
+      "institution": "국민건강보험공단"
+    },
+    "excerpt_hash": "59a7aae3e4e894f766c0acb0027c9c5dac987a43cb5b12ca5a622140650b9318"
+  },
+  {
+    "excerpt_id": "exc-nhis-together-11004163",
+    "source_id": "src-nhis-together-11004163",
+    "text": "[보도설명자료] 스마트장기요양앱 보도 관련",
+    "extracted_fields": {
+      "title": "[보도설명자료] 스마트장기요양앱 보도 관련",
+      "published_date": "2025-07-11",
+      "institution": "국민건강보험공단"
+    },
+    "excerpt_hash": "49390984ccdba990baa50265d7511cdf8f5a667fdd47196ab14d9494e5b8d701"
+  },
+  {
+    "excerpt_id": "exc-nhis-together-11003934",
+    "source_id": "src-nhis-together-11003934",
+    "text": "[보도설명자료] 스마트장기요양 앱 접속 장애 관련 조치사항 등",
+    "extracted_fields": {
+      "title": "[보도설명자료] 스마트장기요양 앱 접속 장애 관련 조치사항 등",
+      "published_date": "2025-06-26",
+      "institution": "국민건강보험공단"
+    },
+    "excerpt_hash": "e9c1245b0fbd96bf495b4a1f59407206da865f14d02a5b990c1910c0977ea98a"
+  },
+  {
+    "excerpt_id": "exc-nhis-together-11001578",
+    "source_id": "src-nhis-together-11001578",
+    "text": "[보도설명자료] 외국인 가입자 재정수지 통계오류 재발 방지 대책 마련",
+    "extracted_fields": {
+      "title": "[보도설명자료] 외국인 가입자 재정수지 통계오류 재발 방지 대책 마련",
+      "published_date": "2025-03-04",
+      "institution": "국민건강보험공단"
+    },
+    "excerpt_hash": "4f9f82dc24558186b4934eee6cfdc06a8ccf4f7ab6d32dc77ec2a987927658aa"
+  },
+  {
+    "excerpt_id": "exc-nhis-together-11001563",
+    "source_id": "src-nhis-together-11001563",
+    "text": "[보도설명자료] 지역가입자 &#039;전월세&#039;에 매기는 건보료 인하 검토 기사 관련",
+    "extracted_fields": {
+      "title": "[보도설명자료] 지역가입자 &#039;전월세&#039;에 매기는 건보료 인하 검토 기사 관련",
+      "published_date": "2025-02-28",
+      "institution": "국민건강보험공단"
+    },
+    "excerpt_hash": "a3cbf1930787c05976c83ae147ac9d9cf71958840569438cd19c395f67fe39ae"
+  },
+  {
+    "excerpt_id": "exc-nhis-together-10845585",
+    "source_id": "src-nhis-together-10845585",
+    "text": "[보도설명자료] 요양기관‘누워서 세금 빼먹기’ 등",
+    "extracted_fields": {
+      "title": "[보도설명자료] 요양기관‘누워서 세금 빼먹기’ 등",
+      "published_date": "2024-08-15",
+      "institution": "국민건강보험공단"
+    },
+    "excerpt_hash": "bb244074ce30fc20427400a9cd64fc2e985435cda11be81ee7ebf8a1122c9bf7"
+  },
+  {
+    "excerpt_id": "exc-nhis-together-10845264",
+    "source_id": "src-nhis-together-10845264",
+    "text": "[보도설명자료](건보공단) ‘쿠팡 하청노동자’, 건강보험 직장가입 대상 여부 신속히 조사하여 조치할 계획",
+    "extracted_fields": {
+      "title": "[보도설명자료](건보공단) ‘쿠팡 하청노동자’, 건강보험 직장가입 대상 여부 신속히 조사하여 조치할 계획",
+      "published_date": "2024-07-30",
+      "institution": "국민건강보험공단"
+    },
+    "excerpt_hash": "04e85bb09f3b4c424da0f10ea1ef6ca5f8efa2ef17747963a77b5a06e762b5d8"
+  },
+  {
+    "excerpt_id": "exc-nhis-together-10843731",
+    "source_id": "src-nhis-together-10843731",
+    "text": "[보도설명자료] &#034;&#039;진료 전 신분증&#039; 당장 다음주 부터인데..모바일 건강보험증 구멍&#034; 기사 관련",
+    "extracted_fields": {
+      "title": "[보도설명자료] &#034;&#039;진료 전 신분증&#039; 당장 다음주 부터인데..모바일 건강보험증 구멍&#034; 기사 관련",
+      "published_date": "2024-05-20",
+      "institution": "국민건강보험공단"
+    },
+    "excerpt_hash": "0c55f5a792a419e0180608e430e0d809cc91becd9e9e141a3da8f4bdceebd7cb"
+  },
+  {
+    "excerpt_id": "exc-nhis-together-10841140",
+    "source_id": "src-nhis-together-10841140",
+    "text": "[보도설명자료] 건강보험 상담원, 공단 소속 전환 &#039;헛바퀴&#039; 기사 관련",
+    "extracted_fields": {
+      "title": "[보도설명자료] 건강보험 상담원, 공단 소속 전환 &#039;헛바퀴&#039; 기사 관련",
+      "published_date": "2024-01-26",
+      "institution": "국민건강보험공단"
+    },
+    "excerpt_hash": "68cf5335edb892756f3fc962647c0a16d94900de3ec07ff54821a3c8aeb10b3d"
+  },
+  {
+    "excerpt_id": "exc-nhis-together-10841078",
+    "source_id": "src-nhis-together-10841078",
+    "text": "[보도설명자료] &#039;공단, 특사경 부작용효과자료 왜 안만드나&#039; 기사 관련(1.24. 데일리팜)",
+    "extracted_fields": {
+      "title": "[보도설명자료] &#039;공단, 특사경 부작용효과자료 왜 안만드나&#039; 기사 관련(1.24. 데일리팜)",
+      "published_date": "2024-01-24",
+      "institution": "국민건강보험공단"
+    },
+    "excerpt_hash": "8d1cad4cc59fbe40b335ddb12d2ffd599fc78576724e990ba4f38e409895079c"
+  }
+]
