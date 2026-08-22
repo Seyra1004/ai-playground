@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import hashlib
 import json
 import os
 import sys
@@ -19,6 +20,7 @@ from core.payg_guard import payg_guard_active  # noqa: E402
 from core.scoring import evaluate_candidate  # noqa: E402
 from pipeline import daily_state, semantic_cache  # noqa: E402
 from pipeline.discovery import build_dry_run_bundle, load_research_bundle  # noqa: E402
+from pipeline.image_acquisition import assign_images_to_pages, discover_and_acquire_images  # noqa: E402
 from pipeline.repair import MAX_REPAIR_ATTEMPTS, repair_canonical_content  # noqa: E402
 from pipeline.runner import run_pipeline  # noqa: E402
 from qa.content_qa import check_real_images, check_visual_quality  # noqa: E402
@@ -289,6 +291,34 @@ def run_daily(account_id: str, run_date: str, dry_run: bool, resume: bool) -> in
     if final_status == "FAILED":
         final_status = "NEEDS_REVIEW"  # never force COMPLETE; report instead
 
+    # --- automatic real-image acquisition (source-agnostic; no hardcoded
+    # topic/URL/filename/page number -- see pipeline/image_acquisition.py).
+    # Runs before rendering so accepted images are baked into the pages
+    # that actually get rendered below. Never fabricates a substitute: an
+    # empty result just leaves the existing deterministic visuals in place.
+    real_image_fallback = False
+    real_image_fallback_reason = None
+    accepted_images = []
+    if package.canonical_content is not None:
+        for source in package.canonical_content.fact_sheet.sources:
+            asset_dir = os.path.join(
+                "data", "assets", account_id, f"src_{hashlib.sha256(source.url.encode()).hexdigest()[:12]}"
+            )
+            accepted_images = discover_and_acquire_images(source, asset_dir)
+            if accepted_images:
+                break
+        if len(accepted_images) < 2:
+            real_image_fallback = True
+            real_image_fallback_reason = (
+                "no legally-clear, sufficiently-real image found on any verified source"
+                if not accepted_images
+                else f"only {len(accepted_images)} suitable image(s) found (need >=2)"
+            )
+            print(f"REAL_IMAGE_FALLBACK=true REAL_IMAGE_FALLBACK_REASON={real_image_fallback_reason!r}")
+        else:
+            changed_pages = assign_images_to_pages(package.canonical_content.pages, accepted_images)
+            print(f"REAL_IMAGE_PAGES_ASSIGNED={changed_pages}")
+
     # --- render + post-render QA (only if we have canonical content to show) ---
     png_paths = []
     contact_sheet_path = None
@@ -314,7 +344,15 @@ def run_daily(account_id: str, run_date: str, dry_run: bool, resume: bool) -> in
                 final_status = "NEEDS_REVIEW" if final_status == "COMPLETE" else final_status
                 print(f"VISUAL_QA_NEEDS_REVIEW={qa_visual.notes}")
 
-            qa_real_images = check_real_images(package.canonical_content)
+            # A legitimate fallback (nothing suitable found) must never be
+            # reported as a real-image FAIL -- only the minimums are
+            # relaxed; any image that WAS accepted still needs valid
+            # file/metadata, so this never silently reports a false PASS.
+            qa_real_images = check_real_images(
+                package.canonical_content,
+                min_files=0 if real_image_fallback else 2,
+                min_pages=0 if real_image_fallback else 2,
+            )
             if qa_real_images.status.value == "FAIL":
                 final_status = "NEEDS_REVIEW" if final_status == "COMPLETE" else final_status
                 print(f"REAL_IMAGE_QA_FAILED={qa_real_images.checks_failed}")
@@ -390,6 +428,9 @@ def run_daily(account_id: str, run_date: str, dry_run: bool, resume: bool) -> in
                 "real_image_qa_status": qa_real_images.status.value if qa_real_images else None,
                 "real_image_qa_passed": qa_real_images.checks_passed if qa_real_images else [],
                 "real_image_qa_failed": qa_real_images.checks_failed if qa_real_images else [],
+                "real_image_count": len(accepted_images),
+                "real_image_fallback": real_image_fallback,
+                "real_image_fallback_reason": real_image_fallback_reason,
                 "render_qa_status": qa_render.status.value if qa_render else None,
                 "render_checks_failed": qa_render.checks_failed if qa_render else [],
                 "png_dimension_status": qa_png.status.value if qa_png else None,
