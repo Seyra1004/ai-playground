@@ -23,7 +23,7 @@ def _chrome_open(brand: BrandConfig, bg: str, text_color: str) -> str:
     return (
         f'<div class="swipe-page" style="'
         f"width:{brand.canvas_width}px;height:{brand.canvas_height}px;background:{bg};"
-        f"color:{text_color};font-family:'{brand.typography_family}',sans-serif;"
+        f"color:{text_color};font-family:'{brand.typography_family}','Noto Sans KR','Noto Sans CJK KR',sans-serif;"
         f"padding:{margin.get('safe_margin_top', 80)}px {margin.get('safe_margin_right', 84)}px "
         f"{margin.get('safe_margin_bottom', 92)}px {margin.get('safe_margin_left', 84)}px;"
         f'box-sizing:border-box;position:relative;display:flex;flex-direction:column;">'
@@ -43,12 +43,20 @@ def _page_number_bar(page: CarouselPage, total_pages: int, accent: str, accent2:
     )
 
 
+# The visual block used to be `flex:1` (grow to fill 100% of remaining page
+# height), which on a light/short list turned into one huge, mostly-empty
+# gradient rectangle. Capping it to a fixed basis keeps every layout a
+# consistent, content-sized card -- leftover space becomes normal bottom
+# page margin instead of dead space inside the card.
+_CARD_BASIS = "flex:0 1 640px;min-height:320px;"
+
+
 def _render_visual(vd: dict, accent: str, accent2: str, text_color: str) -> str:
     vtype = vd.get("type")
 
     if vtype == "stat_hero":
         return (
-            f'<div style="flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;'
+            f'<div style="{_CARD_BASIS}display:flex;flex-direction:column;justify-content:center;align-items:center;'
             f'text-align:center;background:linear-gradient(135deg, {accent}22, {accent2}22);border-radius:24px;">'
             f'<div style="font-size:96px;font-weight:900;color:{accent};line-height:1.1;">{vd.get("big_text", "")}</div>'
             f'<div style="font-size:32px;font-weight:600;margin-top:16px;">{vd.get("sub_text", "")}</div>'
@@ -57,7 +65,7 @@ def _render_visual(vd: dict, accent: str, accent2: str, text_color: str) -> str:
 
     if vtype == "highlight_box":
         return (
-            f'<div style="flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;'
+            f'<div style="{_CARD_BASIS}display:flex;flex-direction:column;justify-content:center;align-items:center;'
             f'text-align:center;background:{accent}18;border:3px solid {accent};border-radius:24px;">'
             f'<div style="font-size:72px;">{vd.get("icon", "")}</div>'
             f'<div style="font-size:40px;font-weight:800;color:{accent};margin-top:12px;">{vd.get("highlight", "")}</div>'
@@ -70,7 +78,10 @@ def _render_visual(vd: dict, accent: str, accent2: str, text_color: str) -> str:
             f'<span style="color:{accent};font-size:40px;">✅</span><span>{item}</span></div>'
             for item in vd.get("items", [])
         )
-        return f'<div style="flex:1;display:flex;flex-direction:column;justify-content:center;">{items}</div>'
+        return (
+            f'<div style="{_CARD_BASIS}display:flex;flex-direction:column;justify-content:center;'
+            f'background:{accent}0d;border:3px solid {accent};border-radius:24px;padding:32px;">{items}</div>'
+        )
 
     if vtype == "exclusion_list":
         items = "".join(
@@ -78,7 +89,10 @@ def _render_visual(vd: dict, accent: str, accent2: str, text_color: str) -> str:
             f'<span style="color:{accent2};font-size:36px;">❌</span><span>{item}</span></div>'
             for item in vd.get("items", [])
         )
-        return f'<div style="flex:1;display:flex;flex-direction:column;justify-content:center;">{items}</div>'
+        return (
+            f'<div style="{_CARD_BASIS}display:flex;flex-direction:column;justify-content:center;'
+            f'background:{accent2}0d;border:3px solid {accent2};border-radius:24px;padding:32px;">{items}</div>'
+        )
 
     if vtype == "steps":
         items = "".join(
@@ -89,7 +103,10 @@ def _render_visual(vd: dict, accent: str, accent2: str, text_color: str) -> str:
             f'<div style="font-size:32px;font-weight:600;">{item}</div></div>'
             for i, item in enumerate(vd.get("items", []))
         )
-        return f'<div style="flex:1;display:flex;flex-direction:column;justify-content:center;">{items}</div>'
+        return (
+            f'<div style="{_CARD_BASIS}display:flex;flex-direction:column;justify-content:center;'
+            f'background:{accent}0d;border:3px solid {accent};border-radius:24px;padding:32px;">{items}</div>'
+        )
 
     if vtype == "comparison":
         left, right = vd.get("left", {}), vd.get("right", {})
@@ -100,7 +117,7 @@ def _render_visual(vd: dict, accent: str, accent2: str, text_color: str) -> str:
             f'<div style="font-size:26px;font-weight:600;margin-top:16px;">{d.get("desc", "")}</div></div>'
         )
         return (
-            f'<div style="flex:1;display:flex;gap:24px;align-items:center;">'
+            f'<div style="{_CARD_BASIS}display:flex;gap:24px;align-items:center;">'
             f"{col(left, accent)}{col(right, accent2)}</div>"
         )
 
@@ -118,17 +135,20 @@ def _render_visual(vd: dict, accent: str, accent2: str, text_color: str) -> str:
             f"</div>"
             for label, val in items
         )
-        return f'<div style="flex:1;display:flex;flex-direction:column;justify-content:center;">{bars}</div>'
+        return (
+            f'<div style="{_CARD_BASIS}display:flex;flex-direction:column;justify-content:center;'
+            f'background:{accent}0d;border:3px solid {accent};border-radius:24px;padding:32px;">{bars}</div>'
+        )
 
     if vtype == "cta_panel":
         return (
-            f'<div style="flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;">'
+            f'<div style="{_CARD_BASIS}display:flex;flex-direction:column;justify-content:center;align-items:center;">'
             f'<div style="background:linear-gradient(90deg, {accent}, {accent2});color:white;font-size:38px;'
             f'font-weight:800;padding:28px 56px;border-radius:60px;">{vd.get("button_text", "")}</div>'
             f"</div>"
         )
 
-    return f'<div style="flex:1;border:2px dashed {accent};border-radius:16px;"></div>'
+    return f'<div style="{_CARD_BASIS}border:2px dashed {accent};border-radius:16px;"></div>'
 
 
 def render_page_html(page: CarouselPage, total_pages: int, brand: BrandConfig) -> str:

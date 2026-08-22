@@ -21,7 +21,7 @@ from pipeline import daily_state, semantic_cache  # noqa: E402
 from pipeline.discovery import build_dry_run_bundle, load_research_bundle  # noqa: E402
 from pipeline.repair import MAX_REPAIR_ATTEMPTS, repair_canonical_content  # noqa: E402
 from pipeline.runner import run_pipeline  # noqa: E402
-from qa.render_qa import run_render_qa, verify_png_dimensions  # noqa: E402
+from qa.render_qa import run_render_qa, verify_korean_font_available, verify_png_dimensions  # noqa: E402
 from renderer.html_renderer import build_renderer_input  # noqa: E402
 from renderer.png_renderer import build_contact_sheet, render_pages_to_png  # noqa: E402
 
@@ -293,18 +293,27 @@ def run_daily(account_id: str, run_date: str, dry_run: bool, resume: bool) -> in
     contact_sheet_path = None
     qa_render = None
     qa_png = None
+    qa_font = None
     if package.canonical_content is not None:
-        renderer_input = build_renderer_input(package.canonical_content, brand)
-        qa_render = run_render_qa(renderer_input, brand)
-
-        ig_dir = os.path.join(out_dir, "instagram")
-        png_paths = render_pages_to_png(renderer_input, ig_dir)
-        qa_png = verify_png_dimensions(png_paths, brand)
-
-        contact_sheet_path = build_contact_sheet(png_paths, os.path.join(out_dir, "preview", "contact_sheet.png"))
-
-        if qa_render.status.value == "FAIL" or qa_png.status.value == "FAIL":
+        # Pre-render gate: refuses to render at all if the host has no
+        # Korean-capable font -- this is the actual root cause of broken/
+        # tofu Hangul glyphs, which dimension/structural QA can never catch.
+        qa_font = verify_korean_font_available()
+        if qa_font.status.value == "FAIL":
             final_status = "NEEDS_REVIEW" if final_status == "COMPLETE" else final_status
+            print(f"KOREAN_FONT_QA_FAILED={qa_font.checks_failed}")
+        else:
+            renderer_input = build_renderer_input(package.canonical_content, brand)
+            qa_render = run_render_qa(renderer_input, brand)
+
+            ig_dir = os.path.join(out_dir, "instagram")
+            png_paths = render_pages_to_png(renderer_input, ig_dir)
+            qa_png = verify_png_dimensions(png_paths, brand)
+
+            contact_sheet_path = build_contact_sheet(png_paths, os.path.join(out_dir, "preview", "contact_sheet.png"))
+
+            if qa_render.status.value == "FAIL" or qa_png.status.value == "FAIL":
+                final_status = "NEEDS_REVIEW" if final_status == "COMPLETE" else final_status
 
     finished_at = _now_iso()
     daily_state.upsert_run(
@@ -357,6 +366,8 @@ def run_daily(account_id: str, run_date: str, dry_run: bool, resume: bool) -> in
                 "content_qa_status": package.qa_result.status.value if package.qa_result else None,
                 "checks_passed": package.qa_result.checks_passed if package.qa_result else [],
                 "checks_failed": package.qa_result.checks_failed if package.qa_result else [],
+                "korean_font_qa_status": qa_font.status.value if qa_font else None,
+                "korean_font_qa_failed": qa_font.checks_failed if qa_font else [],
                 "render_qa_status": qa_render.status.value if qa_render else None,
                 "render_checks_failed": qa_render.checks_failed if qa_render else [],
                 "png_dimension_status": qa_png.status.value if qa_png else None,
