@@ -103,9 +103,16 @@ def check_visual_quality(canonical: CanonicalContent) -> QAResult:
                         visual_strings.extend(str(x) for x in item.values())
                     else:
                         visual_strings.append(str(item))
-        visual_tokens = {t for s in visual_strings for t in s.replace(",", " ").split() if len(t) >= 2}
-        page_tokens = {t for t in f"{page.headline} {page.body}".replace(",", " ").split() if len(t) >= 2}
-        if page_tokens and visual_tokens and not (page_tokens & visual_tokens):
+        # Substring containment, not exact token equality: Korean particles
+        # attach directly to nouns with no space ("국세청" vs "국세청이"), so a
+        # whitespace-token set intersection would false-flag obviously
+        # relevant visuals. A visual word appearing anywhere inside the
+        # page text (or vice versa) is treated as a real match.
+        visual_words = {w for s in visual_strings for w in s.replace(",", " ").split() if len(w) >= 2}
+        page_text = f"{page.headline} {page.body}"
+        page_words = {w for w in page_text.replace(",", " ").split() if len(w) >= 2}
+        has_overlap = any(w in page_text for w in visual_words) or any(w in " ".join(visual_strings) for w in page_words)
+        if visual_words and page_words and not has_overlap:
             notes.append(f"visual_relevance_uncertain:page_{page.page_number}")
 
     if canonical.pages:
