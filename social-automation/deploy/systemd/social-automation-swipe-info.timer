@@ -1,0 +1,10 @@
+[Unit]
+Description=Run SWIPE_INFO daily pipeline at 07:00 KST (well before 18:00 publish time)
+
+[Timer]
+OnCalendar=*-*-* 07:00:00 Asia/Seoul
+Persistent=true
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target
