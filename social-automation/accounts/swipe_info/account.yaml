@@ -21,7 +21,7 @@ platforms:
   threads: true
 
 publishing:
-  instagram_time: "08:00"
-  threads_time: "08:10"
+  instagram_time: "18:00"
+  threads_time: "18:10"
 
 brand_config: "accounts/swipe_info/brand.yaml"
