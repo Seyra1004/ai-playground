@@ -1,14 +1,23 @@
 #!/usr/bin/env bash
 # SUPER NEWS Kakao delivery retry -- retries ONLY the delivery step, never
-# collection or report generation, using the existing delivery idempotency
-# (report_delivery.decide_delivery_action): a report_date that's already
-# been sent makes this an immediate no-op ("skipped_duplicate", exit 0, no
-# Kakao call). Triggered by super-news-delivery-retry.timer at exactly 3
-# fixed offsets after the main pipeline (see that unit's OnCalendar= lines)
-# -- bounded, not indefinite; there is no 4th attempt.
+# collection or report generation, using the V2 MUSIC/DAILY delivery
+# idempotency (report_delivery_v2.MUSIC_REPORT_TYPE/DAILY_REPORT_TYPE via
+# scripts/run_daily_kakao_delivery_v2.py): a product already sent for this
+# report_date is an immediate no-op ("skipped_duplicate", no Kakao call);
+# MUSIC and DAILY are independent, so one already-sent/failed product never
+# blocks a retry of the other. Triggered by super-news-delivery-retry.timer
+# at exactly 3 fixed offsets after the main pipeline (see that unit's
+# OnCalendar= lines) -- bounded, not indefinite; there is no 4th attempt.
+#
+# PRODUCTION INCIDENT FIX (2026-08-22, confirmed real defect): this used to
+# `cd /opt/super-news` (the OLD V1 path, hardcoded) and call
+# scripts/deliver_daily_report.py (the V1-only, `reports`-table delivery
+# CLI, entirely disconnected from V2's MUSIC/DAILY schema) -- so this timer
+# fired 3x every day and always no-op'd, unable to ever retry a real V2
+# MUSIC/DAILY delivery failure. Fixed to rely on the systemd unit's own
+# WorkingDirectory (never hardcode a deploy path here) and call the real V2
+# delivery entrypoint.
 set -uo pipefail
-
-cd /opt/super-news || exit 1
 
 # Same lock as the main pipeline: if a full pipeline run (which ends with
 # its own delivery attempt) is still in flight, skip this tick rather than
@@ -20,7 +29,7 @@ if ! flock -n 200; then
     exit 0
 fi
 
-output=$(.venv/bin/python3 scripts/deliver_daily_report.py 2>&1); exit_code=$?
+output=$(.venv/bin/python3 scripts/run_daily_kakao_delivery_v2.py 2>&1); exit_code=$?
 echo "$output"
 
 # Retryable vs non-retryable is logged for observability only -- with just

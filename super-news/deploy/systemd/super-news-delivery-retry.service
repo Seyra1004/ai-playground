@@ -6,8 +6,8 @@ After=network-online.target
 [Service]
 Type=oneshot
 User=ubuntu
-WorkingDirectory=/opt/super-news
-ExecStart=/opt/super-news/scripts/deliver_retry.sh
+WorkingDirectory=/opt/super-news-v2
+ExecStart=/opt/super-news-v2/scripts/deliver_retry.sh
 TimeoutStartSec=5min
 StandardOutput=journal
 StandardError=journal

@@ -1,0 +1,15 @@
+[Unit]
+Description=SUPER NEWS V2 daily pipeline (ingestion -> intelligence -> Kakao delivery)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/opt/ai-playground-src-v2/super-news
+Environment=SUPER_NEWS_NO_PAID_API=1
+Environment=LLM_PROVIDER=claude_cli
+ExecStart=/opt/ai-playground-src-v2/super-news/.venv/bin/python3 /opt/ai-playground-src-v2/super-news/scripts/run_daily_full_pipeline_v2.py
+TimeoutStartSec=25min
+StandardOutput=journal
+StandardError=journal
