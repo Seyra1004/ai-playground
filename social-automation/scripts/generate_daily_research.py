@@ -75,6 +75,14 @@ def main() -> int:
     with open(os.path.join(out_dir, "excerpts", "evidence_excerpts.json"), "w", encoding="utf-8") as f:
         json.dump([dataclasses.asdict(e) for e in excerpts], f, ensure_ascii=False, indent=2)
 
+    # NOTE: body-excerpt widening (pipeline.live_discovery.fetch_body_excerpt)
+    # was tried here to give short titles more text to be checked against,
+    # but real NTS/FSS detail pages front-load thousands of chars of site
+    # navigation before the actual article, which produced false-positive
+    # keyword matches (e.g. "기한" from an unrelated nav-menu link). Using
+    # that would risk a FactSheet claim that isn't really about this
+    # article, so the gate stays on the title alone -- stricter, but never
+    # a fabricated/misattributed match.
     verified_id = None
     for c in ranked:
         accepted, _breakdown, _reason = evaluate_candidate(c, MIN_SCORE)
@@ -82,7 +90,8 @@ def main() -> int:
             continue
         if not has_sufficient_evidence(c.topic):
             continue
-        fs = build_minimal_fact_sheet(c, sources_by_id[f"src-{c.candidate_id}"], content_id=f"{ACCOUNT_ID}-{today}")
+        source = sources_by_id[f"src-{c.candidate_id}"]
+        fs = build_minimal_fact_sheet(c, source, content_id=f"{ACCOUNT_ID}-{today}")
         with open(os.path.join(out_dir, "fact_sheets", f"{c.candidate_id}.json"), "w", encoding="utf-8") as f:
             json.dump(dataclasses.asdict(fs), f, ensure_ascii=False, indent=2)
         verified_id = c.candidate_id

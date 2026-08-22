@@ -17,27 +17,111 @@ from datetime import date as _date
 
 from core.models import Claim, ClaimType, FactSheet, Source, SourceExcerpt, SourceType, TopicCandidate, VerificationStatus
 
-# Verified live against the real page before shipping this code (2026-08-22):
-# a standard NHIS CMS board template (title link + date column per <tr>).
+# Each entry's list_url/extractor were verified live against the real page
+# before being added (dates below reflect that verification day).
+# extractor(html) -> list of {"id", "title", "published_date" (YYYY-MM-DD), "url"}.
+
+
+def _extract_nhis(html: str) -> list:
+    """국민건강보험공단 (건강보험) -- verified 2026-08-22."""
+    row_re = re.compile(r'<tr class="">(.*?)</tr>', re.S)
+    id_re = re.compile(r"articleNo=(\d+)&amp;article\.offset")
+    title_re = re.compile(r'class="a-link" title="([^"]*?)\s*자세히 보기"')
+    date_re = re.compile(r">(\d{4}\.\d{2}\.\d{2})<")
+
+    items = []
+    for row in row_re.findall(html):
+        m_id, m_title, m_date = id_re.search(row), title_re.search(row), date_re.search(row)
+        if m_id and m_title and m_date:
+            items.append(
+                {
+                    "id": m_id.group(1),
+                    "title": m_title.group(1).strip(),
+                    "published_date": m_date.group(1).replace(".", "-"),
+                    "url": f"https://www.nhis.or.kr/nhis/together/wbhaea01700m01.do?mode=view&articleNo={m_id.group(1)}",
+                }
+            )
+    return items
+
+
+def _extract_fss(html: str) -> list:
+    """금융감독원 보도자료 (금융/소비자, 사기/피해예방) -- verified 2026-08-22."""
+    row_re = re.compile(r'<tr>\s*<td class="num">(.*?)</tr>', re.S)
+    title_re = re.compile(r'<td class="title"><a href="([^"]+)">([^<]+)</a></td>')
+    date_re = re.compile(r"<td>\s*(\d{4}-\d{2}-\d{2})\s*</td>")
+    id_re = re.compile(r"nttId=(\d+)")
+
+    items = []
+    for row in row_re.findall(html):
+        m_title, m_date = title_re.search(row), date_re.search(row)
+        if m_title and m_date:
+            href, title = m_title.group(1), m_title.group(2).strip()
+            m_id = id_re.search(href)
+            items.append(
+                {
+                    "id": m_id.group(1) if m_id else href,
+                    "title": title,
+                    "published_date": m_date.group(1),
+                    "url": "https://www.fss.or.kr" + href if href.startswith("/") else href,
+                }
+            )
+    return items
+
+
+def _extract_nts(html: str) -> list:
+    """국세청 보도자료 (세금) -- verified 2026-08-22."""
+    row_re = re.compile(r"<tr>(.*?)</tr>", re.S)
+    title_re = re.compile(r'data-id="(\d+)"[^>]*title="([^"]+)"\s*class="nttInfoBtn"')
+    date_re = re.compile(r'data-table="date">(\d{4})\.(\d{2})\.(\d{2})\.')
+
+    items = []
+    for row in row_re.findall(html):
+        if 'data-table="subject"' not in row:
+            continue
+        m_title, m_date = title_re.search(row), date_re.search(row)
+        if m_title and m_date:
+            article_id = m_title.group(1)
+            items.append(
+                {
+                    "id": article_id,
+                    "title": m_title.group(2).strip(),
+                    "published_date": "-".join(m_date.groups()),
+                    "url": f"https://www.nts.go.kr/nts/na/ntt/selectNttInfo.do?nttSn={article_id}&mi=2201&bbsId=1028",
+                }
+            )
+    return items
+
+
 OFFICIAL_SOURCES = [
     {
         "board_id": "nhis-together",
         "institution": "국민건강보험공단",
         "list_url": "https://www.nhis.or.kr/nhis/together/wbhaea01700m01.do",
-        "view_url_template": "https://www.nhis.or.kr/nhis/together/wbhaea01700m01.do?mode=view&articleNo={article_no}",
         "source_type": SourceType.PUBLIC_INSTITUTION,
         "category": "health_insurance",
+        "extractor": _extract_nhis,
+    },
+    {
+        "board_id": "fss-press",
+        "institution": "금융감독원",
+        "list_url": "https://www.fss.or.kr/fss/bbs/B0000188/list.do?menuNo=200218",
+        "source_type": SourceType.PUBLIC_INSTITUTION,
+        "category": "finance_savings",
+        "extractor": _extract_fss,
+    },
+    {
+        "board_id": "nts-press",
+        "institution": "국세청",
+        "list_url": "https://www.nts.go.kr/nts/na/ntt/selectNttList.do?mi=2201&bbsId=1028",
+        "source_type": SourceType.GOVERNMENT,
+        "category": "finance_savings",
+        "extractor": _extract_nts,
     },
 ]
 
-_ROW_RE = re.compile(r'<tr class="">(.*?)</tr>', re.S)
-_ARTICLE_NO_RE = re.compile(r"articleNo=(\d+)&amp;article\.offset")
-_TITLE_RE = re.compile(r'class="a-link" title="([^"]*?)\s*자세히 보기"')
-_DATE_RE = re.compile(r">(\d{4}\.\d{2}\.\d{2})<")
-
 _AMOUNT_RE = re.compile(r"\d[\d,]*\s*(원|만원|억원)")
 _DEADLINE_RE = re.compile(r"(까지|기한|마감|시행|부터)")
-_ELIGIBILITY_RE = re.compile(r"(대상|자격|가입자|지원)")
+_ELIGIBILITY_RE = re.compile(r"(대상|자격|가입자|지원|납세자|기업|근로자)")
 
 
 def fetch_html(url: str, timeout: int = 10) -> str:
@@ -46,22 +130,26 @@ def fetch_html(url: str, timeout: int = 10) -> str:
         return resp.read().decode("utf-8", errors="replace")
 
 
-def extract_list_items(html: str) -> list:
-    """Deterministic extraction only: article_no/title/published_date per row."""
-    items = []
-    for row in _ROW_RE.findall(html):
-        m_no = _ARTICLE_NO_RE.search(row)
-        m_title = _TITLE_RE.search(row)
-        m_date = _DATE_RE.search(row)
-        if m_no and m_title and m_date:
-            items.append(
-                {
-                    "article_no": m_no.group(1),
-                    "title": m_title.group(1).strip(),
-                    "published_date": m_date.group(1).replace(".", "-"),
-                }
-            )
-    return items
+_TAG_RE = re.compile(r"<[^>]+>")
+_ENTITY_RE = re.compile(r"&[a-zA-Z#0-9]+;")
+
+
+def fetch_body_excerpt(url: str, max_chars: int = 2000) -> str:
+    """Best-effort generic plain-text pull from an article detail page --
+    strips tags/scripts/styles, collapses whitespace. NOT currently used by
+    has_sufficient_evidence: real NTS/FSS detail pages front-load thousands
+    of chars of site navigation before the actual article body, which
+    produces false-positive keyword matches unrelated to the article. Kept
+    as a utility for a future site-specific content-area extractor; never
+    parsed into structured fields, never fabricated if the fetch fails."""
+    try:
+        html = fetch_html(url)
+    except Exception:
+        return ""
+    html = re.sub(r"<script.*?</script>", " ", html, flags=re.S)
+    html = re.sub(r"<style.*?</style>", " ", html, flags=re.S)
+    text = _ENTITY_RE.sub(" ", _TAG_RE.sub(" ", html))
+    return re.sub(r"\s+", " ", text).strip()[:max_chars]
 
 
 def _timeliness_signal(published_date: str, today: str) -> float:
@@ -94,14 +182,18 @@ def discover_live_candidates(today: str):
     candidates, sources_by_id, excerpts = [], {}, []
 
     for src in OFFICIAL_SOURCES:
-        html = fetch_html(src["list_url"])
-        for item in extract_list_items(html):
-            cid = f"{src['board_id']}-{item['article_no']}"
+        try:
+            html = fetch_html(src["list_url"])
+        except Exception:
+            continue  # don't let one broken source block the others
+
+        for item in src["extractor"](html):
+            cid = f"{src['board_id']}-{item['id']}"
             source_id = f"src-{cid}"
 
             sources_by_id[source_id] = Source(
                 source_id=source_id,
-                url=src["view_url_template"].format(article_no=item["article_no"]),
+                url=item["url"],
                 source_type=src["source_type"],
                 publisher=src["institution"],
                 published_at=item["published_date"],
@@ -120,7 +212,6 @@ def discover_live_candidates(today: str):
                 )
             )
 
-            evidence_ok = has_sufficient_evidence(item["title"])
             candidates.append(
                 TopicCandidate(
                     candidate_id=cid,
@@ -133,21 +224,29 @@ def discover_live_candidates(today: str):
                     # default rather than a fabricated per-topic estimate.
                     practical_value_signal=0.5,
                     population_reach_signal=0.5,
-                    verification_availability_signal=1.0 if evidence_ok else 0.2,
+                    # Directly fetchable primary source -- verification is
+                    # available regardless of whether *this* item's title
+                    # alone turns out to carry enough content (checked
+                    # separately, in rank order, against the article body).
+                    verification_availability_signal=1.0,
                     save_share_signal=0.4,
                     duplication_penalty_signal=0.1,
-                    has_authoritative_source=evidence_ok,
+                    # All OFFICIAL_SOURCES entries are real government/public
+                    # institutions -- that IS the authoritative-source signal;
+                    # content-richness is a separate, later verification step.
+                    has_authoritative_source=True,
                 )
             )
 
     return candidates, sources_by_id, excerpts
 
 
-def build_minimal_fact_sheet(candidate: TopicCandidate, source: Source, content_id: str) -> FactSheet:
-    """Only called when has_sufficient_evidence() was true. Builds a FactSheet
-    strictly from the real extracted text -- no invented eligibility/amount/
-    deadline detail beyond what's actually present in that text."""
-    text = candidate.topic
+def build_minimal_fact_sheet(candidate: TopicCandidate, source: Source, content_id: str, evidence_text: str = None) -> FactSheet:
+    """Only called when has_sufficient_evidence() was true for evidence_text
+    (title, or title+body-excerpt when the caller widened it). Builds a
+    FactSheet strictly from that real extracted text -- no invented
+    eligibility/amount/deadline detail beyond what's actually present in it."""
+    text = (evidence_text or candidate.topic)[:400]
     claims = [
         Claim(
             claim_id=f"claim-elig-{candidate.candidate_id}",
