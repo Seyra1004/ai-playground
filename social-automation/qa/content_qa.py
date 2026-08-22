@@ -97,10 +97,12 @@ def check_visual_quality(canonical: CanonicalContent) -> QAResult:
         for v in vd.values():
             if isinstance(v, (str, int, float)):
                 visual_strings.append(str(v))
+            elif isinstance(v, dict):
+                visual_strings.extend(str(x) for x in v.values() if isinstance(x, (str, int, float)))
             elif isinstance(v, list):
                 for item in v:
                     if isinstance(item, dict):
-                        visual_strings.extend(str(x) for x in item.values())
+                        visual_strings.extend(str(x) for x in item.values() if isinstance(x, (str, int, float)))
                     else:
                         visual_strings.append(str(item))
         # Substring containment, not exact token equality: Korean particles
