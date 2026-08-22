@@ -15,6 +15,8 @@ _LAYOUT_VARIANT_BY_VISUAL_TYPE = {
     "steps": "content_card",
     "bar_chart": "chart",
     "cta_panel": "cta",
+    "evidence_card": "content_card",
+    "process_flow": "content_card",
 }
 
 
@@ -113,12 +115,46 @@ def _render_visual(vd: dict, accent: str, accent2: str, text_color: str) -> str:
         col = lambda d, color: (
             f'<div style="flex:1;background:{color}18;border:3px solid {color};border-radius:20px;padding:32px;'
             f'text-align:center;">'
-            f'<div style="font-size:36px;font-weight:800;color:{color};">{d.get("title", "")}</div>'
+            f'<div style="font-size:44px;">{d.get("icon", "")}</div>'
+            f'<div style="font-size:36px;font-weight:800;color:{color};margin-top:8px;">{d.get("title", "")}</div>'
             f'<div style="font-size:26px;font-weight:600;margin-top:16px;">{d.get("desc", "")}</div></div>'
         )
         return (
             f'<div style="{_CARD_BASIS}display:flex;gap:24px;align-items:center;">'
             f"{col(left, accent)}{col(right, accent2)}</div>"
+        )
+
+    if vtype == "evidence_card":
+        # Real official-source citation (publisher/date/url domain pulled
+        # straight from the verified FactSheet's own Source record) --
+        # grounds the "why this is credible/timely" page in the actual
+        # evidence instead of a decorative icon.
+        import re as _re
+
+        url = vd.get("url", "")
+        domain = _re.sub(r"^https?://(www\.)?", "", url).split("/")[0] if url else ""
+        return (
+            f'<div style="{_CARD_BASIS}display:flex;flex-direction:column;justify-content:center;'
+            f'background:{accent}0d;border:3px solid {accent};border-radius:24px;padding:32px;">'
+            f'<div style="font-size:52px;">\U0001F4C4</div>'
+            f'<div style="font-size:30px;font-weight:800;color:{accent};margin-top:12px;">{vd.get("publisher", "")}</div>'
+            f'<div style="font-size:24px;font-weight:600;margin-top:8px;opacity:0.8;">{vd.get("source_label", "")}</div>'
+            f'<div style="font-size:22px;font-weight:600;margin-top:12px;opacity:0.6;">'
+            f'{vd.get("published_at", "")}{" · " + domain if domain else ""}</div>'
+            f"</div>"
+        )
+
+    if vtype == "process_flow":
+        steps = vd.get("steps", [])
+        arrow = f'<div style="font-size:34px;color:{accent};text-align:center;margin:4px 0;">↓</div>'
+        blocks = arrow.join(
+            f'<div style="background:{accent}14;border:2px solid {accent};border-radius:16px;'
+            f'padding:18px 24px;text-align:center;font-size:28px;font-weight:700;">{step}</div>'
+            for step in steps
+        )
+        return (
+            f'<div style="{_CARD_BASIS}display:flex;flex-direction:column;justify-content:center;'
+            f'gap:0;padding:24px;">{blocks}</div>'
         )
 
     if vtype == "bar_chart":
@@ -141,8 +177,13 @@ def _render_visual(vd: dict, accent: str, accent2: str, text_color: str) -> str:
         )
 
     if vtype == "cta_panel":
+        region = vd.get("region", "")
+        region_html = (
+            f'<div style="font-size:28px;font-weight:700;margin-bottom:24px;">\U0001F4CD {region}</div>' if region else ""
+        )
         return (
             f'<div style="{_CARD_BASIS}display:flex;flex-direction:column;justify-content:center;align-items:center;">'
+            f"{region_html}"
             f'<div style="background:linear-gradient(90deg, {accent}, {accent2});color:white;font-size:38px;'
             f'font-weight:800;padding:28px 56px;border-radius:60px;">{vd.get("button_text", "")}</div>'
             f"</div>"

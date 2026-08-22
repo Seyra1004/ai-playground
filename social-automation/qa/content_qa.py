@@ -67,3 +67,55 @@ def run_content_qa(
         status = QAStatus.PASS
 
     return QAResult(status=status, checks_passed=passed, checks_failed=failed, notes=notes)
+
+
+def check_visual_quality(canonical: CanonicalContent) -> QAResult:
+    """Deterministic visual-relevance QA: a page with no visual_data at all
+    -> FAIL, the exact same visual_data reused verbatim on 2+ pages -> FAIL
+    (a real evidence card/chart/diagram should never be identical across
+    pages), and a visual whose own text shares no token with its page's
+    headline/body -> NEEDS_REVIEW (a deterministic proxy for "this doesn't
+    look related to the page" -- not a semantic judgment call)."""
+    import json as _json
+
+    passed, failed, notes = [], [], []
+    seen_signatures = {}
+
+    for page in canonical.pages:
+        vd = page.visual_data or {}
+        if not vd or not vd.get("type"):
+            failed.append(f"missing_visual:page_{page.page_number}")
+            continue
+
+        signature = _json.dumps(vd, sort_keys=True, ensure_ascii=False)
+        if signature in seen_signatures:
+            failed.append(f"duplicate_visual:page_{page.page_number}_matches_page_{seen_signatures[signature]}")
+        else:
+            seen_signatures[signature] = page.page_number
+
+        visual_strings = []
+        for v in vd.values():
+            if isinstance(v, (str, int, float)):
+                visual_strings.append(str(v))
+            elif isinstance(v, list):
+                for item in v:
+                    if isinstance(item, dict):
+                        visual_strings.extend(str(x) for x in item.values())
+                    else:
+                        visual_strings.append(str(item))
+        visual_tokens = {t for s in visual_strings for t in s.replace(",", " ").split() if len(t) >= 2}
+        page_tokens = {t for t in f"{page.headline} {page.body}".replace(",", " ").split() if len(t) >= 2}
+        if page_tokens and visual_tokens and not (page_tokens & visual_tokens):
+            notes.append(f"visual_relevance_uncertain:page_{page.page_number}")
+
+    if canonical.pages:
+        passed.append("visual_presence_checked")
+
+    if failed:
+        status = QAStatus.FAIL
+    elif notes:
+        status = QAStatus.NEEDS_REVIEW
+    else:
+        status = QAStatus.PASS
+
+    return QAResult(status=status, checks_passed=passed, checks_failed=failed, notes=notes)
