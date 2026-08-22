@@ -28,7 +28,7 @@ import time
 from db.database import connect
 from delivery import build_idempotency_key, decide_delivery_action, record_delivery
 from kakao.auth import KakaoAuthError
-from kakao.client import MAX_TEXT_LENGTH, KakaoSendError, send_memo
+from kakao.client import MAX_TEXT_LENGTH, KakaoSendError, send_feed_memo, send_memo
 from config import MissingSecretError, get_optional_env
 from report.kakao_render import split_message
 from report.kakao_render_v2 import (
@@ -53,9 +53,6 @@ DESTINATION = "kakao_memo"
 # tracked and idempotent independently, per-date.
 MUSIC_REPORT_TYPE = "SUPER_NEWS_MUSIC_V2"
 DAILY_REPORT_TYPE = "SUPER_NEWS_DAILY_V2"
-
-_MUSIC_CTA_BUTTON_TITLE = "MUSIC 브리핑"
-_DAILY_CTA_BUTTON_TITLE = "DAILY 브리핑"
 
 # Minimal retry: a real transient Kakao send failure (network blip, 5xx) is
 # retried once more after a short fixed backoff before being recorded as
@@ -102,6 +99,28 @@ def _resolve_v2_link_url(page=None):
     return base.rstrip("/") + "/v2/"
 
 
+def _resolve_v2_archive_url(product, report_date_kst):
+    """The permanent DATE-FIXED archive URL for `product` ("music"/
+    "daily") at `report_date_kst` -- report.release_v2._dated_archive_
+    path's own docs/v2/reports/<product>/<date>.html convention, ADDED
+    2026-08-22 for the Kakao two-link requirement (date-fixed archive +
+    always-current latest page). Built from report_date_kst, NEVER from
+    "today" -- a message sent for an earlier date always resolves to that
+    SAME earlier date's own archive file, immutably. Same KAKAO_DEFAULT_
+    LINK_URL/KAKAO_V2_LINK_URL base resolution as _resolve_v2_link_url
+    (KAKAO_V2_LINK_URL override intentionally does NOT apply here -- an
+    override replaces the "latest" link's own base, but the date-fixed
+    archive must still always resolve deterministically from base + date,
+    never a fixed override that would silently point every date at the
+    same URL). Returns None when the base itself isn't configured, same
+    contract as _resolve_v2_link_url."""
+    base = get_optional_env("KAKAO_DEFAULT_LINK_URL")
+    if not base:
+        return None
+    return base.rstrip("/") + f"/v2/reports/{product}/{report_date_kst}.html"
+    return base.rstrip("/") + "/v2/"
+
+
 class NoDashboardDataError(RuntimeError):
     """Raised when build_dashboard_data_v2 has literally nothing real to
     report for this date (every section UNAVAILABLE/DEGRADED/empty) --
@@ -133,17 +152,18 @@ def _daily_has_any_real_content(dashboard_data_v2):
     return any(news[c]["items"] for c in ("AI", "ECONOMY", "SOCIETY"))
 
 
-def _send_with_retry(text, link_url, button_title, product_label, report_date_kst):
-    """Attempts send_memo up to _MAX_SEND_ATTEMPTS times with a short fixed
-    backoff between attempts, logging every attempt (product/date/attempt
-    number/outcome) so a real failure sequence is diagnosable from logs
-    alone. Re-raises the last failure's exception, unmodified, if every
-    attempt fails -- callers keep their existing _DELIVERY_FAILURE_TYPES
-    handling unchanged."""
+def _send_with_retry(send_fn, product_label, report_date_kst):
+    """Attempts `send_fn()` (a zero-arg callable -- e.g. a send_memo or
+    send_feed_memo call already bound to its own args) up to
+    _MAX_SEND_ATTEMPTS times with a short fixed backoff between attempts,
+    logging every attempt (product/date/attempt number/outcome) so a real
+    failure sequence is diagnosable from logs alone. Re-raises the last
+    failure's exception, unmodified, if every attempt fails -- callers
+    keep their existing _DELIVERY_FAILURE_TYPES handling unchanged."""
     last_exc = None
     for attempt in range(1, _MAX_SEND_ATTEMPTS + 1):
         try:
-            send_memo(text, link_url=link_url, button_title=button_title)
+            send_fn()
             logger.info(
                 "report_date=%s product=%s send attempt=%d/%d status=SUCCESS",
                 report_date_kst, product_label, attempt, _MAX_SEND_ATTEMPTS,
@@ -334,10 +354,17 @@ def deliver_music_digest_v2(report_date_kst, runs_row_id, conn=None, dashboard_d
 
         text = render_music_kakao_digest(dashboard_data_v2)
         content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
-        v2_link_url = _resolve_v2_link_url("music.html")
+        latest_url = _resolve_v2_link_url("music.html")
+        dated_url = _resolve_v2_archive_url("music", report_date_kst)
 
         try:
-            _send_with_retry(text, v2_link_url, _MUSIC_CTA_BUTTON_TITLE, "MUSIC", report_date_kst)
+            _send_with_retry(
+                lambda: send_feed_memo(
+                    "SUPER NEWS MUSIC", text, link_url=latest_url,
+                    buttons=[("오늘 MUSIC", dated_url), ("최신 MUSIC", latest_url)],
+                ),
+                "MUSIC", report_date_kst,
+            )
             status, failure_reason = "sent", None
         except _DELIVERY_FAILURE_TYPES as exc:
             status = "failed"
@@ -378,10 +405,17 @@ def deliver_daily_digest_v2(report_date_kst, runs_row_id, conn=None, dashboard_d
 
         text = render_daily_kakao_digest(dashboard_data_v2)
         content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
-        v2_link_url = _resolve_v2_link_url("daily.html")
+        latest_url = _resolve_v2_link_url("daily.html")
+        dated_url = _resolve_v2_archive_url("daily", report_date_kst)
 
         try:
-            _send_with_retry(text, v2_link_url, _DAILY_CTA_BUTTON_TITLE, "DAILY", report_date_kst)
+            _send_with_retry(
+                lambda: send_feed_memo(
+                    "SUPER NEWS DAILY", text, link_url=latest_url,
+                    buttons=[("오늘 DAILY", dated_url), ("최신 DAILY", latest_url)],
+                ),
+                "DAILY", report_date_kst,
+            )
             status, failure_reason = "sent", None
         except _DELIVERY_FAILURE_TYPES as exc:
             status = "failed"

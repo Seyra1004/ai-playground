@@ -176,10 +176,28 @@ def main(argv=None):
         # alongside the existing combined index.html/archive above, which
         # stay unchanged so report.release_v2's existing docs/v2/index.html
         # release-gate contract is untouched.
+        music_html = render_music_page_html_v2(dashboard_data)
+        daily_html = render_daily_page_html_v2(dashboard_data)
         music_path = docs_dir / "music.html"
         daily_path = docs_dir / "daily.html"
-        _atomic_write_text(music_path, render_music_page_html_v2(dashboard_data))
-        _atomic_write_text(daily_path, render_daily_page_html_v2(dashboard_data))
+        _atomic_write_text(music_path, music_html)
+        _atomic_write_text(daily_path, daily_html)
+
+        # PERMANENT DATE-FIXED ARCHIVE (ADDED 2026-08-22, Kakao two-link
+        # follow-up -- see report.release_v2's own _dated_archive_path):
+        # docs/v2/reports/music|daily/<date>.html, a product-scoped
+        # extension of the existing docs/v2/reports/<date>.html (combined-
+        # dashboard) convention. Same content as music.html/daily.html --
+        # this is a byte-identical SNAPSHOT at today's report_date_kst,
+        # written once and never overwritten by a LATER day's run (a later
+        # run writes a DIFFERENT date's path); today's own run safely
+        # re-writes today's own archive file if run more than once, same
+        # idempotent-by-construction contract the combined archive above
+        # already has.
+        music_archive_path = docs_dir / "reports" / "music" / f"{report_date_kst}.html"
+        daily_archive_path = docs_dir / "reports" / "daily" / f"{report_date_kst}.html"
+        _atomic_write_text(music_archive_path, music_html)
+        _atomic_write_text(daily_archive_path, daily_html)
     except Exception:
         logger.error("V2.1 web dashboard generation failed unexpectedly.", exc_info=True)
         print("V2.1 web dashboard generation failed due to an unexpected error. See the log for details.")
@@ -190,6 +208,8 @@ def main(argv=None):
     print(f"wrote {archive_path}")
     print(f"wrote {music_path}")
     print(f"wrote {daily_path}")
+    print(f"wrote {music_archive_path}")
+    print(f"wrote {daily_archive_path}")
     return EXIT_OK
 
 

@@ -157,40 +157,52 @@ def _extract_product_page_date(html_path, product):
     return f"{year}-{month}-{day}"
 
 
+def _dated_archive_path(docs_v2_dir, product, report_date_kst):
+    """PERMANENT DATE-FIXED ARCHIVE (ADDED 2026-08-22, Kakao two-link
+    follow-up): docs/v2/reports/<product>/<report_date_kst>.html --
+    extends the existing docs/v2/reports/<date>.html (combined-dashboard)
+    convention with a product-scoped subdirectory, since music.html/
+    daily.html are a SEPARATE pair from that combined page. Immutable by
+    construction: report_date_kst is always the page's OWN report date,
+    never "today", so a later day's publish writes a DIFFERENT path and
+    never touches an earlier date's file."""
+    return docs_v2_dir / "reports" / product / f"{report_date_kst}.html"
+
+
 def verify_local_v2_product_pages(report_date_kst, docs_v2_dir):
     """Reads the LOCAL, already-generated docs/v2/music.html and docs/v2/
-    daily.html (never regenerates them -- that's scripts/
-    generate_daily_web_report_v2.py's own job, upstream of this gate).
-    Returns the same {"ok", "status", "reasons"} shape as
-    verify_local_v2_dashboard. ok=True requires: both files exist and
-    parse their OWN real <title> date, both dates equal report_date_kst
-    exactly (the same "no stale previous page" check), and neither file
-    contains a real secret-shaped pattern. No MUSIC INTELLIGENCE marker
-    check here -- that marker is the combined index page's own domain
-    header, not part of either standalone product page."""
+    daily.html, AND their date-fixed archive copies (docs/v2/reports/
+    music|daily/<date>.html) -- never regenerates any of them, that's
+    scripts/generate_daily_web_report_v2.py's own job, upstream of this
+    gate. Returns the same {"ok", "status", "reasons"} shape as
+    verify_local_v2_dashboard. ok=True requires: all four files exist and
+    parse their OWN real <title> date, every date equals report_date_kst
+    exactly (the same "no stale previous page" check), and none contains
+    a real secret-shaped pattern. No MUSIC INTELLIGENCE marker check here
+    -- that marker is the combined index page's own domain header, not
+    part of either standalone product page."""
     docs_v2_dir = Path(docs_v2_dir)
-    music_path = docs_v2_dir / "music.html"
-    daily_path = docs_v2_dir / "daily.html"
+    checks = (
+        ("music", docs_v2_dir / "music.html", "docs/v2/music.html"),
+        ("daily", docs_v2_dir / "daily.html", "docs/v2/daily.html"),
+        ("music", _dated_archive_path(docs_v2_dir, "music", report_date_kst),
+         f"docs/v2/reports/music/{report_date_kst}.html"),
+        ("daily", _dated_archive_path(docs_v2_dir, "daily", report_date_kst),
+         f"docs/v2/reports/daily/{report_date_kst}.html"),
+    )
 
-    music_date = _extract_product_page_date(music_path, "music")
-    if music_date is None:
-        return {"ok": False, "status": ReleaseCheckStatus.DATED_REPORT_MISSING_OR_UNPARSEABLE,
-                "reasons": ["docs/v2/music.html missing or its <title> date is unparseable"]}
-    if music_date != report_date_kst:
-        return {"ok": False, "status": ReleaseCheckStatus.DATED_REPORT_DATE_MISMATCH,
-                "reasons": [f"music.html date {music_date!r} != REPORT_DATE {report_date_kst!r} (stale page)"]}
+    texts = []
+    for product, path, label in checks:
+        date = _extract_product_page_date(path, product)
+        if date is None:
+            return {"ok": False, "status": ReleaseCheckStatus.DATED_REPORT_MISSING_OR_UNPARSEABLE,
+                    "reasons": [f"{label} missing or its <title> date is unparseable"]}
+        if date != report_date_kst:
+            return {"ok": False, "status": ReleaseCheckStatus.DATED_REPORT_DATE_MISMATCH,
+                    "reasons": [f"{label} date {date!r} != REPORT_DATE {report_date_kst!r} (stale page)"]}
+        texts.append(path.read_text(encoding="utf-8"))
 
-    daily_date = _extract_product_page_date(daily_path, "daily")
-    if daily_date is None:
-        return {"ok": False, "status": ReleaseCheckStatus.DATED_REPORT_MISSING_OR_UNPARSEABLE,
-                "reasons": ["docs/v2/daily.html missing or its <title> date is unparseable"]}
-    if daily_date != report_date_kst:
-        return {"ok": False, "status": ReleaseCheckStatus.DATED_REPORT_DATE_MISMATCH,
-                "reasons": [f"daily.html date {daily_date!r} != REPORT_DATE {report_date_kst!r} (stale page)"]}
-
-    music_text = music_path.read_text(encoding="utf-8")
-    daily_text = daily_path.read_text(encoding="utf-8")
-    secrets_found = find_secret_exposure(music_text) + find_secret_exposure(daily_text)
+    secrets_found = [s for text in texts for s in find_secret_exposure(text)]
     if secrets_found:
         return {"ok": False, "status": ReleaseCheckStatus.SECRET_EXPOSURE,
                 "reasons": [f"secret-shaped pattern(s) found: {sorted(set(secrets_found))}"]}
@@ -272,15 +284,21 @@ def verify_external_v2_dashboard(report_date_kst, base_url=DEFAULT_PUBLIC_BASE_U
 
 def verify_external_v2_product_pages(report_date_kst, base_url=DEFAULT_PUBLIC_BASE_URL, http_get=None, timeout_seconds=15):
     """Real, external, read-only HTTP GET against the real live docs/v2/
-    music.html and docs/v2/daily.html public pages -- same fail-closed
-    discipline as verify_external_v2_dashboard (HTTP 200 alone is never
-    pass). `http_get` defaults to `requests.get`; tests inject a fake so
-    this module never makes a real network call under pytest."""
+    music.html and docs/v2/daily.html public pages, AND their date-fixed
+    archive URLs (docs/v2/reports/music|daily/<date>.html) -- same
+    fail-closed discipline as verify_external_v2_dashboard (HTTP 200
+    alone is never pass). `http_get` defaults to `requests.get`; tests
+    inject a fake so this module never makes a real network call under
+    pytest."""
     if http_get is None:
         import requests
         http_get = lambda url, timeout: requests.get(url, timeout=timeout)
 
-    for product, filename in (("music", "music.html"), ("daily", "daily.html")):
+    for product, filename in (
+        ("music", "music.html"), ("daily", "daily.html"),
+        ("music", f"reports/music/{report_date_kst}.html"),
+        ("daily", f"reports/daily/{report_date_kst}.html"),
+    ):
         url = base_url.rstrip("/") + f"/v2/{filename}"
         try:
             resp = http_get(url, timeout_seconds)
@@ -390,16 +408,26 @@ def publish_v2_product_pages(report_date_kst, docs_v2_dir, repo_root, push=True,
     pages report_delivery_v2.py's deliver_music_digest_v2/deliver_daily_
     digest_v2 actually link to. ADDED 2026-08-19: neither page was ever
     published by any existing automated path before this -- see this
-    module's own product-page release gate section docstring."""
+    module's own product-page release gate section docstring.
+
+    ADDED 2026-08-22 (Kakao two-link follow-up): also publishes each
+    product's date-fixed archive copy (docs/v2/reports/music|daily/
+    <date>.html) in the SAME commit -- the archive and the latest page
+    are always published atomically together, never independently, so
+    Kakao's date-fixed link and its latest link are never out of sync
+    with each other."""
     docs_v2_dir = Path(docs_v2_dir)
     repo_root = Path(repo_root)
-    music_path = docs_v2_dir / "music.html"
-    daily_path = docs_v2_dir / "daily.html"
-    rel_music = music_path.resolve().relative_to(repo_root.resolve()).as_posix()
-    rel_daily = daily_path.resolve().relative_to(repo_root.resolve()).as_posix()
+    paths = [
+        docs_v2_dir / "music.html",
+        docs_v2_dir / "daily.html",
+        _dated_archive_path(docs_v2_dir, "music", report_date_kst),
+        _dated_archive_path(docs_v2_dir, "daily", report_date_kst),
+    ]
+    rel_paths = [p.resolve().relative_to(repo_root.resolve()).as_posix() for p in paths]
     return _publish_files_v2(
-        f"Publish SUPER NEWS MUSIC/DAILY product pages ({report_date_kst}) to docs/v2/",
-        repo_root, [rel_music, rel_daily], push=push, git_runner=git_runner,
+        f"Publish SUPER NEWS MUSIC/DAILY product pages + {report_date_kst} archives to docs/v2/",
+        repo_root, rel_paths, push=push, git_runner=git_runner,
     )
 
 

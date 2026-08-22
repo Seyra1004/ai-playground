@@ -14,6 +14,7 @@ from db.database import connect, init_db
 from report.release_v2 import (
     ReleaseCheckStatus,
     ReleaseStatus,
+    _dated_archive_path,
     find_secret_exposure,
     has_music_intelligence_marker,
     publish_v2_dashboard,
@@ -514,11 +515,20 @@ _GOOD_MUSIC_HTML = "<html><head><title>SUPER NEWS MUSIC — 2026.08.19</title></
 _GOOD_DAILY_HTML = "<html><head><title>SUPER NEWS DAILY — 2026.08.19</title></head><body>real daily content</body></html>"
 
 
-def _write_product_pages(tmp_path, music_html=_GOOD_MUSIC_HTML, daily_html=_GOOD_DAILY_HTML):
+def _write_product_pages(tmp_path, music_html=_GOOD_MUSIC_HTML, daily_html=_GOOD_DAILY_HTML, report_date="2026-08-19"):
+    """ADDED 2026-08-22 (Kakao two-link follow-up): also writes each
+    product's date-fixed archive copy (docs/v2/reports/music|daily/
+    <report_date>.html), matching scripts/generate_daily_web_report_v2.py's
+    own real behavior -- a byte-identical snapshot alongside the latest
+    page, same content, so this fixture models real production output."""
     docs_v2 = tmp_path / "docs" / "v2"
     docs_v2.mkdir(parents=True, exist_ok=True)
     (docs_v2 / "music.html").write_text(music_html, encoding="utf-8")
     (docs_v2 / "daily.html").write_text(daily_html, encoding="utf-8")
+    (docs_v2 / "reports" / "music").mkdir(parents=True, exist_ok=True)
+    (docs_v2 / "reports" / "daily").mkdir(parents=True, exist_ok=True)
+    (docs_v2 / "reports" / "music" / f"{report_date}.html").write_text(music_html, encoding="utf-8")
+    (docs_v2 / "reports" / "daily" / f"{report_date}.html").write_text(daily_html, encoding="utf-8")
     return docs_v2
 
 
@@ -580,6 +590,30 @@ def test_product_local_verify_never_matches_the_combined_dashboard_title():
         assert _extract_product_page_date(p, "music") is None
 
 
+def test_dated_archive_path_correct_for_daily_and_music(tmp_path):
+    docs_v2 = tmp_path / "docs" / "v2"
+    assert _dated_archive_path(docs_v2, "daily", "2026-08-22") == docs_v2 / "reports" / "daily" / "2026-08-22.html"
+    assert _dated_archive_path(docs_v2, "music", "2026-08-22") == docs_v2 / "reports" / "music" / "2026-08-22.html"
+
+
+def test_dated_archive_immutable_a_later_publish_never_touches_an_earlier_dates_archive(tmp_path):
+    """STEP 6 property: publishing a LATER day must never overwrite or
+    even reference an EARLIER day's own archive file/content."""
+    repo_root, docs_v2 = _repo_with_product_pages(tmp_path, report_date="2026-08-19")
+    old_music_archive = docs_v2 / "reports" / "music" / "2026-08-19.html"
+    old_content = old_music_archive.read_text(encoding="utf-8")
+
+    # A later day's own generation writes a DIFFERENT dated file, never
+    # touching 2026-08-19's.
+    later_music_html = _GOOD_MUSIC_HTML.replace("2026.08.19", "2026.08.22")
+    later_daily_html = _GOOD_DAILY_HTML.replace("2026.08.19", "2026.08.22")
+    _write_product_pages(repo_root, music_html=later_music_html, daily_html=later_daily_html, report_date="2026-08-22")
+
+    assert old_music_archive.read_text(encoding="utf-8") == old_content  # byte-identical, untouched
+    assert (docs_v2 / "reports" / "music" / "2026-08-22.html").exists()  # new date, new file
+    assert (docs_v2 / "reports" / "music" / "2026-08-19.html").exists()  # old date, still present
+
+
 def test_product_local_verify_fails_on_secret_exposure(tmp_path):
     leaky_music = _GOOD_MUSIC_HTML.replace(
         "</body>", "<!-- key=sk-ant-abcdefghijklmnopqrstuvwxyz012345 --></body>"
@@ -594,8 +628,11 @@ def test_product_local_verify_fails_on_secret_exposure(tmp_path):
 
 
 def _fake_http_get_for_products(music_html, daily_html):
+    """Routes by "/music" vs "/daily" appearing anywhere in the path --
+    covers both the latest page (music.html/daily.html) and each
+    product's date-fixed archive URL (reports/music|daily/<date>.html)."""
     def fake_get(url, timeout):
-        return _fake_response(200, music_html if url.endswith("music.html") else daily_html)
+        return _fake_response(200, music_html if "/music" in url else daily_html)
     return fake_get
 
 
@@ -638,31 +675,38 @@ def test_product_external_verify_uses_the_real_expected_urls():
 
     def fake_get(url, timeout):
         seen_urls.append(url)
-        return _fake_response(200, _GOOD_MUSIC_HTML if url.endswith("music.html") else _GOOD_DAILY_HTML)
+        return _fake_response(200, _GOOD_MUSIC_HTML if "/music" in url else _GOOD_DAILY_HTML)
 
     verify_external_v2_product_pages("2026-08-19", http_get=fake_get)
     assert seen_urls == [
         "https://seyra1004.github.io/ai-playground/v2/music.html",
         "https://seyra1004.github.io/ai-playground/v2/daily.html",
+        "https://seyra1004.github.io/ai-playground/v2/reports/music/2026-08-19.html",
+        "https://seyra1004.github.io/ai-playground/v2/reports/daily/2026-08-19.html",
     ]
 
 
 # ---- publish_v2_product_pages (git, always faked here) ----------------------
 
 
-def _repo_with_product_pages(tmp_path):
+def _repo_with_product_pages(tmp_path, report_date="2026-08-19"):
     repo_root = tmp_path
-    docs_v2 = _write_product_pages(repo_root)
+    docs_v2 = _write_product_pages(repo_root, report_date=report_date)
     return repo_root, docs_v2
 
 
-def test_product_publish_stages_exactly_the_two_expected_files(tmp_path):
+def test_product_publish_stages_exactly_the_four_expected_files(tmp_path):
+    """ADDED 2026-08-22: publish_v2_product_pages now also stages each
+    product's date-fixed archive copy, atomically with the latest page."""
     repo_root, docs_v2 = _repo_with_product_pages(tmp_path)
     git = _FakeGit()
     result = publish_v2_product_pages("2026-08-19", docs_v2, repo_root, push=True, git_runner=git)
     assert result == {"published": True, "pushed": True, "reason": None}
     add_call = next(c for c in git.calls if c[0] == "add")
-    assert add_call == ["add", "--", "docs/v2/music.html", "docs/v2/daily.html"]
+    assert set(add_call) == {
+        "add", "--", "docs/v2/music.html", "docs/v2/daily.html",
+        "docs/v2/reports/music/2026-08-19.html", "docs/v2/reports/daily/2026-08-19.html",
+    }
     assert ["push", "origin", "main"] in git.calls
 
 
@@ -685,9 +729,11 @@ def test_product_publish_aborts_when_unrelated_file_already_staged(tmp_path):
 
 
 def test_product_publish_never_stages_the_combined_dashboard_files(tmp_path):
-    """publish_v2_product_pages must touch ONLY music.html/daily.html --
-    never index.html/reports/<date>.html, which stay
-    publish_v2_dashboard's own exclusive scope."""
+    """publish_v2_product_pages must touch ONLY music.html/daily.html and
+    their OWN product-scoped date-fixed archives (docs/v2/reports/music|
+    daily/<date>.html) -- never index.html or the combined dashboard's
+    flat docs/v2/reports/<date>.html, which stay publish_v2_dashboard's
+    own exclusive scope."""
     repo_root = tmp_path
     _write_dashboard(repo_root)  # index.html + reports/2026-08-15.html also present
     docs_v2 = _write_product_pages(repo_root)
@@ -695,7 +741,9 @@ def test_product_publish_never_stages_the_combined_dashboard_files(tmp_path):
     publish_v2_product_pages("2026-08-19", docs_v2, repo_root, push=True, git_runner=git)
     add_call = next(c for c in git.calls if c[0] == "add")
     assert "docs/v2/index.html" not in add_call
-    assert not any("reports" in p for p in add_call)
+    assert "docs/v2/reports/2026-08-15.html" not in add_call  # combined dashboard's own flat archive
+    assert "docs/v2/reports/music/2026-08-19.html" in add_call
+    assert "docs/v2/reports/daily/2026-08-19.html" in add_call
 
 
 # ---- run_daily_v2_product_pages_publish: orchestration, NO Kakao send -------

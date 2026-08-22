@@ -405,7 +405,7 @@ def test_music_digest_sends_and_records_own_report_type(conn):
     _insert_producer_intelligence(conn, run_row_id)
     delivery_run_row_id = _insert_run(conn, "run-delivery")
 
-    with patch("report_delivery_v2.send_memo") as mock_send:
+    with patch("report_delivery_v2.send_feed_memo") as mock_send:
         result = deliver_music_digest_v2("2026-08-14", delivery_run_row_id, conn=conn)
 
     assert result["status"] == "sent"
@@ -427,17 +427,35 @@ def test_music_digest_links_to_the_standalone_music_page(conn, monkeypatch):
     _insert_producer_intelligence(conn, run_row_id)
     delivery_run_row_id = _insert_run(conn, "run-delivery")
 
-    with patch("report_delivery_v2.send_memo") as mock_send:
+    with patch("report_delivery_v2.send_feed_memo") as mock_send:
         deliver_music_digest_v2("2026-08-14", delivery_run_row_id, conn=conn)
 
     assert mock_send.call_args.kwargs["link_url"] == "https://seyra1004.github.io/ai-playground/v2/music.html"
+
+
+def test_music_digest_kakao_payload_contains_both_dated_and_latest_links(conn, monkeypatch):
+    """PERMANENT DATE-FIXED ARCHIVE (ADDED 2026-08-22): the real Kakao
+    feed payload must carry BOTH the immutable report_date_kst archive
+    URL and the always-current latest music.html URL as its two buttons
+    -- the date-fixed one built from report_date_kst, never "today"."""
+    monkeypatch.delenv("KAKAO_V2_LINK_URL", raising=False)
+    monkeypatch.setenv("KAKAO_DEFAULT_LINK_URL", "https://seyra1004.github.io/ai-playground")
+    run_row_id = _insert_run(conn, "run-1")
+    _insert_producer_intelligence(conn, run_row_id)
+
+    with patch("report_delivery_v2.send_feed_memo") as mock_send:
+        deliver_music_digest_v2("2026-08-14", _insert_run(conn, "run-music"), conn=conn)
+
+    button_urls = {title: url for title, url in mock_send.call_args.kwargs["buttons"]}
+    assert button_urls["오늘 MUSIC"] == "https://seyra1004.github.io/ai-playground/v2/reports/music/2026-08-14.html"
+    assert button_urls["최신 MUSIC"] == "https://seyra1004.github.io/ai-playground/v2/music.html"
 
 
 def test_daily_digest_sends_and_records_own_report_type(conn):
     _insert_daily_news_item(conn, "d1", "AI", "AI 뉴스 제목")
     delivery_run_row_id = _insert_run(conn, "run-delivery")
 
-    with patch("report_delivery_v2.send_memo") as mock_send:
+    with patch("report_delivery_v2.send_feed_memo") as mock_send:
         result = deliver_daily_digest_v2("2026-08-14", delivery_run_row_id, conn=conn)
 
     assert result["status"] == "sent"
@@ -459,10 +477,41 @@ def test_daily_digest_links_to_the_standalone_daily_page(conn, monkeypatch):
     _insert_daily_news_item(conn, "d1", "AI", "AI 뉴스 제목")
     delivery_run_row_id = _insert_run(conn, "run-delivery")
 
-    with patch("report_delivery_v2.send_memo") as mock_send:
+    with patch("report_delivery_v2.send_feed_memo") as mock_send:
         deliver_daily_digest_v2("2026-08-14", delivery_run_row_id, conn=conn)
 
     assert mock_send.call_args.kwargs["link_url"] == "https://seyra1004.github.io/ai-playground/v2/daily.html"
+
+
+def test_daily_digest_kakao_payload_contains_both_dated_and_latest_links(conn, monkeypatch):
+    """Same requirement as MUSIC's own equivalent test, for DAILY."""
+    monkeypatch.delenv("KAKAO_V2_LINK_URL", raising=False)
+    monkeypatch.setenv("KAKAO_DEFAULT_LINK_URL", "https://seyra1004.github.io/ai-playground")
+    _insert_daily_news_item(conn, "d1", "AI", "AI 뉴스 제목")
+
+    with patch("report_delivery_v2.send_feed_memo") as mock_send:
+        deliver_daily_digest_v2("2026-08-14", _insert_run(conn, "run-daily"), conn=conn)
+
+    button_urls = {title: url for title, url in mock_send.call_args.kwargs["buttons"]}
+    assert button_urls["오늘 DAILY"] == "https://seyra1004.github.io/ai-playground/v2/reports/daily/2026-08-14.html"
+    assert button_urls["최신 DAILY"] == "https://seyra1004.github.io/ai-playground/v2/daily.html"
+
+
+def test_dated_archive_url_uses_report_date_not_click_time(conn, monkeypatch):
+    """The date-fixed button URL must be built from report_date_kst
+    (a PAST date here), never from "today" at generation/click time --
+    three days later, sending for an earlier date still produces that
+    SAME earlier date's own archive URL."""
+    monkeypatch.delenv("KAKAO_V2_LINK_URL", raising=False)
+    monkeypatch.setenv("KAKAO_DEFAULT_LINK_URL", "https://seyra1004.github.io/ai-playground")
+    _insert_daily_news_item(conn, "d1", "AI", "AI 뉴스 제목", collected_at="2026-08-19T01:00:00+00:00")
+
+    with patch("report_delivery_v2.send_feed_memo") as mock_send:
+        deliver_daily_digest_v2("2026-08-19", _insert_run(conn, "run-daily-old"), conn=conn)
+
+    button_urls = {title: url for title, url in mock_send.call_args.kwargs["buttons"]}
+    assert button_urls["오늘 DAILY"] == "https://seyra1004.github.io/ai-playground/v2/reports/daily/2026-08-19.html"
+    assert "2026-08-19" in button_urls["오늘 DAILY"]
 
 
 def test_music_and_daily_digest_link_to_different_pages(conn, monkeypatch):
@@ -472,7 +521,7 @@ def test_music_and_daily_digest_link_to_different_pages(conn, monkeypatch):
     _insert_producer_intelligence(conn, run_row_id)
     _insert_daily_news_item(conn, "d1", "AI", "AI 뉴스 제목")
 
-    with patch("report_delivery_v2.send_memo") as mock_send:
+    with patch("report_delivery_v2.send_feed_memo") as mock_send:
         deliver_music_digest_v2("2026-08-14", _insert_run(conn, "run-music"), conn=conn)
         music_link = mock_send.call_args.kwargs["link_url"]
         deliver_daily_digest_v2("2026-08-14", _insert_run(conn, "run-daily"), conn=conn)
@@ -492,7 +541,7 @@ def test_music_and_daily_digest_are_independent_neither_blocks_the_other(conn):
     _insert_producer_intelligence(conn, run_row_id)
     _insert_daily_news_item(conn, "d1", "SOCIETY", "사회 뉴스 제목")
 
-    with patch("report_delivery_v2.send_memo") as mock_send:
+    with patch("report_delivery_v2.send_feed_memo") as mock_send:
         music_result = deliver_music_digest_v2("2026-08-14", _insert_run(conn, "run-music"), conn=conn)
         daily_result = deliver_daily_digest_v2("2026-08-14", _insert_run(conn, "run-daily"), conn=conn)
 
@@ -510,11 +559,11 @@ def test_music_digest_duplicate_send_is_skipped(conn):
     run_row_id = _insert_run(conn, "run-1")
     _insert_producer_intelligence(conn, run_row_id)
 
-    with patch("report_delivery_v2.send_memo"):
+    with patch("report_delivery_v2.send_feed_memo"):
         first = deliver_music_digest_v2("2026-08-14", _insert_run(conn, "run-music-1"), conn=conn)
     assert first["status"] == "sent"
 
-    with patch("report_delivery_v2.send_memo") as mock_send:
+    with patch("report_delivery_v2.send_feed_memo") as mock_send:
         second = deliver_music_digest_v2("2026-08-14", _insert_run(conn, "run-music-2"), conn=conn)
 
     assert second["status"] == "skipped_duplicate"
@@ -529,11 +578,11 @@ def test_music_digest_duplicate_send_is_skipped(conn):
 def test_daily_digest_duplicate_send_is_skipped(conn):
     _insert_daily_news_item(conn, "d1", "ECONOMY", "경제 뉴스 제목")
 
-    with patch("report_delivery_v2.send_memo"):
+    with patch("report_delivery_v2.send_feed_memo"):
         first = deliver_daily_digest_v2("2026-08-14", _insert_run(conn, "run-daily-1"), conn=conn)
     assert first["status"] == "sent"
 
-    with patch("report_delivery_v2.send_memo") as mock_send:
+    with patch("report_delivery_v2.send_feed_memo") as mock_send:
         second = deliver_daily_digest_v2("2026-08-14", _insert_run(conn, "run-daily-2"), conn=conn)
 
     assert second["status"] == "skipped_duplicate"
@@ -549,7 +598,7 @@ def test_music_digest_kakao_send_error_is_recorded_as_failed_not_sent(conn):
     run_row_id = _insert_run(conn, "run-1")
     _insert_producer_intelligence(conn, run_row_id)
 
-    with patch("report_delivery_v2.send_memo", side_effect=KakaoSendError("boom")):
+    with patch("report_delivery_v2.send_feed_memo", side_effect=KakaoSendError("boom")):
         result = deliver_music_digest_v2("2026-08-14", _insert_run(conn, "run-music"), conn=conn)
 
     assert result["status"] == "failed"
@@ -563,7 +612,7 @@ def test_music_digest_kakao_send_error_is_recorded_as_failed_not_sent(conn):
 def test_daily_digest_kakao_send_error_is_recorded_as_failed_not_sent(conn):
     _insert_daily_news_item(conn, "d1", "AI", "AI 뉴스 제목")
 
-    with patch("report_delivery_v2.send_memo", side_effect=KakaoSendError("boom")):
+    with patch("report_delivery_v2.send_feed_memo", side_effect=KakaoSendError("boom")):
         result = deliver_daily_digest_v2("2026-08-14", _insert_run(conn, "run-daily"), conn=conn)
 
     assert result["status"] == "failed"
@@ -582,7 +631,7 @@ def test_music_digest_retries_once_then_succeeds(conn):
     run_row_id = _insert_run(conn, "run-1")
     _insert_producer_intelligence(conn, run_row_id)
     with patch("report_delivery_v2.time.sleep"), patch(
-        "report_delivery_v2.send_memo", side_effect=[KakaoSendError("transient"), None]
+        "report_delivery_v2.send_feed_memo", side_effect=[KakaoSendError("transient"), None]
     ) as mock_send:
         result = deliver_music_digest_v2("2026-08-14", _insert_run(conn, "run-music"), conn=conn)
     assert result["status"] == "sent"
@@ -593,7 +642,7 @@ def test_music_digest_exhausts_retries_then_fails(conn):
     run_row_id = _insert_run(conn, "run-1")
     _insert_producer_intelligence(conn, run_row_id)
     with patch("report_delivery_v2.time.sleep"), patch(
-        "report_delivery_v2.send_memo", side_effect=KakaoSendError("boom")
+        "report_delivery_v2.send_feed_memo", side_effect=KakaoSendError("boom")
     ) as mock_send:
         result = deliver_music_digest_v2("2026-08-14", _insert_run(conn, "run-music"), conn=conn)
     assert result["status"] == "failed"

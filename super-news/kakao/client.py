@@ -78,9 +78,6 @@ def send_memo(text, link_url=None, button_title=None):
     # link fails fast without triggering a token refresh network call.
     effective_link = link_url if link_url else get_required_env("KAKAO_DEFAULT_LINK_URL")
 
-    access_token = get_valid_access_token()
-    logging_setup.register_secret(access_token)
-
     template = {
         "object_type": "text",
         "text": text,
@@ -88,6 +85,85 @@ def send_memo(text, link_url=None, button_title=None):
     }
     if button_title:
         template["button_title"] = button_title
+
+    return _send_template(template)
+
+
+# Kakao's documented per-button title limit for the feed template (버튼 이름) --
+# far shorter than MAX_TEXT_LENGTH, checked separately since a button title
+# is a distinct field, never counted against the 200-char text/description
+# budget.
+MAX_BUTTON_TITLE_LENGTH = 14
+
+
+def send_feed_memo(title, description, link_url=None, buttons=None):
+    """Send ONE 피드 템플릿 (feed template) memo via 나에게 보내기 -- unlike
+    send_memo's 기본 텍스트 템플릿 (exactly one link), the feed template
+    supports up to 2 real, independently-clickable buttons (each its own
+    title + link), which is the ONLY native Kakao mechanism for "provide
+    two distinct destinations from one message" (ADDED 2026-08-22, SUPER
+    NEWS DAILY/MUSIC date-fixed-archive + latest-page two-link
+    requirement). Button titles are a SEPARATE field from `description`
+    and do not consume MAX_TEXT_LENGTH's 200-char budget.
+
+    `buttons`: a list of 1-2 (title, url) tuples. `link_url` (falls back
+    to KAKAO_DEFAULT_LINK_URL, same contract as send_memo) is the
+    fallback tap target for the message body itself, outside the
+    buttons -- callers that already have a natural "primary" URL should
+    pass it explicitly rather than relying on the KAKAO_DEFAULT_LINK_URL
+    fallback.
+
+    Raises KakaoValidationError for empty title/description, description
+    over MAX_TEXT_LENGTH, an empty/oversized (>2) buttons list, or a
+    button title over MAX_BUTTON_TITLE_LENGTH -- same fail-fast-before-
+    any-network-call discipline as send_memo. Returns the parsed JSON
+    response body on success; raises KakaoSendError the same way
+    send_memo does for any network/API-level failure."""
+    if not title:
+        raise KakaoValidationError("title must be non-empty.")
+    if not description:
+        raise KakaoValidationError("description must be non-empty.")
+    if len(description) > MAX_TEXT_LENGTH:
+        raise KakaoValidationError(
+            f"description is {len(description)} characters, which exceeds Kakao's "
+            f"{MAX_TEXT_LENGTH}-character limit."
+        )
+    if not buttons or not (1 <= len(buttons) <= 2):
+        raise KakaoValidationError("buttons must be a list of 1 or 2 (title, url) tuples.")
+    for button_title, button_url in buttons:
+        if not button_title or not button_url:
+            raise KakaoValidationError("each button needs a non-empty title and url.")
+        if len(button_title) > MAX_BUTTON_TITLE_LENGTH:
+            raise KakaoValidationError(
+                f"button title {button_title!r} is {len(button_title)} characters, "
+                f"which exceeds Kakao's {MAX_BUTTON_TITLE_LENGTH}-character button-title limit."
+            )
+
+    effective_link = link_url if link_url else get_required_env("KAKAO_DEFAULT_LINK_URL")
+
+    template = {
+        "object_type": "feed",
+        "content": {
+            "title": title,
+            "description": description,
+            "link": {"web_url": effective_link, "mobile_web_url": effective_link},
+        },
+        "buttons": [
+            {"title": button_title, "link": {"web_url": button_url, "mobile_web_url": button_url}}
+            for button_title, button_url in buttons
+        ],
+    }
+    return _send_template(template)
+
+
+def _send_template(template):
+    """Shared send + response-validation core for every template_object
+    shape this client sends (text/send_memo, feed/send_feed_memo) --
+    identical Kakao API contract regardless of object_type: HTTP 200 AND
+    body["result_code"] == 0 are both required for success, Authorization/
+    access_token/raw body are never logged."""
+    access_token = get_valid_access_token()
+    logging_setup.register_secret(access_token)
 
     headers = {"Authorization": f"Bearer {access_token}"}
     data = {"template_object": json.dumps(template, ensure_ascii=False)}
