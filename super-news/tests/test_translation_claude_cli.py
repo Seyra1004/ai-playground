@@ -60,15 +60,33 @@ def test_empty_result_raises_runtime_error_not_crash(provider):
             provider.translate("Some Headline", "ko")
 
 
-def test_malformed_stdout_raises_runtime_error(provider):
+def test_malformed_stdout_raises_transient_error(provider):
+    # PRODUCTION INCIDENT FIX (2026-08-22): malformed/truncated stdout is an
+    # execution-level anomaly, not a property of the source text -- must be
+    # retryable (TransientTranslationError), never permanently cached.
     with patch("subprocess.run", return_value=_FakeCompletedProcess(0, stdout="not json at all")):
-        with pytest.raises(RuntimeError):
+        with pytest.raises(TransientTranslationError):
             provider.translate("Some Headline", "ko")
 
 
-def test_nonzero_exit_raises_runtime_error(provider):
+def test_nonzero_exit_raises_transient_error(provider):
+    # PRODUCTION INCIDENT FIX (2026-08-22, confirmed real defect): an
+    # unrecognized non-zero exit used to raise a plain RuntimeError, which
+    # report.translation.translate_and_cache's generic except-Exception
+    # classified as FAILURE_KIND_PERMANENT -- a single transient CLI hiccup
+    # permanently poisoned the cache for that headline. Must be retryable.
     with patch("subprocess.run", return_value=_FakeCompletedProcess(1, stdout="", stderr="boom")):
-        with pytest.raises(RuntimeError):
+        with pytest.raises(TransientTranslationError):
+            provider.translate("Some Headline", "ko")
+
+
+def test_is_error_true_non_rate_limit_raises_transient_error(provider):
+    # PRODUCTION INCIDENT FIX (2026-08-22): an unrecognized is_error=true is
+    # an execution-level failure report from the CLI, not evidence this
+    # specific headline can never be translated -- must be retryable.
+    payload = json.dumps({"is_error": True, "result": "internal tool error", "usage": {}})
+    with patch("subprocess.run", return_value=_FakeCompletedProcess(0, stdout=payload)):
+        with pytest.raises(TransientTranslationError):
             provider.translate("Some Headline", "ko")
 
 

@@ -15,7 +15,13 @@ capped-with-NO-archive contract, the simplified category-color system,
 and the removal of per-section "AI 해석 대기" pipeline-status text from
 primary content."""
 
-from report.web_render_v2 import render_dashboard_html_v2, render_daily_page_html_v2, render_music_page_html_v2
+from report.web_render_v2 import (
+    is_korean_first_ready,
+    is_korean_first_text_ready,
+    render_dashboard_html_v2,
+    render_daily_page_html_v2,
+    render_music_page_html_v2,
+)
 
 
 def _news(state="DEGRADED", items=None):
@@ -2494,3 +2500,34 @@ def test_spotify_watch_suppresses_cached_newsletter_implication(monkeypatch):
     html_out = render_dashboard_html_v2(data)
     section = _section(html_out, "section-SPOTIFY")
     assert "뉴스레터" not in section
+
+
+# =============================================================================
+# PERMANENT KOREAN-FIRST DELIVERY GATE (2026-08-22)
+# =============================================================================
+
+
+def test_korean_first_gate_accepts_real_korean_translation():
+    item = _news_item("Vanessa Bosaen exits Virgin Music Group",
+                       ko_title="바네사 보사엔, 버진 뮤직 그룹 떠나", translation_status="TRANSLATED")
+    assert is_korean_first_ready(item) is True
+
+
+def test_korean_first_gate_rejects_untranslated_english_sentence():
+    # No ko_title/translation_status -- _display_title falls back to the
+    # raw English sentence, which the gate must reject.
+    item = _news_item("Los Lobos Settles Sony Music Lawsuit Over Soundtrack Royalties")
+    assert is_korean_first_ready(item) is False
+
+
+def test_korean_first_gate_allows_bare_proper_noun_english():
+    for title in ("BTS", "HYBE", "Billboard", "Spotify", "Take Two"):
+        item = _news_item(title)
+        assert is_korean_first_ready(item) is True, title
+
+
+def test_korean_first_gate_text_form_matches_item_form():
+    assert is_korean_first_text_ready("이 문장은 한국어입니다") is True
+    assert is_korean_first_text_ready("This is an ordinary English sentence") is False
+    assert is_korean_first_text_ready("HYBE") is True
+    assert is_korean_first_text_ready("") is True  # nothing to gate

@@ -294,6 +294,71 @@ def _has_korean_title(item):
     return bool(_HANGUL_RE.search(_display_title(item)))
 
 
+# PERMANENT KOREAN-FIRST DELIVERY GATE (2026-08-22, production incident
+# follow-up -- see report/translation_claude_cli.py's own permanent-cache-
+# poisoning fix). This is the final, shared reader-facing checkpoint DAILY
+# and MUSIC Kakao rendering both call immediately before a title is
+# allowed into a real delivery: a normal English news sentence must never
+# silently pass as "Korean-first" just because translation failed (any
+# reason -- not just the specific cache-poisoning bug this pass fixed).
+# Deterministic, no LLM call: a real Korean translation always contains at
+# least one Hangul character (_HANGUL_RE); a raw, never-translated English
+# proper noun (artist/company/album/song name -- "BTS", "HYBE", "Take
+# Two") essentially never contains an ordinary English function word,
+# while an untranslated ENGLISH SENTENCE/HEADLINE (what must be blocked)
+# almost always does ("the", "a", "is", "in", "and", ...). This is a
+# necessarily approximate heuristic, not a language-quality judgment --
+# false positives (a legitimate multi-word title coincidentally read as a
+# sentence) degrade to this item's own existing "no report today" empty
+# state, never a crash, never a fabricated Korean string.
+_ENGLISH_SENTENCE_STOPWORDS = frozenset({
+    "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
+    "in", "on", "at", "to", "of", "and", "or", "but", "with", "from", "by",
+    "that", "this", "these", "those", "has", "have", "had", "will", "would",
+    "its", "their", "his", "her", "he", "she", "they", "we", "you", "i",
+    "not", "no", "as", "for", "after", "before", "over", "under", "into",
+    "about", "than", "then", "when", "while", "who", "which", "what",
+    "says", "said", "amid",
+})
+
+_ENGLISH_WORD_RE = re.compile(r"[A-Za-z']+")
+
+
+def _is_untranslated_english_sentence(text):
+    """True when `text` reads as an ordinary English sentence/headline
+    (contains a common English function word) rather than a bare proper
+    noun/title fragment. See is_korean_first_ready's own module comment
+    for the full reasoning."""
+    words = _ENGLISH_WORD_RE.findall(text.lower())
+    return any(word in _ENGLISH_SENTENCE_STOPWORDS for word in words)
+
+
+def is_korean_first_text_ready(text):
+    """Text-level form of the gate, for a reader-facing string that isn't
+    always backed by an item dict (e.g. a MUSIC signal's own `fact_text`,
+    an LLM-synthesized sentence with no ko_title/translation_status at
+    all). True when `text` is either real Korean, or acceptable English-
+    only content (a proper noun/title fragment). See is_korean_first_ready
+    for the item-dict form and the full reasoning."""
+    if not text:
+        return True  # nothing to gate -- caller's own empty-state applies
+    if _HANGUL_RE.search(text):
+        return True
+    return not _is_untranslated_english_sentence(text)
+
+
+def is_korean_first_ready(item):
+    """The shared DAILY/MUSIC pre-delivery Korean-first gate: True when
+    _display_title(item) is either real Korean text, or acceptable
+    English-only content (a proper noun/title fragment -- BTS, HYBE,
+    Spotify, Billboard, an album/song title, a company name). False for an
+    ordinary untranslated English sentence/headline that should have been
+    Korean -- callers must treat False the same as "no usable item here"
+    (their own existing empty-state fallback), never render the raw text
+    as if it were a successful Korean-first result."""
+    return is_korean_first_text_ready(_display_title(item))
+
+
 def _has_displayable_korean_content(item):
     """FINAL GOAL PASS (2026-08-17, confirmed real defect): the Korean-
     readiness guard above only ever checked the TITLE -- a real AI item

@@ -248,6 +248,78 @@ def test_daily_digest_honest_empty_state():
     assert "오늘 보고할 뉴스 없음" in text
 
 
+# =============================================================================
+# PERMANENT KOREAN-FIRST DELIVERY GATE (2026-08-22)
+# =============================================================================
+
+
+def test_daily_digest_blocks_raw_english_and_falls_back_to_next_item():
+    data = _empty_dashboard()
+    data["news"]["AI"] = {"state": "NORMAL", "items": [
+        {"title": "The company announces a new model release this week", "reason": "x", "source_url": "https://x"},
+        {"title": "OpenAI new model release", "ko_title": "오픈AI, 새 모델 공개",
+         "translation_status": "TRANSLATED", "reason": "x", "source_url": "https://x"},
+    ]}
+    text = render_daily_kakao_digest(data)
+    assert "The company announces a new model release" not in text
+    assert "오픈AI, 새 모델 공개" in text
+
+
+def test_daily_digest_blocks_raw_english_with_no_alternative_falls_to_empty_state():
+    data = _empty_dashboard()
+    data["news"]["AI"] = {"state": "NORMAL", "items": [
+        {"title": "The company announces a new model release this week", "reason": "x", "source_url": "https://x"},
+    ]}
+    text = render_daily_kakao_digest(data)
+    assert "The company announces a new model release" not in text
+    assert "AI: 오늘 보고할 뉴스 없음" in text
+
+
+def test_music_digest_lead_blocks_raw_english_falls_to_empty_state():
+    data = _empty_dashboard()
+    data["news"]["TIKTOK"] = {"state": "NORMAL", "items": [
+        {"title": "Vanessa Bosaen exits Virgin Music Group as UK chief",
+         "reason": "x", "source_url": "https://x"},
+    ]}
+    text = render_music_kakao_digest(data)
+    assert "Vanessa Bosaen exits Virgin Music Group" not in text
+    assert "LEAD: 오늘 보고할 소식 없음" in text
+
+
+def test_korean_first_gate_allows_proper_noun_only_music_content():
+    # A bare proper noun (no common English function word) passes the
+    # gate unblocked wherever real production content resolves it to --
+    # LEAD or INDUSTRY is an internal resolve_music_lead_and_industry
+    # ranking detail this test doesn't assert on; what matters is the
+    # gate never blocks it.
+    data = _empty_dashboard()
+    data["news"]["TIKTOK"] = {"state": "NORMAL", "items": [
+        {"title": "HYBE", "reason": "x", "source_url": "https://x"},
+    ]}
+    text = render_music_kakao_digest(data)
+    assert "INDUSTRY: HYBE" in text
+    assert "뮤직 인더스트리 뉴스 없음" not in text  # would mean HYBE was wrongly blocked by the gate
+
+
+def test_music_gate_failure_does_not_affect_daily_product():
+    # One bad (raw English, no ko_title) MUSIC item must never suppress or
+    # otherwise affect DAILY's own independent output -- MUSIC/DAILY are
+    # sent/tracked as fully separate products (see render_daily_kakao_
+    # digest's own docstring).
+    data = _empty_dashboard()
+    data["news"]["TIKTOK"] = {"state": "NORMAL", "items": [
+        {"title": "The music executive is reportedly being monitored in the ICU",
+         "reason": "x", "source_url": "https://x"},
+    ]}
+    data["news"]["AI"] = {"state": "NORMAL", "items": [
+        {"title": "AI 뉴스 제목", "reason": "x", "source_url": "https://x"},
+    ]}
+    music_text = render_music_kakao_digest(data)
+    daily_text = render_daily_kakao_digest(data)
+    assert "The music executive is reportedly being monitored" not in music_text
+    assert "AI 뉴스 제목" in daily_text  # DAILY unaffected by MUSIC's gate outcome
+
+
 def test_music_and_daily_digest_deterministic_across_calls():
     data = _empty_dashboard()
     assert render_music_kakao_digest(data) == render_music_kakao_digest(data)
@@ -266,11 +338,12 @@ def test_music_digest_industry_line_skips_gossip_and_falls_back_to_next_item():
         {"title": "Chris Brown Allegedly Tells BTS Fan 'Pray Bout It Hoe' in Deleted TikTok Comment",
          "reason": "x", "source_url": "https://x"},
         {"title": "TikTok Campaigns Shaping the Future of the Music Industry",
+         "ko_title": "틱톡 캠페인이 바꾸는 음악 산업의 미래", "translation_status": "TRANSLATED",
          "reason": "x", "source_url": "https://x"},
     ]}
     text = render_music_kakao_digest(data)
     assert "Chris Brown" not in text
-    assert "TikTok Campaigns Shaping" in text  # clipped by _FIELD_BUDGET, prefix still present
+    assert "틱톡 캠페인" in text  # Korean-first gate: real ko_title, not the raw English title
 
 
 def test_music_digest_industry_line_omits_rather_than_shows_only_gossip():

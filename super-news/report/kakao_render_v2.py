@@ -20,7 +20,7 @@ characters of the 200-char text budget.
 import re
 
 from report.validation import is_low_value_gossip_takeaway
-from report.web_render_v2 import _display_title
+from report.web_render_v2 import _display_title, is_korean_first_ready
 
 MAX_TEXT_LENGTH = 200
 _FIELD_BUDGET = 28
@@ -41,11 +41,22 @@ def _first_news_line(news_section):
     items[0]["title"] directly, the raw/English fallback field, bypassing
     ko_title entirely, so a real-time item that had a successful Korean
     translation still showed English in Kakao while the SAME item's web
-    card correctly showed Korean."""
+    card correctly showed Korean.
+
+    PERMANENT KOREAN-FIRST GATE (2026-08-22): items[0] is no longer used
+    unconditionally -- an item whose display title fails report.
+    web_render_v2.is_korean_first_ready (an ordinary untranslated English
+    sentence, not a proper noun) is skipped in favor of the next item, so
+    a single translation failure degrades to showing the NEXT real item in
+    Korean rather than silently sending raw English. Only if every item in
+    this category fails the gate does this fall back to None (caller's
+    existing "오늘 보고할 뉴스 없음" empty state) -- never a crash, never a
+    fabricated Korean string."""
     items = news_section.get("items") or []
-    if not items:
-        return None
-    return _clip(_display_title(items[0]))
+    for item in items:
+        if is_korean_first_ready(item):
+            return _clip(_display_title(item))
+    return None
 
 
 def _spotify_line(spotify_chart):
@@ -171,11 +182,23 @@ def _first_non_gossip_news_line(news_section):
     section already applies this same helper; this closes the gap where
     the Kakao digest's own separate Industry-line selection bypassed it.
     _first_news_line itself (used by DAILY's AI/ECONOMY/SOCIETY lines) is
-    intentionally left unchanged."""
+    intentionally left unchanged.
+
+    PRODUCTION INCIDENT FIX (2026-08-22, confirmed real defect): this used
+    to return item["title"] directly -- the raw/English fallback field,
+    bypassing ko_title/_display_title entirely -- so a real item with a
+    successful Korean translation still showed English here while every
+    other MUSIC title (LEAD, INDUSTRY block, the web page's own equivalent
+    section) correctly showed Korean via _display_title.
+
+    PERMANENT KOREAN-FIRST GATE (2026-08-22): also skips any item whose
+    display title fails report.web_render_v2.is_korean_first_ready (an
+    ordinary untranslated English sentence) -- see _first_news_line's own
+    matching comment for the full reasoning."""
     items = news_section.get("items") or []
     for item in items:
-        if not is_low_value_gossip_takeaway(item.get("title")):
-            return _clip(item["title"])
+        if not is_low_value_gossip_takeaway(item.get("title")) and is_korean_first_ready(item):
+            return _clip(_display_title(item))
     return None
 
 
@@ -450,22 +473,35 @@ def _music_kakao_blocks(dashboard_data_v2):
     why-line text (or None) -- render_music_kakao_digest's own
     degradation ladder decides how much of it, if any, fits."""
     from report.web_data_v2 import music_industry_priority_rank
-    from report.web_render_v2 import _display_title, resolve_music_lead_and_industry
+    from report.web_render_v2 import (
+        _display_title,
+        is_korean_first_ready,
+        is_korean_first_text_ready,
+        resolve_music_lead_and_industry,
+    )
 
     lead_signal, lead_event_key, lead_refs, industry_items, title_to_event_key = (
         resolve_music_lead_and_industry(dashboard_data_v2)
     )
 
     blocks = []
-    if lead_signal:
-        title = _clip(_kakao_signal_plain_title(lead_signal), limit=_KAKAO_MUSIC_TITLE_BUDGET)
+    # PERMANENT KOREAN-FIRST GATE (2026-08-22): a LEAD/INDUSTRY title that
+    # fails the gate (an ordinary untranslated English sentence) is treated
+    # exactly like "no real signal today" -- the SAME existing empty-state
+    # text already used when there's no signal at all, never the raw
+    # English. See report.web_render_v2.is_korean_first_ready's own
+    # module comment for the full reasoning.
+    raw_lead_title = _kakao_signal_plain_title(lead_signal) if lead_signal else None
+    if lead_signal and is_korean_first_text_ready(raw_lead_title):
+        title = _clip(raw_lead_title, limit=_KAKAO_MUSIC_TITLE_BUDGET)
         why = _compact_korean_display_text(lead_signal.get("why_it_matters"))
         blocks.append(("LEAD", title, why))
     else:
         blocks.append(("LEAD", "오늘 보고할 소식 없음", None))
 
-    if industry_items:
-        top = industry_items[0]
+    korean_ready_industry = [item for item in industry_items if is_korean_first_ready(item)]
+    if korean_ready_industry:
+        top = korean_ready_industry[0]
         title = _clip(_display_title(top), limit=_KAKAO_MUSIC_TITLE_BUDGET)
         why = top.get("reason") or _KAKAO_MUSIC_INDUSTRY_CLASS_WHY.get(music_industry_priority_rank(top))
         blocks.append(("INDUSTRY", title, _compact_korean_display_text(why)))

@@ -136,22 +136,44 @@ class ClaudeCLITranslationProvider(TranslationProvider):
 
         stderr_snippet = (result.stderr or "").strip()[:300]
         if result.returncode != 0:
-            if _looks_like_rate_limit(result.stdout, result.stderr):
-                raise TransientTranslationError(
-                    f"claude CLI reported a rate-limit/usage-quota failure (exit={result.returncode}): {stderr_snippet}"
-                )
-            raise RuntimeError(f"claude CLI exited {result.returncode}: {stderr_snippet}")
+            # PRODUCTION INCIDENT FIX (2026-08-22, confirmed real defect): an
+            # unrecognized non-zero exit is an INFRASTRUCTURE/execution
+            # failure of this specific subprocess invocation -- nothing about
+            # it is a deterministic property of the source TEXT the way an
+            # Anthropic API 4xx bad-request is (see report/
+            # translation_anthropic.py's own permanent/transient split,
+            # which this mirrors). Used to raise a plain RuntimeError here,
+            # which report.translation.translate_and_cache's generic `except
+            # Exception` catch-all classifies as FAILURE_KIND_PERMANENT --
+            # so a single transient CLI hiccup (real observed cause: several
+            # translation calls fired in quick succession) permanently
+            # poisoned the cache for that headline, forcing the raw English
+            # original forever even after the CLI was confirmed healthy
+            # again. TransientTranslationError gets the existing bounded-
+            # backoff retry instead.
+            raise TransientTranslationError(
+                f"claude CLI exited {result.returncode}: {stderr_snippet}"
+            )
 
         try:
             payload = json.loads(result.stdout)
         except (json.JSONDecodeError, TypeError) as exc:
-            raise RuntimeError(f"claude CLI produced non-JSON output on stdout: {type(exc).__name__}: {exc}") from exc
+            # Same reasoning as the non-zero-exit case above: malformed/
+            # truncated stdout is an execution-level anomaly, not a
+            # property of the source text -- transient/retryable.
+            raise TransientTranslationError(
+                f"claude CLI produced non-JSON output on stdout: {type(exc).__name__}: {exc}"
+            ) from exc
 
         if payload.get("is_error"):
             message = str(payload.get("result", ""))[:300]
             if _looks_like_rate_limit(message, ""):
                 raise TransientTranslationError(f"claude CLI reported is_error=true (rate-limit/quota): {message}")
-            raise RuntimeError(f"claude CLI reported is_error=true: {message}")
+            # Same reasoning again: an unrecognized is_error is an
+            # execution-level failure report from the CLI, not evidence
+            # this specific headline can never be translated -- transient/
+            # retryable, never permanent on a single occurrence.
+            raise TransientTranslationError(f"claude CLI reported is_error=true: {message}")
 
         raw = payload.get("result")
         if not isinstance(raw, str) or not raw.strip():
