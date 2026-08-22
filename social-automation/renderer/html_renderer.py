@@ -17,6 +17,7 @@ _LAYOUT_VARIANT_BY_VISUAL_TYPE = {
     "cta_panel": "cta",
     "evidence_card": "content_card",
     "process_flow": "content_card",
+    "real_image": "content_card",
 }
 
 
@@ -155,6 +156,34 @@ def _render_visual(vd: dict, accent: str, accent2: str, text_color: str) -> str:
         return (
             f'<div style="{_CARD_BASIS}display:flex;flex-direction:column;justify-content:center;'
             f'gap:0;padding:24px;">{blocks}</div>'
+        )
+
+    if vtype == "real_image":
+        # An actual downloaded image file (not CSS/emoji/a generated
+        # diagram) -- source/rights are recorded separately in
+        # data/assets/<account>/asset_sources.json. Embedded as a base64
+        # data: URI so it renders correctly under Playwright's
+        # page.set_content() (no file:// base URL involved).
+        import base64
+        import os
+
+        image_path = vd.get("image_path", "")
+        caption = vd.get("caption", "")
+        img_tag = ""
+        if image_path and os.path.isfile(image_path):
+            ext = os.path.splitext(image_path)[1].lower().lstrip(".")
+            mime = "image/jpeg" if ext in ("jpg", "jpeg") else f"image/{ext}" if ext else "image/jpeg"
+            with open(image_path, "rb") as f:
+                b64 = base64.b64encode(f.read()).decode("ascii")
+            img_tag = f'<img src="data:{mime};base64,{b64}" style="width:100%;height:100%;object-fit:cover;display:block;">'
+        caption_html = (
+            f'<div style="padding:14px 20px;font-size:22px;font-weight:700;background:{accent}0d;">{caption}</div>'
+            if caption else ""
+        )
+        return (
+            f'<div style="{_CARD_BASIS}display:flex;flex-direction:column;overflow:hidden;'
+            f'border:3px solid {accent};border-radius:24px;background:#fff;">'
+            f'<div style="flex:1;overflow:hidden;min-height:0;">{img_tag}</div>{caption_html}</div>'
         )
 
     if vtype == "bar_chart":

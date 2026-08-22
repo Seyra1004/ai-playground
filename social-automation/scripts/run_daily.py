@@ -21,7 +21,7 @@ from pipeline import daily_state, semantic_cache  # noqa: E402
 from pipeline.discovery import build_dry_run_bundle, load_research_bundle  # noqa: E402
 from pipeline.repair import MAX_REPAIR_ATTEMPTS, repair_canonical_content  # noqa: E402
 from pipeline.runner import run_pipeline  # noqa: E402
-from qa.content_qa import check_visual_quality  # noqa: E402
+from qa.content_qa import check_real_images, check_visual_quality  # noqa: E402
 from qa.render_qa import run_render_qa, verify_korean_font_available, verify_png_dimensions  # noqa: E402
 from renderer.html_renderer import build_renderer_input  # noqa: E402
 from renderer.png_renderer import build_contact_sheet, render_pages_to_png  # noqa: E402
@@ -296,6 +296,7 @@ def run_daily(account_id: str, run_date: str, dry_run: bool, resume: bool) -> in
     qa_png = None
     qa_font = None
     qa_visual = None
+    qa_real_images = None
     if package.canonical_content is not None:
         # Pre-render gate: refuses to render at all if the host has no
         # Korean-capable font -- this is the actual root cause of broken/
@@ -312,6 +313,11 @@ def run_daily(account_id: str, run_date: str, dry_run: bool, resume: bool) -> in
             elif qa_visual.status.value == "NEEDS_REVIEW":
                 final_status = "NEEDS_REVIEW" if final_status == "COMPLETE" else final_status
                 print(f"VISUAL_QA_NEEDS_REVIEW={qa_visual.notes}")
+
+            qa_real_images = check_real_images(package.canonical_content)
+            if qa_real_images.status.value == "FAIL":
+                final_status = "NEEDS_REVIEW" if final_status == "COMPLETE" else final_status
+                print(f"REAL_IMAGE_QA_FAILED={qa_real_images.checks_failed}")
 
             renderer_input = build_renderer_input(package.canonical_content, brand)
             qa_render = run_render_qa(renderer_input, brand)
@@ -381,6 +387,9 @@ def run_daily(account_id: str, run_date: str, dry_run: bool, resume: bool) -> in
                 "visual_qa_status": qa_visual.status.value if qa_visual else None,
                 "visual_qa_failed": qa_visual.checks_failed if qa_visual else [],
                 "visual_qa_notes": qa_visual.notes if qa_visual else [],
+                "real_image_qa_status": qa_real_images.status.value if qa_real_images else None,
+                "real_image_qa_passed": qa_real_images.checks_passed if qa_real_images else [],
+                "real_image_qa_failed": qa_real_images.checks_failed if qa_real_images else [],
                 "render_qa_status": qa_render.status.value if qa_render else None,
                 "render_checks_failed": qa_render.checks_failed if qa_render else [],
                 "png_dimension_status": qa_png.status.value if qa_png else None,

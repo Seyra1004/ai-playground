@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+import os
+
 from core.factcheck import validate_fact_sheet_claims
 from core.models import CanonicalContent, InstagramContent, QAResult, QAStatus
 
@@ -128,3 +131,51 @@ def check_visual_quality(canonical: CanonicalContent) -> QAResult:
         status = QAStatus.PASS
 
     return QAResult(status=status, checks_passed=passed, checks_failed=failed, notes=notes)
+
+
+def check_real_images(canonical: CanonicalContent, min_files: int = 2, min_pages: int = 2) -> QAResult:
+    """Hard QA gate for real_image visuals: CSS/emoji/generated diagrams are
+    explicitly NOT counted here -- only visual_data.type == "real_image"
+    pages count. Verifies (a) the referenced image file actually exists on
+    disk, (b) it has a source/rights entry in the sibling
+    asset_sources.json, and (c) the min file/page counts are met. FAILs
+    (never a silent PASS) if real images can't be verified."""
+    passed, failed = [], []
+    image_paths_used = set()
+
+    for page in canonical.pages:
+        vd = page.visual_data or {}
+        if vd.get("type") != "real_image":
+            continue
+
+        image_path = vd.get("image_path", "")
+        if not image_path or not os.path.isfile(image_path):
+            failed.append(f"real_image_file_missing:page_{page.page_number}:{image_path!r}")
+            continue
+
+        sources_path = os.path.join(os.path.dirname(image_path), "asset_sources.json")
+        filename = os.path.basename(image_path)
+        has_metadata = False
+        if os.path.isfile(sources_path):
+            with open(sources_path, "r", encoding="utf-8") as f:
+                entries = json.load(f)
+            has_metadata = any(e.get("file") == filename and e.get("publisher") and e.get("rights") for e in entries)
+        if not has_metadata:
+            failed.append(f"real_image_missing_source_rights_metadata:page_{page.page_number}:{filename}")
+            continue
+
+        image_paths_used.add(image_path)
+
+    real_image_pages = sum(1 for p in canonical.pages if (p.visual_data or {}).get("type") == "real_image")
+
+    if not failed:
+        if len(image_paths_used) < min_files:
+            failed.append(f"real_image_file_count_below_minimum:{len(image_paths_used)}<{min_files}")
+        if real_image_pages < min_pages:
+            failed.append(f"real_image_page_count_below_minimum:{real_image_pages}<{min_pages}")
+
+    if not failed:
+        passed.append(f"real_images_verified:{len(image_paths_used)}_files_{real_image_pages}_pages")
+
+    status = QAStatus.FAIL if failed else QAStatus.PASS
+    return QAResult(status=status, checks_passed=passed, checks_failed=failed)
