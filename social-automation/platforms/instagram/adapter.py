@@ -15,11 +15,13 @@ def build_instagram_caption(canonical: CanonicalContent) -> str:
     return f"{fs.reader_value}\n\n{fs.why_it_matters}\n\n저장하고 놓치지 마세요.\n다음 단계: {action_line}"
 
 
-def build_instagram_content(canonical: CanonicalContent, brand: BrandConfig) -> InstagramContent:
+def build_instagram_content(canonical: CanonicalContent, brand: BrandConfig, caption: str = None) -> InstagramContent:
     """Map the shared CanonicalContent into Instagram's carousel + caption model.
 
     Fails clearly instead of silently degrading when the canonical content's
-    pages have not actually been generated yet.
+    pages have not actually been generated yet. `caption`, when provided, is
+    the already-authored (semantic-layer) caption for this canonical content;
+    otherwise one is mechanically assembled from fact-sheet fields.
     """
     if not canonical.pages:
         raise ValueError(
@@ -32,5 +34,6 @@ def build_instagram_content(canonical: CanonicalContent, brand: BrandConfig) -> 
             f"but canonical content has {len(canonical.pages)} pages"
         )
 
-    caption = build_instagram_caption(canonical)
+    if caption is None:
+        caption = build_instagram_caption(canonical)
     return InstagramContent(pages=canonical.pages, caption=caption)

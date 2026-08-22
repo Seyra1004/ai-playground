@@ -3,6 +3,7 @@ from __future__ import annotations
 import dataclasses
 import sqlite3
 
+from core.cache import compute_hash
 from core.config import AccountConfig, BrandConfig
 from core.factcheck import validate_fact_sheet_claims
 from core.models import (
@@ -104,7 +105,15 @@ def run_pipeline(
     fact_sheet: FactSheet,
     page_inputs: PageCountInputs,
     now: str,
+    pages_override: list = None,
+    instagram_caption_override: str = None,
+    threads_text_override: str = None,
 ) -> ContentPackage:
+    """Run the full pipeline. Optional *_override params carry pre-authored
+    semantic-layer output (real editorial copy for pages/caption/Threads text)
+    so the same stage/cache/QA/render machinery can be reused for real content
+    instead of the mechanical fact-sheet-field assembly used by --demo runs.
+    """
     account_id = account.account_id
     content_id = fact_sheet.content_id
 
@@ -171,7 +180,16 @@ def run_pipeline(
     page_plan = page_selection_result["page_plan"]
 
     # --- stage: canonical_content ---
-    pages = assemble_pages_from_fact_sheet(fact_sheet, page_plan)
+    if pages_override is not None:
+        override_roles = [p.role for p in pages_override]
+        if override_roles != page_plan:
+            raise ValueError(
+                f"pages_override roles {override_roles} do not match the deterministic page_plan {page_plan}"
+            )
+        pages = pages_override
+    else:
+        pages = assemble_pages_from_fact_sheet(fact_sheet, page_plan)
+
     canonical = CanonicalContent(
         content_id=content_id,
         fact_sheet=fact_sheet,
@@ -188,7 +206,11 @@ def run_pipeline(
         account_id,
         content_id,
         "canonical_content",
-        {"page_plan": page_plan, "fact_sheet_topic": fact_sheet.topic},
+        {
+            "page_plan": page_plan,
+            "fact_sheet_topic": fact_sheet.topic,
+            "pages_content_hash": compute_hash([dataclasses.asdict(p) for p in pages]),
+        },
         _do_canonical_content,
         now,
     )
@@ -197,12 +219,18 @@ def run_pipeline(
     instagram_content = None
     if account.platforms.instagram:
         def _do_instagram():
-            ig = build_instagram_content(canonical, brand)
+            ig = build_instagram_content(canonical, brand, caption=instagram_caption_override)
             canonical.instagram = ig
             return {"caption_len": len(ig.caption), "page_count": len(ig.pages)}
 
         run_stage(
-            conn, account_id, content_id, "instagram_adapter", {"page_plan": page_plan}, _do_instagram, now
+            conn,
+            account_id,
+            content_id,
+            "instagram_adapter",
+            {"page_plan": page_plan, "caption_override": instagram_caption_override},
+            _do_instagram,
+            now,
         )
         instagram_content = canonical.instagram
 
@@ -210,11 +238,19 @@ def run_pipeline(
     threads_content = None
     if account.platforms.threads:
         def _do_threads():
-            th = build_threads_content(canonical)
+            th = build_threads_content(canonical, text=threads_text_override)
             canonical.threads = th
             return {"text_len": len(th.text)}
 
-        run_stage(conn, account_id, content_id, "threads_adapter", {"page_plan": page_plan}, _do_threads, now)
+        run_stage(
+            conn,
+            account_id,
+            content_id,
+            "threads_adapter",
+            {"page_plan": page_plan, "threads_text_override": threads_text_override},
+            _do_threads,
+            now,
+        )
         threads_content = canonical.threads
 
     # --- stage: renderer_input ---

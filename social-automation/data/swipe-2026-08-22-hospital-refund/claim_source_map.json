@@ -1,0 +1,145 @@
+[
+  {
+    "claim_id": "claim-eligibility",
+    "claim_type": "eligibility",
+    "text": "연간(1.1~12.31, 진료일 기준) 건강보험 본인일부부담금 총액이 소득분위별 본인부담상한액을 초과한 가입자 및 피부양자 중 공단으로부터 초과금 지급 안내를 받은 사람이 대상이다.",
+    "status": "verified",
+    "verified_at": "2026-08-22",
+    "sources": [
+      {
+        "source_id": "src-nhis-minwon",
+        "url": "https://www.nhis.or.kr/nhis/minwon/minwonServiceBoard.do?mode=view&articleNo=10945830",
+        "publisher": "국민건강보험공단",
+        "source_type": "public_institution",
+        "published_at": null,
+        "retrieved_at": "2026-08-22"
+      },
+      {
+        "source_id": "src-gov24",
+        "url": "https://www.gov.kr/portal/service/serviceInfo/PTR000050350",
+        "publisher": "정부24",
+        "source_type": "government",
+        "published_at": null,
+        "retrieved_at": "2026-08-22"
+      }
+    ]
+  },
+  {
+    "claim_id": "claim-amount",
+    "claim_type": "amount",
+    "text": "2026년 진료분 소득분위별 본인부담상한액: 1분위 90만원, 2~3분위 112만원, 4~5분위 173만원, 6~7분위 326만원, 8분위 446만원, 9분위 536만원, 10분위 843만원 (요양병원 120일 초과 입원은 최대 1,096만원). 초과분은 전액 환급된다.",
+    "status": "verified",
+    "verified_at": "2026-08-22",
+    "sources": [
+      {
+        "source_id": "src-nhis-banner-2026",
+        "url": "https://www.nhis.or.kr/nhis/etc/20260113_banner_pop01.do",
+        "publisher": "국민건강보험공단",
+        "source_type": "public_institution",
+        "published_at": "2026-01-13",
+        "retrieved_at": "2026-08-22"
+      }
+    ]
+  },
+  {
+    "claim_id": "claim-deadline",
+    "claim_type": "deadline",
+    "text": "보험급여를 받을 권리는 국민건강보험법 제91조에 따라 3년간 행사하지 않으면 시효로 소멸한다.",
+    "status": "verified",
+    "verified_at": "2026-08-22",
+    "sources": [
+      {
+        "source_id": "src-law-nhia-art91",
+        "url": "https://www.law.go.kr/LSW//lsSideInfoP.do?lsiSeq=265877&joNo=0091&joBrNo=00&docCls=jo&urlMode=lsScJoRltInfoR",
+        "publisher": "국가법령정보센터 (국민건강보험법 제91조)",
+        "source_type": "government",
+        "published_at": null,
+        "retrieved_at": "2026-08-22"
+      }
+    ]
+  },
+  {
+    "claim_id": "claim-exclusions",
+    "claim_type": "exclusions",
+    "text": "비급여, 선별급여, 전액본인부담, 임플란트, 상급병실(2~3인실) 입원료, 추나요법, 상급종합병원 경증질환 외래 초·재진 본인부담금 등은 상한액 계산에서 제외된다.",
+    "status": "verified",
+    "verified_at": "2026-08-22",
+    "sources": [
+      {
+        "source_id": "src-nhis-minwon",
+        "url": "https://www.nhis.or.kr/nhis/minwon/minwonServiceBoard.do?mode=view&articleNo=10945830",
+        "publisher": "국민건강보험공단",
+        "source_type": "public_institution",
+        "published_at": null,
+        "retrieved_at": "2026-08-22"
+      }
+    ]
+  },
+  {
+    "claim_id": "claim-documents",
+    "claim_type": "required_documents",
+    "text": "본인 신청 시 지급신청서만 필요하다. 가족·제3자 계좌로 받으려면 지급신청서, 위임장, 위임인·수임인 신분증 사본, 가족관계증명서가 필요하다.",
+    "status": "verified",
+    "verified_at": "2026-08-22",
+    "sources": [
+      {
+        "source_id": "src-gov24",
+        "url": "https://www.gov.kr/portal/service/serviceInfo/PTR000050350",
+        "publisher": "정부24",
+        "source_type": "government",
+        "published_at": null,
+        "retrieved_at": "2026-08-22"
+      },
+      {
+        "source_id": "src-nhis-minwon",
+        "url": "https://www.nhis.or.kr/nhis/minwon/minwonServiceBoard.do?mode=view&articleNo=10945830",
+        "publisher": "국민건강보험공단",
+        "source_type": "public_institution",
+        "published_at": null,
+        "retrieved_at": "2026-08-22"
+      }
+    ]
+  },
+  {
+    "claim_id": "claim-method",
+    "claim_type": "action_method",
+    "text": "국민건강보험공단 홈페이지, The건강보험 앱, 지사 방문, 팩스, 우편, 정부24, 전화(1577-1000)로 신청할 수 있다. 본인 명의 계좌만 가능하며 제3자 계좌는 지사 방문으로 별도 신청해야 한다.",
+    "status": "verified",
+    "verified_at": "2026-08-22",
+    "sources": [
+      {
+        "source_id": "src-nhis-minwon",
+        "url": "https://www.nhis.or.kr/nhis/minwon/minwonServiceBoard.do?mode=view&articleNo=10945830",
+        "publisher": "국민건강보험공단",
+        "source_type": "public_institution",
+        "published_at": null,
+        "retrieved_at": "2026-08-22"
+      },
+      {
+        "source_id": "src-gov24",
+        "url": "https://www.gov.kr/portal/service/serviceInfo/PTR000050350",
+        "publisher": "정부24",
+        "source_type": "government",
+        "published_at": null,
+        "retrieved_at": "2026-08-22"
+      }
+    ]
+  },
+  {
+    "claim_id": "claim-statute-impact-stat",
+    "claim_type": "other",
+    "text": "2021~2022년 진료분만 5만 4,002건, 378억 원이 3년 시효로 청구되지 않고 소멸됐다.",
+    "status": "verified",
+    "verified_at": "2026-08-22",
+    "sources": [
+      {
+        "source_id": "src-news-statute-stat",
+        "url": "https://www.newsfc.co.kr/news/articleView.html?idxno=80266",
+        "publisher": "금융소비자뉴스",
+        "source_type": "news_media",
+        "published_at": null,
+        "retrieved_at": "2026-08-22"
+      }
+    ]
+  }
+]

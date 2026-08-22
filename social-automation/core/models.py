@@ -149,6 +149,7 @@ class CarouselPage:
     headline: str
     body: str
     visual_ref: str
+    visual_data: dict = field(default_factory=dict)
 
 
 @dataclass

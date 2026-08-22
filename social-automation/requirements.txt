@@ -1,1 +1,5 @@
 PyYAML>=6.0
+# PNG rendering: drives the already-installed system Chrome via CDP
+# (channel="chrome") -- no bundled browser download, no PAYG.
+playwright>=1.62
+Pillow>=12.0

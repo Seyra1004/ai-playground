@@ -460,6 +460,85 @@ Final review package must contain:
 - fact sheet
 - internal source/evidence report
 - QA result
+## Work Delegation — Minimize Claude Work
+
+Claude must act as the semantic/editorial layer, NOT as the default execution engine.
+
+Always delegate work to the cheapest reliable deterministic mechanism first.
+
+### Python MUST handle whenever possible
+- arithmetic
+- scoring
+- ranking
+- filtering
+- deduplication
+- similarity thresholds
+- schema validation
+- required-field validation
+- claim-source linkage validation
+- date/deadline checks
+- character counts
+- page-count selection
+- text-density limits
+- overflow detection
+- file/path generation
+- hashes
+- cache validation
+- SQLite reads/writes
+- pipeline state
+- retry counters
+- logging
+- duplicate-post prevention
+- status polling
+- output validation
+- deterministic QA
+- HTML/CSS render preparation
+- report generation
+
+### Other tools should handle
+- Git: checkpoints, diff, rollback, backup
+- SQLite: persisted state and reusable structured data
+- HTML/CSS: layout and Korean typography
+- Playwright: deterministic screenshot/PNG rendering when needed
+- Meta official APIs: publishing and status checks
+- shell/PowerShell/grep/rg: mechanical inspection
+
+### Claude should handle only tasks requiring real semantic judgment
+Examples:
+- interpreting what an official policy means for a reader
+- resolving wording while preserving verified facts
+- hook/copy generation
+- editorial compression
+- Threads adaptation
+- ambiguous source interpretation
+- subjective visual/editorial review when deterministic QA cannot decide
+
+Before every Claude-heavy operation, ask internally:
+"Can Python, SQL, shell, Git, HTML/CSS, cache, or an existing script do this reliably?"
+
+If YES:
+use that mechanism instead.
+
+Do not use Claude as:
+- a calculator
+- a parser
+- a scheduler
+- a database
+- a renderer
+- a retry engine
+- a validator when deterministic validation is possible
+
+### Context minimization
+- Never send full source pages when relevant excerpts are enough.
+- Never send the same facts twice if a cached canonical fact sheet exists.
+- Never regenerate a successful stage when its input/config hash is unchanged.
+- On revision, send only the affected page + necessary claims/sources.
+- Instagram and Threads must reuse the same verified canonical content.
+
+Goal:
+MINIMUM CLAUDE TOKENS
+ZERO PAYG
+MAXIMUM DETERMINISTIC EXECUTION
 
 Do not claim success based solely on internal PASS flags.
 Actual observable results are the final authority.
