@@ -43,4 +43,14 @@ if [ "$exit_code" -ne 0 ]; then
     fi
 fi
 
+# PRE-PRODUCTION HARDENING (2026-08-22): time-gated (07:50 KST) inside the
+# script itself, so this genuinely no-ops during the 07:10/07:25 slots --
+# only evaluates for real once the LAST scheduled retry slot (07:55) has
+# had its chance. Deliberately run unconditionally (not just on failure
+# above): the check itself re-derives real success/failure from
+# delivery_history, and its own dedup means a call here that finds
+# nothing due is a safe, cheap no-op. Never affects this script's own
+# exit code -- see check_final_delivery_failure_v2.py's own contract.
+.venv/bin/python3 scripts/check_final_delivery_failure_v2.py || true
+
 exit "$exit_code"

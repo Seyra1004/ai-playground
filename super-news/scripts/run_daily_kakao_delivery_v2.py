@@ -31,10 +31,27 @@ Exit code contract:
 
 import argparse
 import logging
+import os
 import secrets
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+# PERMANENT ZERO-PAYG SAFETY (ADDED 2026-08-22, pre-production hardening
+# pass, confirmed real defect): forced BEFORE any other import, same
+# pattern scripts/run_daily_full_pipeline_v2.py/generate_daily_web_
+# report_v2.py already use. This script is invoked TWO ways in
+# production: as run_daily_full_pipeline_v2.py's own final subprocess
+# stage (which already forces this in ITS OWN process env, inherited by
+# this one as a child) -- but ALSO directly by scripts/deliver_retry.sh /
+# super-news-delivery-retry.service, a SEPARATE systemd unit with no
+# parent process and no Environment=SUPER_NEWS_NO_PAID_API= line of its
+# own. Before this fix, the retry path's zero-PAYG guarantee depended
+# entirely on ANTHROPIC_API_KEY simply not being present in that unit's
+# environment -- true today, but not a structural guarantee the way
+# every other real production entrypoint already has. This line makes it
+# one regardless of which path invokes this script.
+os.environ["SUPER_NEWS_NO_PAID_API"] = "1"
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 

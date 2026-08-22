@@ -140,3 +140,18 @@ def test_run_row_is_finalized_not_left_running_when_music_crashes(monkeypatch, t
     finally:
         fresh_conn.close()
     assert rows and rows[0]["status"] != "running"
+
+
+def test_module_import_forces_no_paid_api_env_var():
+    """PRE-PRODUCTION HARDENING (2026-08-22, confirmed real defect): this
+    script is invoked two ways in production -- as run_daily_full_
+    pipeline_v2.py's own subprocess stage (already protected, inherits
+    its parent's guard) and directly by scripts/deliver_retry.sh /
+    super-news-delivery-retry.service, a SEPARATE systemd unit with no
+    parent process and (before this fix) no code-level guard of its own.
+    Already imported at module load time above -- assert the guard
+    actually landed in os.environ, matching the same pattern scripts/
+    run_daily_full_pipeline_v2.py and scripts/generate_daily_web_report_v2.py
+    already have."""
+    import os
+    assert os.environ.get("SUPER_NEWS_NO_PAID_API") == "1"

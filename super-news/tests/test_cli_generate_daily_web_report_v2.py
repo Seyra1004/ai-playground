@@ -3,6 +3,7 @@ dated archive file ONLY under the --docs-dir override (tmp_path) -- never
 the real repository docs/ directory, and never V1's docs/ paths. No
 network, no LLM, no Kakao, no preview/seed data."""
 
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -462,3 +463,57 @@ def test_existing_cache_hit_still_reused_under_permanent_no_paid_api_guard(tmp_p
     music_html = (docs_dir / "music.html").read_text(encoding="utf-8")
     daily_html = (docs_dir / "daily.html").read_text(encoding="utf-8")
     assert "AI 헤드라인 번역" in daily_html or "AI 헤드라인 번역" in music_html
+
+
+# ---- PRE-PRODUCTION HARDENING (2026-08-22): dated archive immutability ----
+# across real CLI runs -- publishing a LATER report_date must never
+# overwrite, truncate, or otherwise mutate an EARLIER date's own archive
+# file, for both DAILY and MUSIC independently. Exercises the real
+# production write path (_atomic_write_text), not a hand-built fixture.
+
+
+def test_daily_and_music_dated_archives_survive_a_later_publish_byte_for_byte(tmp_path):
+    # Two separate source DBs (run_id is hardcoded per-fixture-call) --
+    # irrelevant to the property under test, which is about the
+    # FILESYSTEM output for a shared docs_dir, not DB state.
+    db_path_a = tmp_path / "test_a.db"
+    db_path_b = tmp_path / "test_b.db"
+    docs_dir = tmp_path / "docs_v2_out"
+    date_a, date_b = "2026-08-13", "2026-08-14"
+
+    _insert_run_and_report(db_path_a, report_date=date_a)
+    _insert_producer_intelligence(db_path_a, report_date=date_a)
+    exit_a = cli.main(["--db-path", str(db_path_a), "--report-date", date_a, "--docs-dir", str(docs_dir)])
+    assert exit_a == cli.EXIT_OK
+
+    daily_archive_a = docs_dir / "reports" / "daily" / f"{date_a}.html"
+    music_archive_a = docs_dir / "reports" / "music" / f"{date_a}.html"
+    assert daily_archive_a.exists() and music_archive_a.exists()
+    daily_a_hash = hashlib.sha256(daily_archive_a.read_bytes()).hexdigest()
+    music_a_hash = hashlib.sha256(music_archive_a.read_bytes()).hexdigest()
+
+    _insert_run_and_report(db_path_b, report_date=date_b)
+    _insert_producer_intelligence(db_path_b, report_date=date_b)
+    exit_b = cli.main(["--db-path", str(db_path_b), "--report-date", date_b, "--docs-dir", str(docs_dir)])
+    assert exit_b == cli.EXIT_OK
+
+    # Property 1+2: date A's archive still exists, byte-for-byte unchanged.
+    assert daily_archive_a.exists()
+    assert music_archive_a.exists()
+    assert hashlib.sha256(daily_archive_a.read_bytes()).hexdigest() == daily_a_hash
+    assert hashlib.sha256(music_archive_a.read_bytes()).hexdigest() == music_a_hash
+
+    # Property 3: date B gets its OWN new, distinct dated archive files.
+    daily_archive_b = docs_dir / "reports" / "daily" / f"{date_b}.html"
+    music_archive_b = docs_dir / "reports" / "music" / f"{date_b}.html"
+    assert daily_archive_b.exists() and music_archive_b.exists()
+    assert daily_archive_b.read_bytes() != daily_archive_a.read_bytes()
+    assert music_archive_b.read_bytes() != music_archive_a.read_bytes()
+
+    # Property 4: latest (daily.html/music.html) rolled forward to B, not A.
+    daily_latest = (docs_dir / "daily.html").read_bytes()
+    music_latest = (docs_dir / "music.html").read_bytes()
+    assert daily_latest == daily_archive_b.read_bytes()
+    assert music_latest == music_archive_b.read_bytes()
+    assert daily_latest != daily_archive_a.read_bytes()
+    assert music_latest != music_archive_a.read_bytes()
