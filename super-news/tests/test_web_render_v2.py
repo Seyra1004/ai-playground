@@ -1043,16 +1043,19 @@ def test_lead_event_suppressed_from_music_industry_multiple_outlets_not_multiple
     data = _empty_dashboard()
     data["today_music_intelligence"] = [
         _today_signal("INDUSTRY_NEWS", is_strongest=True,
-                      headline_item=_news_item("Label Signs Landmark Licensing Deal", event_key="ev-lic-1")),
+                      headline_item=_news_item("Label Signs Landmark Licensing Deal",
+                                                ko_title="레이블, 대형 라이선싱 계약 체결", translation_status="TRANSLATED",
+                                                event_key="ev-lic-1")),
     ]
     data["news"]["SPOTIFY"] = _news("NORMAL", [
         _news_item("Music Label's New Licensing Deal, Outlet B Reports", event_key="ev-lic-1"),
-        _news_item("A Genuinely Different Real Story", event_key="ev-other", source_count=2),
+        _news_item("A Genuinely Different Real Story", ko_title="완전히 다른 실제 기사",
+                   translation_status="TRANSLATED", event_key="ev-other", source_count=2),
     ])
     html_out = render_dashboard_html_v2(data)
     section = _section(html_out, "section-INDUSTRY")
     assert "Music Label's New Licensing Deal, Outlet B Reports" not in section
-    assert "A Genuinely Different Real Story" in section
+    assert "완전히 다른 실제 기사" in section
 
 
 def test_lead_event_suppression_uses_deterministic_event_key_not_text_similarity():
@@ -1062,7 +1065,9 @@ def test_lead_event_suppression_uses_deterministic_event_key_not_text_similarity
     data = _empty_dashboard()
     data["today_music_intelligence"] = [
         _today_signal("INDUSTRY_NEWS", is_strongest=True,
-                      headline_item=_news_item("Original English Headline About The Deal", event_key="ev-translate-1")),
+                      headline_item=_news_item("Original English Headline About The Deal",
+                                                ko_title="해당 사건에 대한 원문 영어 헤드라인", translation_status="TRANSLATED",
+                                                event_key="ev-translate-1")),
     ]
     data["news"]["SPOTIFY"] = _news("NORMAL", [
         _news_item("완전히 다른 번역/의역된 텍스트로 보이는 동일 사건 보도", event_key="ev-translate-1"),
@@ -1194,7 +1199,7 @@ def _multi_outlet_news_items():
     real outlets would), plus 1 real item on a completely unrelated real
     event_key."""
     return [
-        _news_item("Outlet A Headline", event_key="ev-shared"),
+        _news_item("Outlet A Headline", ko_title="매체 A 헤드라인", translation_status="TRANSLATED", event_key="ev-shared"),
         _news_item("Outlet B Headline", event_key="ev-shared"),
         _news_item("Outlet C Headline", event_key="ev-shared"),
         _news_item("Outlet D Headline", event_key="ev-shared"),
@@ -1433,7 +1438,9 @@ def test_different_outlets_mapped_to_same_event_key_still_count_as_one_event():
     data = _empty_dashboard()
     data["today_music_intelligence"] = [
         _today_signal("INDUSTRY_NEWS", is_strongest=True,
-                      headline_item=_news_item("Outlet A Original Headline", event_key="ev-shared")),
+                      headline_item=_news_item("Outlet A Original Headline",
+                                                ko_title="매체 A 원문 헤드라인", translation_status="TRANSLATED",
+                                                event_key="ev-shared")),
     ]
     data["music_trend_intelligence"] = {
         "state": "NORMAL",
@@ -1695,14 +1702,19 @@ def test_untranslated_english_ai_item_never_becomes_lead_and_sorts_after_korean(
     assert data["news"]["AI"]["items"][0]["title"] == "Untranslated English Headline"  # real DB order untouched
 
 
-def test_english_title_with_real_korean_ai_intelligence_keeps_its_tier():
-    """FINAL GOAL PASS (2026-08-17, confirmed real defect): an item whose
-    TITLE is untranslated English but which HAS real, LLM-synthesized
-    Korean AI-intelligence bullets (why_it_matters/what_to_watch,
-    ai_intelligence_status="AVAILABLE") must NOT be forced to the bare
-    compact tier -- that used to throw away real, already-generated
-    Korean content and leave nothing but a raw English link, exactly the
-    "raw fallback" outcome the guard was supposed to prevent, not cause."""
+def test_english_title_with_real_korean_ai_intelligence_still_requires_korean_title():
+    """SUPERSEDED (2026-08-22, permanent Korean-first product requirement):
+    the FINAL GOAL PASS (2026-08-17) version of this test asserted that an
+    untranslated English TITLE with real Korean AI-intelligence bullets
+    should keep its full tier -- real visual evidence on the live public
+    page (raw English titles/snippets, e.g. LinkedIn/Nvidia/DeepMind/Ars
+    Technica cards) proved that compromise itself was a Korean-first
+    defect: the reader's first-seen headline is still raw English. The
+    permanent Korean-first gate (report.web_render_v2.is_korean_first_
+    ready) now excludes an item with no valid Korean title from AI/
+    ECONOMY/SOCIETY/Industry entirely, real Korean AI-intelligence bullets
+    or not -- "use the next valid item, or an honest empty state," never a
+    raw-English card at any tier."""
     data = _empty_dashboard()
     data["news"]["AI"] = _news("NORMAL", [
         _news_item(
@@ -1714,8 +1726,8 @@ def test_english_title_with_real_korean_ai_intelligence_keeps_its_tier():
     ])
     html_out = render_dashboard_html_v2(data)
     section = _section(html_out, "section-AI")
-    assert 'class="news-card ed-card ed-card-lead' in section
-    assert "이 소식이 중요한 이유에 대한 실제 한국어 분석입니다." in section
+    assert "Untranslated English Headline With Real Korean Intelligence" not in section
+    assert "state-quiet" in section  # honest empty state, never the raw-English card
 
 
 def test_all_english_ai_items_have_no_level_a_lead_at_all():
@@ -1979,13 +1991,15 @@ def test_category_transition_marks_boundary_between_music_and_ai():
 
 def test_music_industry_featured_item_gets_summary_and_key_point_bullets():
     data = _empty_dashboard()
-    data["news"]["SPOTIFY"] = _news("NORMAL", [_news_item("Top industry story", snippet="A real snippet fact.", reason="A real distinct reason.", source_count=2)])
+    data["news"]["SPOTIFY"] = _news("NORMAL", [_news_item(
+        "Top industry story", snippet="Real snippet fact here", reason="Real distinct reason here", source_count=2,
+    )])
     html_out = render_dashboard_html_v2(data)
     section = _section(html_out, "section-INDUSTRY")
     assert 'class="news-card ed-card ed-card-lead' in section
     assert 'class="ed-bullets"' in section
-    assert "A real snippet fact." in section
-    assert "A real distinct reason." in section
+    assert "Real snippet fact here" in section
+    assert "Real distinct reason here" in section
 
 
 def test_music_industry_card_gets_semantic_story_type_pill():

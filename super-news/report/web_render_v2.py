@@ -407,6 +407,16 @@ def _display_snippet(item):
     # bullets (see _is_rhetorical_question_only's own docstring).
     if snippet and _is_rhetorical_question_only(snippet):
         return None
+    # PERMANENT KOREAN-FIRST GATE (2026-08-22): an ordinary untranslated
+    # English sentence must never silently render as the card's summary
+    # prose just because translation failed -- same reasoning and same
+    # shared gate as is_korean_first_ready's own module comment. A
+    # suppressed snippet is not a card-killing failure: every caller
+    # already treats a falsy _display_snippet result as "no summary for
+    # this card," an existing, normal state (see e.g. _is_rhetorical_
+    # question_only's own None case above).
+    if snippet and not is_korean_first_text_ready(snippet):
+        return None
     return snippet
 
 
@@ -1081,6 +1091,18 @@ def _render_secondary_signal_card(signal):
     return f'<div class="signal-card">{thumb_html}{body_html}</div>'
 
 
+def _signal_display_text(signal):
+    """The exact text a Hero/Today-in-Music signal displays: _display_
+    title(headline_item) when a real backing item exists, else the
+    signal's own fact_text (a deterministic MUSIC TODAY backfill
+    candidate deliberately carries headline_item=None -- see
+    _signal_event_identity's own docstring)."""
+    item = signal.get("headline_item")
+    if item:
+        return _display_title(item)
+    return signal.get("fact_text") or ""
+
+
 def _lead_signal(signals):
     """The real signal that becomes the LEAD STORY -- shared by the hero's
     own render and by MUSIC EVENT EXPOSURE BUDGET's cross-section
@@ -1088,11 +1110,38 @@ def _lead_signal(signals):
     exactly which real signal is "the lead" from the SAME single real
     rule. LEAD FALLBACK: is_strongest is a real upstream curation signal,
     not a guarantee -- if no signal has it set, the first real signal
-    safely becomes the lead instead of an empty lead."""
-    if not signals:
+    safely becomes the lead instead of an empty lead.
+
+    PERMANENT KOREAN-FIRST GATE (2026-08-22, production incident follow-
+    up, confirmed real defect: the live public MUSIC page's own lead-
+    story card showed "Vanessa Bosaen exits Virgin Music Group..." raw):
+    a candidate whose _signal_display_text is an ordinary untranslated
+    English sentence is never eligible to become the lead -- filtered
+    BEFORE the is_strongest/first-real-signal selection above, so a
+    Korean-ready candidate takes its place exactly like "use the next
+    valid item." This is the ONE real selection of "the lead" every
+    caller (this module's own hero render, MUSIC EVENT EXPOSURE BUDGET,
+    and report.web_render_v2.resolve_music_lead_and_industry, which
+    report.kakao_render_v2.render_music_kakao_digest also calls) shares
+    -- gating here protects all of them at once."""
+    candidates = korean_ready_signals(signals)
+    if not candidates:
         return None
-    strongest = next((s for s in signals if s.get("is_strongest")), None)
-    return strongest if strongest is not None else signals[0]
+    strongest = next((s for s in candidates if s.get("is_strongest")), None)
+    return strongest if strongest is not None else candidates[0]
+
+
+def korean_ready_signals(signals):
+    """Every Hero/Today-in-Music signal in `signals` whose own display
+    text (_signal_display_text) passes the permanent Korean-first gate.
+    The shared filter behind BOTH the lead pick (_lead_signal above) and
+    the SECONDARY today-in-music cards (_today_intel_parts / render_
+    music_page_html_v2's own hero_secondary_raw) -- a candidate excluded
+    from becoming the lead must never simply reappear as a secondary card
+    instead (confirmed real defect: "Vanessa Bosaen exits Virgin Music
+    Group..." still showed raw in 오늘의 음악 소식 even after the lead slot
+    itself was correctly gated)."""
+    return [s for s in signals if is_korean_first_text_ready(_signal_display_text(s))]
 
 
 # ---------------------------------------------------------------------
@@ -1541,7 +1590,10 @@ def _today_intel_parts(signals, secondary_override=None):
         return "", ""
     secondary = (
         secondary_override if secondary_override is not None
-        else [s for s in signals if s is not strongest][:_HERO_SECONDARY_MAX]
+        # PERMANENT KOREAN-FIRST GATE (2026-08-22): a candidate excluded
+        # from becoming the lead (korean_ready_signals) must never simply
+        # reappear here instead -- see korean_ready_signals' own docstring.
+        else [s for s in korean_ready_signals(signals) if s is not strongest][:_HERO_SECONDARY_MAX]
     )
 
     lead_html = _render_lead_story(strongest)
@@ -2000,7 +2052,30 @@ def _render_compact_news_section(block_class, section_id, label, data, primary_c
             f'<div class="block-head"><h2>{_e(label)}</h2></div>'
             f'<p class="state-message {css_class}">{_e(message)}</p></section>'
         )
-    items = data["items"]
+    # PERMANENT KOREAN-FIRST WEB PAGE GATE (2026-08-22, production
+    # incident follow-up): the SAME shared is_korean_first_ready check
+    # already used for DAILY/MUSIC Kakao text -- this is the ONE choke
+    # point every DAILY (AI/ECONOMY/SOCIETY) and MUSIC (Industry) card
+    # list renders through (see this function's own call sites). An item
+    # whose title is an ordinary untranslated English sentence is dropped
+    # here, BEFORE primary/overflow slicing, so the next real item takes
+    # its place -- never rendered as a visible raw-English card. Applied
+    # before korean_lead_guard's own sort (a separate, narrower concern:
+    # ordering WITHIN the already-title-safe set).
+    raw_items = data["items"]
+    items = [item for item in raw_items if is_korean_first_ready(item)]
+    if raw_items and not items:
+        # Only when the gate itself is what emptied an otherwise-real
+        # list -- an already-empty list (e.g. Music Industry's own real
+        # lead-event dedup already excluded everything) keeps its
+        # existing honest behavior below (real NORMAL coverage, zero
+        # cards, no false "no news today" -- see _music_industry_state's
+        # own docstring for why that distinction matters).
+        return (
+            f'<section class="block {block_class} block-quiet" id="{section_id}">'
+            f'<div class="block-head"><h2>{_e(label)}</h2></div>'
+            f'<p class="state-message state-quiet">{_e(_QUIET_MESSAGE)}</p></section>'
+        )
     primary, overflow = items[:primary_cap], items[primary_cap:]
     if ultra_compact:
         # FINAL DENSITY PASS: ECONOMY/SOCIETY are peripheral awareness
@@ -2753,6 +2828,9 @@ def resolve_music_lead_and_industry(dashboard_data):
     # dashboard (or a future caller assembling a partial dict) must not
     # hard-crash just because it omitted a key this function itself
     # never writes to.
+    # _lead_signal itself already applies the permanent Korean-first gate
+    # (see its own docstring) -- lead_signal here is never an ordinary
+    # untranslated English candidate.
     lead_signal = _lead_signal(dashboard_data.get("today_music_intelligence") or [])
     title_to_event_key = _news_title_to_event_key_map(news)
     lead_event_key, lead_refs = (None, set())
@@ -2766,6 +2844,11 @@ def resolve_music_lead_and_industry(dashboard_data):
     industry_items = _merge_music_industry_items(
         news, exclude_event_key=lead_event_key, extra_items=industry_extra_items,
     )
+    # Same gate, for the Industry pool this function hands to Kakao (the
+    # web page's own Industry section is separately protected inside
+    # _render_compact_news_section, the shared choke point every DAILY/
+    # MUSIC card list already renders through).
+    industry_items = [item for item in industry_items if is_korean_first_ready(item)]
     return lead_signal, lead_event_key, lead_refs, industry_items, title_to_event_key
 
 
@@ -2786,8 +2869,13 @@ def render_music_page_html_v2(dashboard_data):
         resolve_music_lead_and_industry(dashboard_data)
     )
 
+    # PERMANENT KOREAN-FIRST GATE (2026-08-22, confirmed real defect: this
+    # used to draw from the raw, ungated today_music_intelligence list --
+    # a candidate correctly excluded from the LEAD slot for having no
+    # valid Korean title still reappeared here, raw, as a secondary
+    # 오늘의 음악 소식 card). See korean_ready_signals' own docstring.
     hero_secondary_raw = [
-        s for s in dashboard_data["today_music_intelligence"] if s is not lead_signal
+        s for s in korean_ready_signals(dashboard_data["today_music_intelligence"]) if s is not lead_signal
     ][:_HERO_SECONDARY_MAX]
 
     # FINAL EDITORIAL QUALITY PASS (2026-08-18, confirmed real defect):
