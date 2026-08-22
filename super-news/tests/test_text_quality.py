@@ -34,6 +34,19 @@ def test_has_refusal_marker_false_for_real_korean():
     assert not has_refusal_marker("삼성전자가 신제품을 공개했다.")
 
 
+def test_has_refusal_marker_true_for_meta_response_with_embedded_korean():
+    """PRODUCTION INCIDENT FIX (2026-08-22, confirmed real defect): a
+    meta-response/task-commentary result can embed the real Korean source
+    verbatim, so is_plausibly_korean_output's Hangul floor alone is not
+    enough -- the refusal-marker check must still catch this class."""
+    text = (
+        "No headline text was provided to translate — if you intended to "
+        "provide an English headline, please provide it. Here is the "
+        "translation of the Korean text unchanged: 애플뮤직에서는 순위가 상승했다."
+    )
+    assert has_refusal_marker(text)
+
+
 def test_is_malformed_synthesis_text_rejects_empty():
     assert is_malformed_synthesis_text("")
     assert is_malformed_synthesis_text("   ")

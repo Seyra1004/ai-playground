@@ -84,6 +84,21 @@ _MIN_HANGUL_CHARS_FOR_PLAUSIBLE_OUTPUT = 2
 _REFUSAL_MARKERS = (
     "i appreciate", "i cannot", "i can't", "i'm sorry", "as an ai",
     "i apologize", "let me know if", "i'm not able to", "i am not able to",
+    # PRODUCTION INCIDENT FIX (2026-08-22, confirmed real defect): a real
+    # Producer Insight synthesis paragraph was already Korean but dense
+    # with quoted English artist/song names, defeating the Hangul-ratio
+    # "already Korean" check (report.translation._is_already_korean) --
+    # the resulting real Claude CLI translation-provider call, prompted
+    # with a HEADLINE-translation system prompt against a full paragraph,
+    # returned meta-commentary about the mismatch instead of a
+    # translation ("No headline text was provided to translate... this
+    # appears to be a news article excerpt rather than a headline...").
+    # This class of task-commentary/meta-response is distinct from a
+    # refusal but equally must never reach reader-facing content.
+    "no headline text", "was provided to translate", "if you intended",
+    "please provide", "please share", "i should return", "i'll translate",
+    "i will translate", "rather than a headline", "here is the translation",
+    "translate it accordingly", "if this text is itself the content",
 )
 
 # PROFESSIONAL EDITORIAL QUALITY PASS: report/music_trend_synthesis.py and

@@ -42,6 +42,7 @@ from report.text_quality import (
     _extract_currency_values,
     _extract_versions,
     _missing_values,
+    has_refusal_marker,
     is_plausibly_korean_output,
 )
 
@@ -63,6 +64,17 @@ def validate_translation_facts(original_text, translated_text):
 
     if not is_plausibly_korean_output(translated_text):
         reasons.append("translated output is not plausibly Korean (possible non-translation response)")
+        return ValidationResult(ok=False, reasons=reasons)
+
+    # PRODUCTION INCIDENT FIX (2026-08-22, confirmed real defect): a
+    # meta-response/task-commentary result ("No headline text was
+    # provided to translate...") can legitimately embed the real Korean
+    # source verbatim at the end, so is_plausibly_korean_output's Hangul
+    # floor alone does not catch it -- the SAME deterministic refusal-
+    # marker check report/text_quality.py already applies to LLM-native
+    # synthesis text, reused here for translated text too.
+    if has_refusal_marker(translated_text):
+        reasons.append("translated output contains a known refusal/meta-response marker")
         return ValidationResult(ok=False, reasons=reasons)
 
     original_years = set(_YEAR_RE.findall(original_text))

@@ -565,6 +565,33 @@ def test_non_korean_provider_response_is_never_cached_as_translated(conn):
     assert result["translated_text"] is None
 
 
+def test_meta_response_with_embedded_korean_is_never_cached_as_translated(conn):
+    """PRODUCTION INCIDENT FIX (2026-08-22, confirmed real defect): unlike
+    the pure-refusal case above, this meta-response EMBEDS the real Korean
+    source verbatim at the end -- is_plausibly_korean_output's Hangul
+    floor alone would pass it. The refusal-marker check must still catch
+    it, so it's never cached as a real translation and never reaches
+    reader-facing MUSIC output."""
+    source = "애플뮤직에서는 빅뱅의 'BiiiG'가 순위 상승했다."
+    meta_response = (
+        "No headline text was provided to translate — the content shared is a "
+        "Korean-language body paragraph, and since it's already written in Korean, "
+        "I should return it unchanged. However, this appears to be a news article "
+        "excerpt rather than a headline for translation. If you intended to provide "
+        "an English headline for me to translate into Korean, please share it and "
+        "I'll translate it accordingly. If this Korean text is itself the content "
+        f"you wanted returned, here it is unchanged: {source}"
+    )
+    provider = FakeProvider(translations={"some non-korean input": meta_response})
+    result = translate_and_cache(conn, provider, "some non-korean input")
+    assert result["status"] == STATUS_FAILED
+    assert result["failure_kind"] == FAILURE_KIND_TRANSIENT  # retryable, never permanent
+    assert result["translated_text"] is None
+    row = conn.execute("SELECT status, translated_text FROM translation_cache").fetchone()
+    assert row["status"] == "FAILED"
+    assert row["translated_text"] is None  # never persisted as if it were real content
+
+
 def test_fact_preserving_translation_still_succeeds_normally(conn):
     provider = FakeProvider(translations={
         "Deal closed at a $190B valuation": "1,900억 달러 가치 평가로 거래가 마무리됐다",
@@ -587,6 +614,39 @@ def test_clearly_english_headline_is_translated(conn):
     result = translate_and_cache(conn, provider, "Federal Reserve Holds Interest Rates Steady")
     assert result["status"] == STATUS_TRANSLATED
     assert provider.calls == ["Federal Reserve Holds Interest Rates Steady"]
+
+
+def test_already_korean_with_quoted_english_proper_nouns_bypasses_provider(conn):
+    """PRODUCTION INCIDENT FIX (2026-08-22, confirmed real defect): a real
+    already-Korean Producer Insight sentence quoting several English
+    artist/song names ('BiiiG', 'Self Aware', ...) defeated the plain
+    Hangul-ratio check -- the whole already-Korean paragraph was sent to
+    a real Claude CLI translation call (prompted for a HEADLINE, not this
+    paragraph), which returned meta-commentary instead of a translation.
+    Quoted proper-noun spans must not count against the surrounding
+    prose's own language -- zero provider calls for this real text."""
+    provider = FakeProvider()
+    text = (
+        "애플뮤직에서는 빅뱅의 'BiiiG', 한로로의 '0+0', 검정치마의 'Ling Ling'이 순위 상승했고, "
+        "같은 시기 스포티파이 차트에서는 테임 임팔라의 'Loser', Temper City의 'Self Aware', "
+        "케이티 페리의 'The One That Got Away'가 동반 상승했다. 대부분 신곡이 아닌 과거 발매곡이다."
+    )
+    result = translate_and_cache(conn, provider, text)
+    assert result["status"] == STATUS_NOT_REQUIRED
+    assert result["translated_text"] == text
+    assert provider.calls == []  # zero API calls
+
+
+def test_mixed_language_headline_still_falls_through_to_translation(conn):
+    """The quoted-span exclusion above must stay narrow: an ordinary
+    English headline that happens to quote one Korean word inline is
+    still correctly sent to translation -- unquoted English content
+    still counts exactly as before."""
+    provider = FakeProvider()
+    text = 'Company unveils new "삼성" branded product line in the US market'
+    result = translate_and_cache(conn, provider, text)
+    assert result["status"] == STATUS_TRANSLATED
+    assert provider.calls == [text]
 
 
 # ---- Entity-transliteration glossary (SOURCE EXPANSION + CONTENT QUALITY -----

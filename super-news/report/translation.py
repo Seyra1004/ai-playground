@@ -272,9 +272,26 @@ def _apply_entity_glossary(text):
     return _ENTITY_GLOSSARY_PATTERN.sub(lambda m: _ENTITY_GLOSSARY[m.group(0)], text)
 
 
+_QUOTED_SPAN_RE = re.compile(r"['‘’\"“”][^'‘’\"“”]{1,80}['‘’\"“”]")
+
+
 def _is_already_korean(text):
-    hangul = len(_HANGUL_RE.findall(text))
-    latin = len(_LATIN_RE.findall(text))
+    # PRODUCTION INCIDENT FIX (2026-08-22, confirmed real defect): a real
+    # already-Korean synthesis paragraph ("애플뮤직에서는 빅뱅의 'BiiiG'...")
+    # quoting several English artist/song names inline pushed the raw
+    # Latin count high enough to defeat this check, sending the WHOLE
+    # already-Korean paragraph to a real Claude CLI translation call
+    # (prompted for a headline, not a paragraph) -- which returned
+    # meta-commentary instead of a translation. A quoted proper-noun span
+    # ('BiiiG', "Self Aware") is a literal citation, not a signal about
+    # the SURROUNDING prose's own language, so it's excluded from the
+    # ratio here -- still conservative: an unquoted English sentence
+    # anywhere in the text is counted exactly as before, so a genuinely
+    # mixed-language or English headline still correctly falls through to
+    # a real translation attempt.
+    unquoted = _QUOTED_SPAN_RE.sub(" ", text)
+    hangul = len(_HANGUL_RE.findall(unquoted))
+    latin = len(_LATIN_RE.findall(unquoted))
     total = hangul + latin
     if total == 0:
         return False
