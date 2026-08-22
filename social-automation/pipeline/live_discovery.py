@@ -230,6 +230,30 @@ def _timeliness_signal(published_date: str, today: str) -> float:
     return 0.15
 
 
+# Deterministic keyword/rule calibration for the 3 signals that used to be
+# fixed neutral placeholders (0.5/0.5/0.4 for every candidate, which made
+# timeliness the only variable component -- see diagnostic finding). No
+# Claude/LLM judgment; pure substring matching against the real title.
+_VALUE_MARKERS = ["환급", "지원", "세정지원", "신고", "납부", "기한", "마감", "보험료", "과오납", "할인", "감면", "신청"]
+_SCAM_MARKERS = ["피해예방", "보이스피싱", "소비자 피해"]
+_AUDIENCE_MARKERS = ["납세자", "근로자", "가입자", "가구"]
+
+
+def _practical_value_signal(text: str) -> float:
+    hits = sum(1 for k in _VALUE_MARKERS if k in text) + sum(2 for k in _SCAM_MARKERS if k in text)
+    return min(1.0, 0.3 + 0.15 * hits)
+
+
+def _population_reach_signal(text: str) -> float:
+    hits = sum(1 for k in _AUDIENCE_MARKERS if k in text)
+    return min(1.0, 0.3 + 0.25 * hits)
+
+
+def _save_share_signal(text: str) -> float:
+    hits = sum(1 for k in _VALUE_MARKERS if k in text) + sum(1 for k in _SCAM_MARKERS if k in text)
+    return min(1.0, 0.25 + 0.15 * hits)
+
+
 def has_sufficient_evidence(text: str) -> bool:
     """Mechanical 'enough official evidence' gate: needs an eligibility-ish
     marker AND an amount-or-deadline-ish marker actually present in the real
@@ -281,17 +305,14 @@ def discover_live_candidates(today: str):
                     category=src["category"],
                     summary=item["title"],
                     timeliness_signal=_timeliness_signal(item["published_date"], today),
-                    # Not mechanically derivable without reading/interpreting the
-                    # full article (semantic work, out of scope here) -- neutral
-                    # default rather than a fabricated per-topic estimate.
-                    practical_value_signal=0.5,
-                    population_reach_signal=0.5,
+                    practical_value_signal=_practical_value_signal(item["title"]),
+                    population_reach_signal=_population_reach_signal(item["title"]),
                     # Directly fetchable primary source -- verification is
                     # available regardless of whether *this* item's title
                     # alone turns out to carry enough content (checked
                     # separately, in rank order, against the article body).
                     verification_availability_signal=1.0,
-                    save_share_signal=0.4,
+                    save_share_signal=_save_share_signal(item["title"]),
                     duplication_penalty_signal=0.1,
                     # All OFFICIAL_SOURCES entries are real government/public
                     # institutions -- that IS the authoritative-source signal;
