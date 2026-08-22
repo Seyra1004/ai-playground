@@ -92,6 +92,45 @@ def _extract_nts(html: str) -> list:
     return items
 
 
+_BODY_TAG_RE = re.compile(r"<[^>]+>")
+_BODY_ENTITY_RE = re.compile(r"&[a-zA-Z#0-9]+;")
+
+
+def _clean_chunk(chunk: str, max_chars: int = 1500) -> str:
+    text = _BODY_ENTITY_RE.sub(" ", _BODY_TAG_RE.sub(" ", chunk))
+    return re.sub(r"\s+", " ", text).strip()[:max_chars]
+
+
+def _extract_body_nhis(html: str) -> str:
+    """Real article body lives in <div class="post-content">...</div>
+    (verified 2026-08-22) -- no nav/footer/sidebar reached this way."""
+    idx = html.find("post-content")
+    if idx == -1:
+        return ""
+    return _clean_chunk(html[idx : idx + 6000])
+
+
+def _extract_body_fss(html: str) -> str:
+    """Real article body lives in <div class="dbdata">...</div>, with no
+    nested <div> inside it (verified 2026-08-22), so the first closing
+    </div> after the opening tag safely bounds just the body text."""
+    idx = html.find('class="dbdata"')
+    if idx == -1:
+        return ""
+    end = html.find("</div>", idx)
+    return _clean_chunk(html[idx:end] if end != -1 else html[idx : idx + 3000])
+
+
+def _extract_body_nts(html: str) -> str:
+    """NTS press-release bodies are delivered only as an attached HWP/PDF
+    rendered through a JS document-viewer iframe -- no plain body text
+    exists in the static HTML at all (verified 2026-08-22). Nothing safe to
+    extract without executing JS or parsing a binary document (both out of
+    scope); returns "" so callers fall back to title-only evidence rather
+    than fabricate body text."""
+    return ""
+
+
 OFFICIAL_SOURCES = [
     {
         "board_id": "nhis-together",
@@ -100,6 +139,7 @@ OFFICIAL_SOURCES = [
         "source_type": SourceType.PUBLIC_INSTITUTION,
         "category": "health_insurance",
         "extractor": _extract_nhis,
+        "body_extractor": _extract_body_nhis,
     },
     {
         "board_id": "fss-press",
@@ -108,6 +148,7 @@ OFFICIAL_SOURCES = [
         "source_type": SourceType.PUBLIC_INSTITUTION,
         "category": "finance_savings",
         "extractor": _extract_fss,
+        "body_extractor": _extract_body_fss,
     },
     {
         "board_id": "nts-press",
@@ -116,8 +157,29 @@ OFFICIAL_SOURCES = [
         "source_type": SourceType.GOVERNMENT,
         "category": "finance_savings",
         "extractor": _extract_nts,
+        "body_extractor": _extract_body_nts,
     },
 ]
+
+_BODY_EXTRACTOR_BY_INSTITUTION = {src["institution"]: src["body_extractor"] for src in OFFICIAL_SOURCES}
+
+
+def fetch_article_body(source: Source) -> str:
+    """Fetch a candidate's own detail page and run the site-specific
+    body-only extractor for its institution. Returns "" (never raises, never
+    fabricates) if the fetch fails or no extractor matches -- callers must
+    treat that as 'no additional evidence', not an error."""
+    extractor = _BODY_EXTRACTOR_BY_INSTITUTION.get(source.publisher)
+    if extractor is None:
+        return ""
+    try:
+        html = fetch_html(source.url)
+    except Exception:
+        return ""
+    try:
+        return extractor(html)
+    except Exception:
+        return ""
 
 _AMOUNT_RE = re.compile(r"\d[\d,]*\s*(원|만원|억원)")
 _DEADLINE_RE = re.compile(r"(까지|기한|마감|시행|부터)")

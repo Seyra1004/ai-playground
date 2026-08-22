@@ -25,7 +25,12 @@ from core.database import get_connection, init_db  # noqa: E402
 from core.scoring import evaluate_candidate  # noqa: E402
 from pipeline import daily_state  # noqa: E402
 from pipeline.discovery import research_input_dir  # noqa: E402
-from pipeline.live_discovery import build_minimal_fact_sheet, discover_live_candidates, has_sufficient_evidence  # noqa: E402
+from pipeline.live_discovery import (  # noqa: E402
+    build_minimal_fact_sheet,
+    discover_live_candidates,
+    fetch_article_body,
+    has_sufficient_evidence,
+)
 
 ACCOUNT_ID = "swipe_info"
 MIN_SCORE = 70
@@ -75,23 +80,23 @@ def main() -> int:
     with open(os.path.join(out_dir, "excerpts", "evidence_excerpts.json"), "w", encoding="utf-8") as f:
         json.dump([dataclasses.asdict(e) for e in excerpts], f, ensure_ascii=False, indent=2)
 
-    # NOTE: body-excerpt widening (pipeline.live_discovery.fetch_body_excerpt)
-    # was tried here to give short titles more text to be checked against,
-    # but real NTS/FSS detail pages front-load thousands of chars of site
-    # navigation before the actual article, which produced false-positive
-    # keyword matches (e.g. "기한" from an unrelated nav-menu link). Using
-    # that would risk a FactSheet claim that isn't really about this
-    # article, so the gate stays on the title alone -- stricter, but never
-    # a fabricated/misattributed match.
+    # Title alone is often too short to carry both an eligibility and an
+    # amount/deadline marker. Widen to title + the SITE-SPECIFIC article-body
+    # extraction (content-area only, no nav/footer/sidebar -- unlike the
+    # earlier generic full-page attempt, which produced false-positive
+    # keyword matches from site navigation). The evidence gate itself is
+    # unchanged/unweakened; it just sees more real text.
     verified_id = None
     for c in ranked:
         accepted, _breakdown, _reason = evaluate_candidate(c, MIN_SCORE)
         if not accepted:
             continue
-        if not has_sufficient_evidence(c.topic):
-            continue
         source = sources_by_id[f"src-{c.candidate_id}"]
-        fs = build_minimal_fact_sheet(c, source, content_id=f"{ACCOUNT_ID}-{today}")
+        body = fetch_article_body(source)  # "" if unavailable/failed -- safe fallback to title-only
+        evidence_text = f"{c.topic} {body}".strip()
+        if not has_sufficient_evidence(evidence_text):
+            continue
+        fs = build_minimal_fact_sheet(c, source, content_id=f"{ACCOUNT_ID}-{today}", evidence_text=evidence_text)
         with open(os.path.join(out_dir, "fact_sheets", f"{c.candidate_id}.json"), "w", encoding="utf-8") as f:
             json.dump(dataclasses.asdict(fs), f, ensure_ascii=False, indent=2)
         verified_id = c.candidate_id
