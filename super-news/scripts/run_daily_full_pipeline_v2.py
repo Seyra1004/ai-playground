@@ -10,6 +10,8 @@ Windows Task Scheduler target for full-chain automation:
     -> Producer Intelligence
     -> News Intelligence
     -> Music Trend Intelligence
+    -> SUPER NEWS MUSIC / SUPER NEWS DAILY web page generation
+    -> SUPER NEWS MUSIC / SUPER NEWS DAILY web page publish (GitHub Pages)
     -> SUPER NEWS MUSIC Kakao delivery
     -> SUPER NEWS DAILY Kakao delivery
 
@@ -64,21 +66,46 @@ scripts/run_daily_pipeline.sh's own long-standing non-`set -e` philosophy
 delivery already degrades gracefully around missing/partial upstream data
 via NoDashboardDataError).
 
+WEB GENERATION + PUBLISH (ADDED 2026-08-19, production incident follow-up
+-- see report/release_v2.py's own product-page release gate section
+docstring): scripts/generate_daily_web_report_v2.py (unchanged, already
+real -- writes docs/v2/index.html, docs/v2/reports/<date>.html,
+docs/v2/music.html, docs/v2/daily.html together, atomically) then
+scripts/publish_v2_product_pages.py (verify local docs/v2/music.html +
+docs/v2/daily.html -> git commit+push, exact files only -> verify the
+real external public pages -- NO Kakao send of its own; MUSIC/DAILY Kakao
+delivery is the SEPARATE stage immediately after it). Before this, this
+script had NO web-generation or publish step at all -- intelligence/Kakao
+succeeding never meant docs/v2/ was regenerated or published for that
+day. UNLIKE every upstream/intelligence stage above, THIS pair is
+REQUIRED and blocks Kakao: if web generation or publish/external-verify
+fails, kakao_delivery is SKIPPED entirely for this run rather than
+sending a real MUSIC/DAILY message whose CTA link points at a
+stale-or-never-published page (see run_daily_v2_product_pages_publish's
+own docstring for the exact risk this guards against; the combined
+docs/v2/index.html/reports/<date>.html pair report.release_v2.
+publish_v2_dashboard already gates is untouched by this script -- that
+remains its own separate, manual step, same as before this pass).
+
 --dry-run threads ONLY into the final Kakao delivery stage
 (run_daily_kakao_delivery_v2.py --dry-run): every upstream stage
 (fresh ingestion included) still runs for real -- ingestion/collection are
 free, side-effect-safe, already-idempotent reads/writes, and a dry run
 that skipped them would not actually prove "fresh data", which is the
-whole point of this script's existence. Only the final Kakao
-send + delivery_history/runs write is suppressed.
+whole point of this script's existence. Web generation still runs and
+web publish still REALLY commits+pushes even under --dry-run (publishing
+today's real, already-generated pages is safe and desired even when the
+Kakao send itself is being dry-run) -- only the final Kakao send +
+delivery_history/runs write is suppressed.
 
 Exit code contract:
   0 = the final MUSIC+DAILY Kakao delivery stage exited 0 (both ended
       "sent"/"skipped_duplicate", or a clean dry run)
-  1 = the final delivery stage exited non-zero (see
+  1 = web generation/publish failed (Kakao delivery was SKIPPED, never
+      attempted) or the final delivery stage exited non-zero (see
       run_daily_kakao_delivery_v2.py's own exit contract), regardless of
-      any upstream stage's own result (upstream failures are logged, not
-      fatal -- see the graceful-degradation note above)
+      any upstream/intelligence stage's own result (those failures are
+      logged, not fatal -- see the graceful-degradation note above)
   2 = CLI invocation error (argparse's own handling)
 """
 
@@ -136,6 +163,16 @@ _INTELLIGENCE_STAGES = (
     ("producer_intelligence", "run_daily_producer_intelligence.py"),
     ("news_intelligence", "run_daily_news_intelligence.py"),
     ("music_trend_intelligence", "run_daily_music_trend_intelligence.py"),
+)
+
+# Runs after intelligence, before Kakao delivery (ADDED 2026-08-19 -- see
+# module docstring's WEB GENERATION + PUBLISH note). UNLIKE every stage
+# above, a failure in EITHER of these two IS fatal to this run: main()
+# skips kakao_delivery entirely rather than send a real MUSIC/DAILY
+# message whose CTA link points at a stale-or-never-published page.
+_WEB_STAGES = (
+    ("web_generation", "generate_daily_web_report_v2.py"),
+    ("web_publish", "publish_v2_product_pages.py"),
 )
 
 
@@ -217,18 +254,37 @@ def main(argv=None):
         if exit_code != 0:
             any_upstream_failure = True
 
-    delivery_extra = ["--dry-run"] if args.dry_run else []
-    delivery_exit = _run_stage(
-        "kakao_delivery", "run_daily_kakao_delivery_v2.py", db_path, extra_args=delivery_extra,
-    )
+    # web_publish depends on web_generation's own output, and Kakao's real
+    # CTA link depends on web_publish -- stop at the first failure in this
+    # pair rather than run a downstream stage against known-bad input.
+    web_publish_ok = True
+    for label, script_name in _WEB_STAGES:
+        exit_code = _run_stage(label, script_name, db_path)
+        if exit_code != 0:
+            web_publish_ok = False
+            any_upstream_failure = True
+            break
+
+    if web_publish_ok:
+        delivery_extra = ["--dry-run"] if args.dry_run else []
+        delivery_exit = _run_stage(
+            "kakao_delivery", "run_daily_kakao_delivery_v2.py", db_path, extra_args=delivery_extra,
+        )
+    else:
+        # FAIL-SAFE (2026-08-19, see module docstring's WEB GENERATION +
+        # PUBLISH note): never send a real MUSIC/DAILY Kakao message whose
+        # CTA link points at a stale-or-never-published page.
+        logger.error("kakao_delivery SKIPPED: web generation/publish failed -- refusing to send a stale-page link.")
+        print("STAGE_RESULT stage=kakao_delivery status=SKIPPED exit=1 elapsed=0.0s reason=web_publish_failed")
+        delivery_exit = 1
 
     print(
         f"=== SUPER NEWS full daily pipeline SUMMARY "
-        f"any_upstream_failure={any_upstream_failure} delivery_exit={delivery_exit} ==="
+        f"any_upstream_failure={any_upstream_failure} web_publish_ok={web_publish_ok} delivery_exit={delivery_exit} ==="
     )
     logger.info(
-        "=== SUPER NEWS full daily pipeline END any_upstream_failure=%s delivery_exit=%s ===",
-        any_upstream_failure, delivery_exit,
+        "=== SUPER NEWS full daily pipeline END any_upstream_failure=%s web_publish_ok=%s delivery_exit=%s ===",
+        any_upstream_failure, web_publish_ok, delivery_exit,
     )
 
     return EXIT_OK if delivery_exit == 0 else EXIT_DELIVERY_FAILURE

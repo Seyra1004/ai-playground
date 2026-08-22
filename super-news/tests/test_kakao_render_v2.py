@@ -4,7 +4,10 @@ never contains a full TOP10 list, never fabricates TikTok data."""
 from report.kakao_render import split_message
 from report.kakao_render_v2 import (
     MAX_TEXT_LENGTH,
+    _KAKAO_MUSIC_TITLE_BUDGET,
     _compact_korean_display_text,
+    _music_kakao_blocks,
+    _music_safe_fallback_text,
     render_daily_kakao_digest,
     render_full_digest_text,
     render_kakao_digest,
@@ -513,6 +516,65 @@ def test_music_digest_within_real_kakao_send_limit():
     ]}
     text = render_music_kakao_digest(data)
     assert len(text) <= REAL_KAKAO_LIMIT == MAX_TEXT_LENGTH
+
+
+def test_music_digest_drops_lowest_priority_block_when_two_full_length_titles_exceed_budget():
+    """PRODUCTION INCIDENT REGRESSION (2026-08-19, real 07:00 KST send
+    failure): a real LEAD + INDUSTRY pair, both titles at the full
+    _KAKAO_MUSIC_TITLE_BUDGET cap and with no why-line left to degrade,
+    assembled to a few characters OVER the real Kakao limit -- the old
+    code only ever dropped a trailing A&R block, so this exact 2-block
+    shape (no A&R) fell through to an unhandled AssertionError that
+    crashed the entire delivery process (MUSIC AND DAILY -- MUSIC runs
+    first in scripts/run_daily_kakao_delivery_v2.py). Must now complete,
+    stay within the limit, and never truncate LEAD's own title (TITLE
+    RULE) -- INDUSTRY, the lower-priority block, is dropped instead."""
+    data = _empty_dashboard()
+    lead_title = "가" * _KAKAO_MUSIC_TITLE_BUDGET
+    industry_title = "나" * _KAKAO_MUSIC_TITLE_BUDGET
+    lead_item = {"title": lead_title, "ko_title": lead_title, "translation_status": "TRANSLATED",
+                 "event_key": "ev-lead", "source_url": "https://x"}
+    data["today_music_intelligence"] = [
+        {"type": "INDUSTRY_NEWS", "headline_item": lead_item, "is_strongest": True},
+    ]
+    data["news"]["SPOTIFY"] = {"state": "NORMAL", "items": [
+        {"title": industry_title, "ko_title": industry_title, "translation_status": "TRANSLATED",
+         "reason": None, "source_url": "https://x", "event_key": "ev-industry", "source_count": 1},
+    ]}
+    text = render_music_kakao_digest(data)
+    assert len(text) <= MAX_TEXT_LENGTH
+    assert f"LEAD: {lead_title}" in text  # LEAD's own title never truncated or dropped
+    assert "…" not in text
+
+
+def test_music_digest_never_raises_and_falls_back_when_even_lead_alone_would_overflow(monkeypatch):
+    """DEFENSE-IN-DEPTH REGRESSION: even if upstream data were ever
+    corrupted/unbounded enough that a single LEAD block alone (bypassing
+    the normal _KAKAO_MUSIC_TITLE_BUDGET clip _music_kakao_blocks always
+    applies in real production) would overflow the real Kakao limit,
+    render_music_kakao_digest must return the static safe fallback
+    message -- never an unhandled AssertionError that would crash both
+    MUSIC and DAILY delivery."""
+    monkeypatch.setattr(
+        "report.kakao_render_v2._music_kakao_blocks",
+        lambda dashboard_data_v2: [("LEAD", "다" * 500, None)],
+    )
+    data = _empty_dashboard()
+    text = render_music_kakao_digest(data)
+    assert len(text) <= MAX_TEXT_LENGTH
+    assert "오늘의 음악 브리핑이 업데이트되었습니다." in text
+    assert "MUSIC 전체 브리핑" in text
+
+
+def test_music_safe_fallback_text_within_limit_for_every_real_kst_date_shape():
+    for header in (
+        "SUPER NEWS MUSIC | 1월 1일",
+        "SUPER NEWS MUSIC | 8월 19일",
+        "SUPER NEWS MUSIC | 12월 31일",
+    ):
+        text = _music_safe_fallback_text(header)
+        assert len(text) <= MAX_TEXT_LENGTH
+        assert text.startswith(header)
 
 
 def test_daily_digest_unaffected_by_music_content_identity_consolidation():

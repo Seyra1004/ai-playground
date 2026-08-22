@@ -95,11 +95,36 @@ def _parse_args(argv):
 
 
 def _run_one_product(label, deliver_fn, report_date_kst, runs_row_id, conn, dashboard_data_v2):
+    """MUSIC and DAILY are fully independent products (see this module's
+    own docstring): a render/DB/Kakao-API failure in one must never
+    prevent the other from being attempted, and must never leave this
+    script's own run row un-finalized.
+
+    PRODUCTION INCIDENT FIX (2026-08-19, confirmed real 07:00 KST send
+    failure): this used to catch only NoDashboardDataError -- any other
+    unhandled exception (real example: report/kakao_render_v2.py's own
+    render_music_kakao_digest AssertionError, hardened separately; a real
+    Kakao API/network failure would hit the exact same gap) propagated
+    straight past this function and past main(), killing the whole
+    process before DAILY -- which always runs AFTER MUSIC below -- was
+    ever attempted, and before finalize_run() ever ran (that day's runs
+    row was left stuck at status='running' forever). Broad `except
+    Exception` is deliberate here: this is the ONE boundary in the whole
+    delivery chain where "isolate and record, never let one product's
+    crash cascade to the other" is the explicit contract -- matching the
+    same broad-except-at-the-orchestration-boundary precedent every other
+    intelligence orchestrator in this codebase already uses."""
     try:
         result = deliver_fn(report_date_kst, runs_row_id, conn=conn, dashboard_data_v2=dashboard_data_v2)
     except NoDashboardDataError as exc:
         logger.error("report_date=%s product=%s no dashboard content available: %s", report_date_kst, label, exc)
         return {"status": "failed", "reason": f"NoDashboardDataError: {exc}"}
+    except Exception as exc:
+        logger.exception(
+            "report_date=%s product=%s UNEXPECTED %s -- isolated so the other product still runs.",
+            report_date_kst, label, type(exc).__name__,
+        )
+        return {"status": "failed", "reason": f"{type(exc).__name__}: {exc}"}
     return result
 
 

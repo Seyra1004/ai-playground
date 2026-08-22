@@ -47,7 +47,7 @@ def test_every_stage_subprocess_inherits_the_no_paid_api_guard(tmp_path):
         exit_code = cli.main(["--db-path", str(db_path)])
 
     assert exit_code == cli.EXIT_OK
-    assert mock_run.call_count == 9  # 4 upstream + 4 intelligence + 1 delivery
+    assert mock_run.call_count == 11  # 4 upstream + 4 intelligence + 2 web + 1 delivery
     for call in mock_run.call_args_list:
         env = call.kwargs["env"]
         assert env.get("SUPER_NEWS_NO_PAID_API") == "1"
@@ -71,6 +71,8 @@ def test_stage_order_is_ingestion_then_music_then_signals_then_intelligence_then
         "run_daily_producer_intelligence.py",
         "run_daily_news_intelligence.py",
         "run_daily_music_trend_intelligence.py",
+        "generate_daily_web_report_v2.py",
+        "publish_v2_product_pages.py",
         "run_daily_kakao_delivery_v2.py",
     ]
 
@@ -103,7 +105,7 @@ def test_dry_run_flag_only_reaches_the_delivery_stage(tmp_path):
         cli.main(["--db-path", str(db_path), "--dry-run"])
 
     calls = mock_run.call_args_list
-    non_delivery_calls, delivery_call = calls[:8], calls[8]
+    non_delivery_calls, delivery_call = calls[:10], calls[10]
     for call in non_delivery_calls:
         assert "--dry-run" not in call.args[0]
     assert "--dry-run" in delivery_call.args[0]
@@ -114,7 +116,7 @@ def test_without_dry_run_flag_delivery_stage_never_gets_it(tmp_path):
     with patch("subprocess.run", return_value=_FakeCompletedProcess(0)) as mock_run:
         cli.main(["--db-path", str(db_path)])
 
-    delivery_call = mock_run.call_args_list[8]
+    delivery_call = mock_run.call_args_list[10]
     assert "--dry-run" not in delivery_call.args[0]
 
 
@@ -160,4 +162,72 @@ def test_upstream_failure_never_skips_later_stages(tmp_path):
     with patch("subprocess.run", side_effect=_side_effect) as mock_run:
         cli.main(["--db-path", str(db_path)])
 
-    assert mock_run.call_count == 9
+    assert mock_run.call_count == 11
+
+
+# =============================================================================
+# WEB GENERATION + PUBLISH gate (ADDED 2026-08-19, production incident
+# follow-up): UNLIKE every upstream/intelligence stage above, a failure in
+# web_generation or web_publish must SKIP kakao_delivery entirely -- never
+# send a real MUSIC/DAILY message whose CTA link points at a
+# stale-or-never-published page.
+# =============================================================================
+
+
+def test_web_generation_failure_skips_kakao_delivery_entirely(tmp_path):
+    db_path = tmp_path / "test.db"
+
+    def _side_effect(cmd, **kwargs):
+        if Path(cmd[1]).name == "generate_daily_web_report_v2.py":
+            return _FakeCompletedProcess(1)
+        return _FakeCompletedProcess(0)
+
+    with patch("subprocess.run", side_effect=_side_effect) as mock_run:
+        exit_code = cli.main(["--db-path", str(db_path)])
+
+    assert exit_code == cli.EXIT_DELIVERY_FAILURE
+    called_scripts = _ordered_labels(mock_run.call_args_list)
+    assert "publish_v2_product_pages.py" not in called_scripts  # never ran against known-bad input
+    assert "run_daily_kakao_delivery_v2.py" not in called_scripts  # never sent a stale-page link
+
+
+def test_web_publish_failure_skips_kakao_delivery_entirely(tmp_path):
+    db_path = tmp_path / "test.db"
+
+    def _side_effect(cmd, **kwargs):
+        if Path(cmd[1]).name == "publish_v2_product_pages.py":
+            return _FakeCompletedProcess(1)
+        return _FakeCompletedProcess(0)
+
+    with patch("subprocess.run", side_effect=_side_effect) as mock_run:
+        exit_code = cli.main(["--db-path", str(db_path)])
+
+    assert exit_code == cli.EXIT_DELIVERY_FAILURE
+    called_scripts = _ordered_labels(mock_run.call_args_list)
+    assert called_scripts.count("generate_daily_web_report_v2.py") == 1  # web_generation did run
+    assert "run_daily_kakao_delivery_v2.py" not in called_scripts
+
+
+def test_web_stages_both_succeeding_still_runs_kakao_delivery(tmp_path):
+    db_path = tmp_path / "test.db"
+    with patch("subprocess.run", return_value=_FakeCompletedProcess(0)) as mock_run:
+        exit_code = cli.main(["--db-path", str(db_path)])
+
+    assert exit_code == cli.EXIT_OK
+    assert "run_daily_kakao_delivery_v2.py" in _ordered_labels(mock_run.call_args_list)
+
+
+def test_web_publish_failure_reason_is_logged_in_stdout(tmp_path, capsys):
+    db_path = tmp_path / "test.db"
+
+    def _side_effect(cmd, **kwargs):
+        if Path(cmd[1]).name == "generate_daily_web_report_v2.py":
+            return _FakeCompletedProcess(1)
+        return _FakeCompletedProcess(0)
+
+    with patch("subprocess.run", side_effect=_side_effect):
+        cli.main(["--db-path", str(db_path)])
+
+    out = capsys.readouterr().out
+    assert "stage=kakao_delivery status=SKIPPED" in out
+    assert "web_publish_failed" in out

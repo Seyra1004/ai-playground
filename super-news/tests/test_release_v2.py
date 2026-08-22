@@ -17,9 +17,13 @@ from report.release_v2 import (
     find_secret_exposure,
     has_music_intelligence_marker,
     publish_v2_dashboard,
+    publish_v2_product_pages,
+    run_daily_v2_product_pages_publish,
     run_daily_v2_release,
     verify_external_v2_dashboard,
+    verify_external_v2_product_pages,
     verify_local_v2_dashboard,
+    verify_local_v2_product_pages,
 )
 
 _GOOD_INDEX_HTML = (
@@ -497,3 +501,288 @@ def test_check_publication_consistency_no_send_yet_is_never_consistent(conn, tmp
     result = check_publication_consistency(conn, docs_v2)
     assert result["status"] == PublicationConsistencyStatus.NO_KAKAO_SEND_YET
     assert result["consistent"] is False
+
+
+# =============================================================================
+# SUPER NEWS MUSIC / SUPER NEWS DAILY product-page release gate (ADDED
+# 2026-08-19, production incident follow-up: docs/v2/music.html and
+# docs/v2/daily.html -- the pages the real Kakao MUSIC/DAILY sends
+# actually link to -- were never covered by any release gate before).
+# =============================================================================
+
+_GOOD_MUSIC_HTML = "<html><head><title>SUPER NEWS MUSIC — 2026.08.19</title></head><body>real music content</body></html>"
+_GOOD_DAILY_HTML = "<html><head><title>SUPER NEWS DAILY — 2026.08.19</title></head><body>real daily content</body></html>"
+
+
+def _write_product_pages(tmp_path, music_html=_GOOD_MUSIC_HTML, daily_html=_GOOD_DAILY_HTML):
+    docs_v2 = tmp_path / "docs" / "v2"
+    docs_v2.mkdir(parents=True, exist_ok=True)
+    (docs_v2 / "music.html").write_text(music_html, encoding="utf-8")
+    (docs_v2 / "daily.html").write_text(daily_html, encoding="utf-8")
+    return docs_v2
+
+
+# ---- verify_local_v2_product_pages -----------------------------------------
+
+
+def test_product_local_verify_passes_for_correct_same_date_pages(tmp_path):
+    docs_v2 = _write_product_pages(tmp_path)
+    result = verify_local_v2_product_pages("2026-08-19", docs_v2)
+    assert result["ok"] is True
+    assert result["status"] == ReleaseCheckStatus.OK
+
+
+def test_product_local_verify_fails_when_music_missing(tmp_path):
+    docs_v2 = tmp_path / "docs" / "v2"
+    docs_v2.mkdir(parents=True)
+    (docs_v2 / "daily.html").write_text(_GOOD_DAILY_HTML, encoding="utf-8")
+    result = verify_local_v2_product_pages("2026-08-19", docs_v2)
+    assert result["ok"] is False
+    assert result["status"] == ReleaseCheckStatus.DATED_REPORT_MISSING_OR_UNPARSEABLE
+
+
+def test_product_local_verify_fails_when_daily_missing(tmp_path):
+    docs_v2 = tmp_path / "docs" / "v2"
+    docs_v2.mkdir(parents=True)
+    (docs_v2 / "music.html").write_text(_GOOD_MUSIC_HTML, encoding="utf-8")
+    result = verify_local_v2_product_pages("2026-08-19", docs_v2)
+    assert result["ok"] is False
+    assert result["status"] == ReleaseCheckStatus.DATED_REPORT_MISSING_OR_UNPARSEABLE
+
+
+def test_product_local_verify_fails_on_stale_music_date(tmp_path):
+    stale_music = _GOOD_MUSIC_HTML.replace("2026.08.19", "2026.08.18")
+    docs_v2 = _write_product_pages(tmp_path, music_html=stale_music)
+    result = verify_local_v2_product_pages("2026-08-19", docs_v2)
+    assert result["ok"] is False
+    assert result["status"] == ReleaseCheckStatus.DATED_REPORT_DATE_MISMATCH
+
+
+def test_product_local_verify_fails_on_stale_daily_date(tmp_path):
+    stale_daily = _GOOD_DAILY_HTML.replace("2026.08.19", "2026.08.18")
+    docs_v2 = _write_product_pages(tmp_path, daily_html=stale_daily)
+    result = verify_local_v2_product_pages("2026-08-19", docs_v2)
+    assert result["ok"] is False
+    assert result["status"] == ReleaseCheckStatus.DATED_REPORT_DATE_MISMATCH
+
+
+def test_product_local_verify_never_matches_the_combined_dashboard_title():
+    """A product page must never be mistaken for the combined dashboard --
+    the "SUPER NEWS V2 —" title prefix must never satisfy the product
+    page's own "SUPER NEWS MUSIC —"/"SUPER NEWS DAILY —" pattern."""
+    from report.release_v2 import _extract_product_page_date
+    import tempfile
+    from pathlib import Path as _P
+
+    with tempfile.TemporaryDirectory() as d:
+        p = _P(d) / "music.html"
+        p.write_text(_GOOD_INDEX_HTML, encoding="utf-8")  # combined-dashboard-shaped title
+        assert _extract_product_page_date(p, "music") is None
+
+
+def test_product_local_verify_fails_on_secret_exposure(tmp_path):
+    leaky_music = _GOOD_MUSIC_HTML.replace(
+        "</body>", "<!-- key=sk-ant-abcdefghijklmnopqrstuvwxyz012345 --></body>"
+    )
+    docs_v2 = _write_product_pages(tmp_path, music_html=leaky_music)
+    result = verify_local_v2_product_pages("2026-08-19", docs_v2)
+    assert result["ok"] is False
+    assert result["status"] == ReleaseCheckStatus.SECRET_EXPOSURE
+
+
+# ---- verify_external_v2_product_pages (real HTTP GET, always faked here) ----
+
+
+def _fake_http_get_for_products(music_html, daily_html):
+    def fake_get(url, timeout):
+        return _fake_response(200, music_html if url.endswith("music.html") else daily_html)
+    return fake_get
+
+
+def test_product_external_verify_passes_for_correct_live_pages():
+    result = verify_external_v2_product_pages(
+        "2026-08-19", http_get=_fake_http_get_for_products(_GOOD_MUSIC_HTML, _GOOD_DAILY_HTML),
+    )
+    assert result["ok"] is True
+
+
+def test_product_external_verify_http_200_alone_is_never_pass_when_stale():
+    stale_music = _GOOD_MUSIC_HTML.replace("2026.08.19", "2026.08.18")
+    result = verify_external_v2_product_pages(
+        "2026-08-19", http_get=_fake_http_get_for_products(stale_music, _GOOD_DAILY_HTML),
+    )
+    assert result["ok"] is False
+    assert result["status"] == ReleaseCheckStatus.DATED_REPORT_DATE_MISMATCH
+
+
+def test_product_external_verify_non_200_fails():
+    def fake_get(url, timeout):
+        return _fake_response(404, "")
+
+    result = verify_external_v2_product_pages("2026-08-19", http_get=fake_get)
+    assert result["ok"] is False
+    assert result["status"] == ReleaseCheckStatus.HTTP_ERROR
+
+
+def test_product_external_verify_network_exception_fails_not_raises():
+    def fake_get(url, timeout):
+        raise ConnectionError("network down")
+
+    result = verify_external_v2_product_pages("2026-08-19", http_get=fake_get)
+    assert result["ok"] is False
+    assert result["status"] == ReleaseCheckStatus.HTTP_ERROR
+
+
+def test_product_external_verify_uses_the_real_expected_urls():
+    seen_urls = []
+
+    def fake_get(url, timeout):
+        seen_urls.append(url)
+        return _fake_response(200, _GOOD_MUSIC_HTML if url.endswith("music.html") else _GOOD_DAILY_HTML)
+
+    verify_external_v2_product_pages("2026-08-19", http_get=fake_get)
+    assert seen_urls == [
+        "https://seyra1004.github.io/ai-playground/v2/music.html",
+        "https://seyra1004.github.io/ai-playground/v2/daily.html",
+    ]
+
+
+# ---- publish_v2_product_pages (git, always faked here) ----------------------
+
+
+def _repo_with_product_pages(tmp_path):
+    repo_root = tmp_path
+    docs_v2 = _write_product_pages(repo_root)
+    return repo_root, docs_v2
+
+
+def test_product_publish_stages_exactly_the_two_expected_files(tmp_path):
+    repo_root, docs_v2 = _repo_with_product_pages(tmp_path)
+    git = _FakeGit()
+    result = publish_v2_product_pages("2026-08-19", docs_v2, repo_root, push=True, git_runner=git)
+    assert result == {"published": True, "pushed": True, "reason": None}
+    add_call = next(c for c in git.calls if c[0] == "add")
+    assert add_call == ["add", "--", "docs/v2/music.html", "docs/v2/daily.html"]
+    assert ["push", "origin", "main"] in git.calls
+
+
+def test_product_publish_never_uses_broad_add(tmp_path):
+    repo_root, docs_v2 = _repo_with_product_pages(tmp_path)
+    git = _FakeGit()
+    publish_v2_product_pages("2026-08-19", docs_v2, repo_root, push=True, git_runner=git)
+    add_call = next(c for c in git.calls if c[0] == "add")
+    assert "." not in add_call
+    assert "-A" not in add_call
+
+
+def test_product_publish_aborts_when_unrelated_file_already_staged(tmp_path):
+    repo_root, docs_v2 = _repo_with_product_pages(tmp_path)
+    git = _FakeGit(pre_staged="some/unrelated/file.py\n")
+    result = publish_v2_product_pages("2026-08-19", docs_v2, repo_root, push=True, git_runner=git)
+    assert result["published"] is False
+    assert "already staged" in result["reason"]
+    assert not any(c[0] == "add" for c in git.calls)
+
+
+def test_product_publish_never_stages_the_combined_dashboard_files(tmp_path):
+    """publish_v2_product_pages must touch ONLY music.html/daily.html --
+    never index.html/reports/<date>.html, which stay
+    publish_v2_dashboard's own exclusive scope."""
+    repo_root = tmp_path
+    _write_dashboard(repo_root)  # index.html + reports/2026-08-15.html also present
+    docs_v2 = _write_product_pages(repo_root)
+    git = _FakeGit()
+    publish_v2_product_pages("2026-08-19", docs_v2, repo_root, push=True, git_runner=git)
+    add_call = next(c for c in git.calls if c[0] == "add")
+    assert "docs/v2/index.html" not in add_call
+    assert not any("reports" in p for p in add_call)
+
+
+# ---- run_daily_v2_product_pages_publish: orchestration, NO Kakao send -------
+
+
+def test_product_pages_release_pass_end_to_end(tmp_path):
+    repo_root, docs_v2 = _repo_with_product_pages(tmp_path)
+    git = _FakeGit()
+    result = run_daily_v2_product_pages_publish(
+        "2026-08-19", docs_v2, repo_root, git_runner=git,
+        http_get=_fake_http_get_for_products(_GOOD_MUSIC_HTML, _GOOD_DAILY_HTML),
+    )
+    assert result["status"] == ReleaseStatus.PASS_
+    assert result["reason"] is None
+
+
+def test_product_pages_release_never_sends_kakao():
+    """CORE DESIGN CONTRACT: unlike run_daily_v2_release, this orchestrator
+    must NEVER call report_delivery_v2.send_memo -- Kakao MUSIC/DAILY
+    delivery is a separate pipeline stage (scripts/
+    run_daily_kakao_delivery_v2.py) that runs afterward in scripts/
+    run_daily_full_pipeline_v2.py; sending here too would be a THIRD,
+    redundant legacy-REPORT_TYPE message."""
+    import tempfile
+    from pathlib import Path as _P
+
+    with tempfile.TemporaryDirectory() as d:
+        repo_root = _P(d)
+        docs_v2 = _write_product_pages(repo_root)
+        git = _FakeGit()
+        with patch("report_delivery_v2.send_memo") as mock_send:
+            run_daily_v2_product_pages_publish(
+                "2026-08-19", docs_v2, repo_root, git_runner=git,
+                http_get=_fake_http_get_for_products(_GOOD_MUSIC_HTML, _GOOD_DAILY_HTML),
+            )
+        mock_send.assert_not_called()
+
+
+def test_product_pages_release_blocked_never_touches_git_or_http(tmp_path):
+    repo_root = tmp_path
+    stale_music = _GOOD_MUSIC_HTML.replace("2026.08.19", "2026.08.18")
+    docs_v2 = _write_product_pages(repo_root, music_html=stale_music)
+    git = _FakeGit()
+    http_calls = []
+
+    def fake_get(url, timeout):
+        http_calls.append(url)
+        return _fake_response(200, _GOOD_MUSIC_HTML)
+
+    result = run_daily_v2_product_pages_publish(
+        "2026-08-19", docs_v2, repo_root, git_runner=git, http_get=fake_get,
+    )
+    assert result["status"] == ReleaseStatus.PUBLISH_BLOCKED
+    assert git.calls == []
+    assert http_calls == []
+
+
+def test_product_pages_release_publish_failure_blocks_external_verify(tmp_path):
+    repo_root, docs_v2 = _repo_with_product_pages(tmp_path)
+
+    class _FailPushGit(_FakeGit):
+        def __call__(self, args, cwd):
+            if args[0] == "push":
+                self.calls.append(list(args))
+                return SimpleNamespace(returncode=1, stdout="", stderr="remote rejected")
+            return super().__call__(args, cwd)
+
+    git = _FailPushGit()
+    http_calls = []
+
+    def fake_get(url, timeout):
+        http_calls.append(url)
+        return _fake_response(200, _GOOD_MUSIC_HTML)
+
+    result = run_daily_v2_product_pages_publish(
+        "2026-08-19", docs_v2, repo_root, git_runner=git, http_get=fake_get,
+    )
+    assert result["status"] == ReleaseStatus.PUBLISH_FAILED
+    assert http_calls == []  # external verify never attempted after a publish failure
+
+
+def test_product_pages_release_stale_external_page_is_fail(tmp_path):
+    repo_root, docs_v2 = _repo_with_product_pages(tmp_path)
+    git = _FakeGit()
+    stale_music = _GOOD_MUSIC_HTML.replace("2026.08.19", "2026.08.18")
+    result = run_daily_v2_product_pages_publish(
+        "2026-08-19", docs_v2, repo_root, git_runner=git,
+        http_get=_fake_http_get_for_products(stale_music, _GOOD_DAILY_HTML),
+    )
+    assert result["status"] == ReleaseStatus.EXTERNAL_VERIFICATION_FAILED

@@ -117,6 +117,87 @@ def verify_local_v2_dashboard(report_date_kst, docs_v2_dir):
     return {"ok": True, "status": ReleaseCheckStatus.OK, "reasons": []}
 
 
+# =============================================================================
+# SUPER NEWS MUSIC / SUPER NEWS DAILY product-page release gate (ADDED
+# 2026-08-19, production incident follow-up): docs/v2/music.html and
+# docs/v2/daily.html are the pages report_delivery_v2.py's deliver_music_
+# digest_v2/deliver_daily_digest_v2 actually link to (see
+# report_delivery_v2._resolve_v2_link_url) -- a SEPARATE pair from the
+# combined docs/v2/index.html + docs/v2/reports/<date>.html dashboard the
+# functions above already gate. Neither page was ever covered by any
+# release gate or automated publish step before this: Stage 4/
+# publish_v2_dashboard only ever committed the combined-dashboard pair,
+# and scripts/run_daily_full_pipeline_v2.py (the one production
+# entrypoint) never called any web-generation/publish step at all -- Kakao
+# could send a real link to a page that was never regenerated for today,
+# let alone published. Same fail-closed discipline as the combined-
+# dashboard gate above: HTTP 200 alone, git push alone, and a local file
+# existing alone are each explicitly insufficient.
+# =============================================================================
+
+_PRODUCT_TITLE_RE = {
+    "music": re.compile(r"SUPER NEWS MUSIC — (\d{4})\.(\d{2})\.(\d{2})"),
+    "daily": re.compile(r"SUPER NEWS DAILY — (\d{4})\.(\d{2})\.(\d{2})"),
+}
+
+
+def _extract_product_page_date(html_path, product):
+    """Same contract as report.publication_consistency._extract_page_date,
+    for a product page's OWN distinct title prefix (report.web_render_v2's
+    render_music_page_html_v2/render_daily_page_html_v2 title tags are
+    "SUPER NEWS MUSIC —"/"SUPER NEWS DAILY —", not the combined
+    dashboard's "SUPER NEWS V2 —")."""
+    if not html_path.exists():
+        return None
+    text = html_path.read_text(encoding="utf-8")
+    match = _PRODUCT_TITLE_RE[product].search(text)
+    if not match:
+        return None
+    year, month, day = match.groups()
+    return f"{year}-{month}-{day}"
+
+
+def verify_local_v2_product_pages(report_date_kst, docs_v2_dir):
+    """Reads the LOCAL, already-generated docs/v2/music.html and docs/v2/
+    daily.html (never regenerates them -- that's scripts/
+    generate_daily_web_report_v2.py's own job, upstream of this gate).
+    Returns the same {"ok", "status", "reasons"} shape as
+    verify_local_v2_dashboard. ok=True requires: both files exist and
+    parse their OWN real <title> date, both dates equal report_date_kst
+    exactly (the same "no stale previous page" check), and neither file
+    contains a real secret-shaped pattern. No MUSIC INTELLIGENCE marker
+    check here -- that marker is the combined index page's own domain
+    header, not part of either standalone product page."""
+    docs_v2_dir = Path(docs_v2_dir)
+    music_path = docs_v2_dir / "music.html"
+    daily_path = docs_v2_dir / "daily.html"
+
+    music_date = _extract_product_page_date(music_path, "music")
+    if music_date is None:
+        return {"ok": False, "status": ReleaseCheckStatus.DATED_REPORT_MISSING_OR_UNPARSEABLE,
+                "reasons": ["docs/v2/music.html missing or its <title> date is unparseable"]}
+    if music_date != report_date_kst:
+        return {"ok": False, "status": ReleaseCheckStatus.DATED_REPORT_DATE_MISMATCH,
+                "reasons": [f"music.html date {music_date!r} != REPORT_DATE {report_date_kst!r} (stale page)"]}
+
+    daily_date = _extract_product_page_date(daily_path, "daily")
+    if daily_date is None:
+        return {"ok": False, "status": ReleaseCheckStatus.DATED_REPORT_MISSING_OR_UNPARSEABLE,
+                "reasons": ["docs/v2/daily.html missing or its <title> date is unparseable"]}
+    if daily_date != report_date_kst:
+        return {"ok": False, "status": ReleaseCheckStatus.DATED_REPORT_DATE_MISMATCH,
+                "reasons": [f"daily.html date {daily_date!r} != REPORT_DATE {report_date_kst!r} (stale page)"]}
+
+    music_text = music_path.read_text(encoding="utf-8")
+    daily_text = daily_path.read_text(encoding="utf-8")
+    secrets_found = find_secret_exposure(music_text) + find_secret_exposure(daily_text)
+    if secrets_found:
+        return {"ok": False, "status": ReleaseCheckStatus.SECRET_EXPOSURE,
+                "reasons": [f"secret-shaped pattern(s) found: {sorted(set(secrets_found))}"]}
+
+    return {"ok": True, "status": ReleaseCheckStatus.OK, "reasons": []}
+
+
 DEFAULT_PUBLIC_BASE_URL = "https://seyra1004.github.io/ai-playground"
 
 
@@ -189,8 +270,94 @@ def verify_external_v2_dashboard(report_date_kst, base_url=DEFAULT_PUBLIC_BASE_U
     return {"ok": True, "status": ReleaseCheckStatus.OK, "reasons": []}
 
 
+def verify_external_v2_product_pages(report_date_kst, base_url=DEFAULT_PUBLIC_BASE_URL, http_get=None, timeout_seconds=15):
+    """Real, external, read-only HTTP GET against the real live docs/v2/
+    music.html and docs/v2/daily.html public pages -- same fail-closed
+    discipline as verify_external_v2_dashboard (HTTP 200 alone is never
+    pass). `http_get` defaults to `requests.get`; tests inject a fake so
+    this module never makes a real network call under pytest."""
+    if http_get is None:
+        import requests
+        http_get = lambda url, timeout: requests.get(url, timeout=timeout)
+
+    for product, filename in (("music", "music.html"), ("daily", "daily.html")):
+        url = base_url.rstrip("/") + f"/v2/{filename}"
+        try:
+            resp = http_get(url, timeout_seconds)
+        except Exception as exc:
+            return {"ok": False, "status": ReleaseCheckStatus.HTTP_ERROR,
+                    "reasons": [f"{filename} GET failed: {type(exc).__name__}: {exc}"]}
+        if resp.status_code != 200:
+            return {"ok": False, "status": ReleaseCheckStatus.HTTP_ERROR,
+                    "reasons": [f"{filename} HTTP {resp.status_code} (expected 200)"]}
+
+        text = resp.text
+        match = _PRODUCT_TITLE_RE[product].search(text)
+        date = f"{match.group(1)}-{match.group(2)}-{match.group(3)}" if match else None
+        if date is None:
+            return {"ok": False, "status": ReleaseCheckStatus.DATED_REPORT_MISSING_OR_UNPARSEABLE,
+                    "reasons": [f"public {filename} <title> date is unparseable"]}
+        if date != report_date_kst:
+            return {"ok": False, "status": ReleaseCheckStatus.DATED_REPORT_DATE_MISMATCH,
+                    "reasons": [f"public {filename} date {date!r} != REPORT_DATE {report_date_kst!r} (stale public page)"]}
+        secrets_found = find_secret_exposure(text)
+        if secrets_found:
+            return {"ok": False, "status": ReleaseCheckStatus.SECRET_EXPOSURE,
+                    "reasons": [f"secret-shaped pattern(s) found on public {filename}: {sorted(set(secrets_found))}"]}
+
+    return {"ok": True, "status": ReleaseCheckStatus.OK, "reasons": []}
+
+
 def _default_git_runner(args, cwd):
     return subprocess.run(["git"] + list(args), cwd=str(cwd), capture_output=True, text=True, timeout=30)
+
+
+def _publish_files_v2(commit_message, repo_root, rel_paths, push=True, git_runner=None):
+    """Shared safe-publish core for publish_v2_dashboard/publish_v2_
+    product_pages: stages and commits EXACTLY `rel_paths` (repo-root-
+    relative posix paths) -- never `git add .`/`git add -A`. Aborts
+    (never commits) if anything else is already staged before this call
+    (an unrelated pending change must never ride along with a publication
+    commit), and aborts (unstaging first) if, after staging the intended
+    files, the staged set is not EXACTLY those files. Returns
+    {"published": bool, "pushed": bool, "reason": str|None}.
+    `git_runner(args, cwd) -> CompletedProcess`-shaped callable, defaults
+    to a real `git` subprocess -- tests inject a fake so no real repo
+    mutation happens under pytest."""
+    git_runner = git_runner or _default_git_runner
+    repo_root = Path(repo_root)
+
+    pre_status = git_runner(["diff", "--cached", "--name-only"], repo_root)
+    if pre_status.returncode != 0:
+        return {"published": False, "pushed": False, "reason": f"git status check failed: {pre_status.stderr}"}
+    already_staged = [line for line in pre_status.stdout.splitlines() if line.strip()]
+    if already_staged:
+        return {"published": False, "pushed": False,
+                "reason": f"refusing to publish: unrelated file(s) already staged: {already_staged}"}
+
+    add_result = git_runner(["add", "--", *rel_paths], repo_root)
+    if add_result.returncode != 0:
+        return {"published": False, "pushed": False, "reason": f"git add failed: {add_result.stderr}"}
+
+    staged_status = git_runner(["diff", "--cached", "--name-only"], repo_root)
+    staged_files = sorted(line for line in staged_status.stdout.splitlines() if line.strip())
+    expected_files = sorted(rel_paths)
+    if staged_files != expected_files:
+        git_runner(["reset"], repo_root)
+        return {"published": False, "pushed": False,
+                "reason": f"staged scope mismatch: expected {expected_files}, got {staged_files} (aborted, unstaged)"}
+
+    commit_result = git_runner(["commit", "-m", commit_message], repo_root)
+    if commit_result.returncode != 0:
+        return {"published": False, "pushed": False, "reason": f"git commit failed: {commit_result.stderr}"}
+
+    if not push:
+        return {"published": True, "pushed": False, "reason": None}
+
+    push_result = git_runner(["push", "origin", "main"], repo_root)
+    if push_result.returncode != 0:
+        return {"published": True, "pushed": False, "reason": f"git push failed: {push_result.stderr}"}
+    return {"published": True, "pushed": True, "reason": None}
 
 
 def publish_v2_dashboard(report_date_kst, docs_v2_dir, repo_root, push=True, git_runner=None):
@@ -204,47 +371,36 @@ def publish_v2_dashboard(report_date_kst, docs_v2_dir, repo_root, push=True, git
     `git_runner(args, cwd) -> CompletedProcess`-shaped callable, defaults
     to a real `git` subprocess -- tests inject a fake so no real repo
     mutation happens under pytest."""
-    git_runner = git_runner or _default_git_runner
     docs_v2_dir = Path(docs_v2_dir)
     repo_root = Path(repo_root)
     index_path = docs_v2_dir / "index.html"
     dated_path = docs_v2_dir / "reports" / f"{report_date_kst}.html"
     rel_index = index_path.resolve().relative_to(repo_root.resolve()).as_posix()
     rel_dated = dated_path.resolve().relative_to(repo_root.resolve()).as_posix()
-
-    pre_status = git_runner(["diff", "--cached", "--name-only"], repo_root)
-    if pre_status.returncode != 0:
-        return {"published": False, "pushed": False, "reason": f"git status check failed: {pre_status.stderr}"}
-    already_staged = [line for line in pre_status.stdout.splitlines() if line.strip()]
-    if already_staged:
-        return {"published": False, "pushed": False,
-                "reason": f"refusing to publish: unrelated file(s) already staged: {already_staged}"}
-
-    add_result = git_runner(["add", "--", rel_index, rel_dated], repo_root)
-    if add_result.returncode != 0:
-        return {"published": False, "pushed": False, "reason": f"git add failed: {add_result.stderr}"}
-
-    staged_status = git_runner(["diff", "--cached", "--name-only"], repo_root)
-    staged_files = sorted(line for line in staged_status.stdout.splitlines() if line.strip())
-    expected_files = sorted([rel_index, rel_dated])
-    if staged_files != expected_files:
-        git_runner(["reset"], repo_root)
-        return {"published": False, "pushed": False,
-                "reason": f"staged scope mismatch: expected {expected_files}, got {staged_files} (aborted, unstaged)"}
-
-    commit_result = git_runner(
-        ["commit", "-m", f"Publish SUPER NEWS V2 dashboard ({report_date_kst}) to docs/v2/"], repo_root,
+    return _publish_files_v2(
+        f"Publish SUPER NEWS V2 dashboard ({report_date_kst}) to docs/v2/",
+        repo_root, [rel_index, rel_dated], push=push, git_runner=git_runner,
     )
-    if commit_result.returncode != 0:
-        return {"published": False, "pushed": False, "reason": f"git commit failed: {commit_result.stderr}"}
 
-    if not push:
-        return {"published": True, "pushed": False, "reason": None}
 
-    push_result = git_runner(["push", "origin", "main"], repo_root)
-    if push_result.returncode != 0:
-        return {"published": True, "pushed": False, "reason": f"git push failed: {push_result.stderr}"}
-    return {"published": True, "pushed": True, "reason": None}
+def publish_v2_product_pages(report_date_kst, docs_v2_dir, repo_root, push=True, git_runner=None):
+    """Same exact-file-scope safe publish as publish_v2_dashboard (see
+    _publish_files_v2), for the SEPARATE SUPER NEWS MUSIC / SUPER NEWS
+    DAILY product pages (docs/v2/music.html, docs/v2/daily.html) -- the
+    pages report_delivery_v2.py's deliver_music_digest_v2/deliver_daily_
+    digest_v2 actually link to. ADDED 2026-08-19: neither page was ever
+    published by any existing automated path before this -- see this
+    module's own product-page release gate section docstring."""
+    docs_v2_dir = Path(docs_v2_dir)
+    repo_root = Path(repo_root)
+    music_path = docs_v2_dir / "music.html"
+    daily_path = docs_v2_dir / "daily.html"
+    rel_music = music_path.resolve().relative_to(repo_root.resolve()).as_posix()
+    rel_daily = daily_path.resolve().relative_to(repo_root.resolve()).as_posix()
+    return _publish_files_v2(
+        f"Publish SUPER NEWS MUSIC/DAILY product pages ({report_date_kst}) to docs/v2/",
+        repo_root, [rel_music, rel_daily], push=push, git_runner=git_runner,
+    )
 
 
 class ReleaseStatus:
@@ -311,6 +467,54 @@ def run_daily_v2_release(conn, report_date_kst, docs_v2_dir, repo_root, runs_row
     result["consistency"] = consistency
     if not consistency["consistent"]:
         result["status"], result["reason"] = ReleaseStatus.POST_SEND_CONSISTENCY_FAILED, consistency["status"]
+        return result
+
+    result["status"], result["reason"] = ReleaseStatus.PASS_, None
+    return result
+
+
+def run_daily_v2_product_pages_publish(report_date_kst, docs_v2_dir, repo_root,
+                                        base_url=DEFAULT_PUBLIC_BASE_URL, push=True,
+                                        http_get=None, git_runner=None):
+    """The REQUIRED SUPER NEWS MUSIC / SUPER NEWS DAILY product-page web
+    flow (ADDED 2026-08-19): local verify (blocks publish) -> publish
+    (git, blocks external verify on failure) -> external verify. Returns
+    {"status": one of ReleaseStatus, "reason": ..., "local_check":,
+    "publish":, "external_check":}.
+
+    DELIBERATELY DOES NOT SEND KAKAO (the one real difference from this
+    module's own run_daily_v2_release): report_delivery_v2.deliver_music_
+    digest_v2/deliver_daily_digest_v2 (scripts/run_daily_kakao_delivery_v2.py,
+    the actual production MUSIC/DAILY Kakao path, already idempotent under
+    their own MUSIC_REPORT_TYPE/DAILY_REPORT_TYPE) are a SEPARATE pipeline
+    stage that runs AFTER this one in scripts/run_daily_full_pipeline_v2.py
+    -- calling run_daily_v2_release's own embedded
+    deliver_daily_summary_v2 here as well would send a THIRD, redundant
+    legacy-REPORT_TYPE Kakao message nothing in current production reads
+    or acts on. `status` is only ever PASS when both gates below passed --
+    scripts/run_daily_full_pipeline_v2.py's own pipeline treats anything
+    else as a reason to SKIP the Kakao delivery stage entirely rather than
+    send a real message linking to a stale/unpublished page (the exact
+    risk this function's own module docstring already documents for the
+    combined-dashboard flow)."""
+    result = {"local_check": None, "publish": None, "external_check": None}
+
+    local_check = verify_local_v2_product_pages(report_date_kst, docs_v2_dir)
+    result["local_check"] = local_check
+    if not local_check["ok"]:
+        result["status"], result["reason"] = ReleaseStatus.PUBLISH_BLOCKED, local_check["reasons"]
+        return result
+
+    publish_result = publish_v2_product_pages(report_date_kst, docs_v2_dir, repo_root, push=push, git_runner=git_runner)
+    result["publish"] = publish_result
+    if not publish_result["published"] or (push and not publish_result["pushed"]):
+        result["status"], result["reason"] = ReleaseStatus.PUBLISH_FAILED, publish_result["reason"]
+        return result
+
+    external_check = verify_external_v2_product_pages(report_date_kst, base_url=base_url, http_get=http_get)
+    result["external_check"] = external_check
+    if not external_check["ok"]:
+        result["status"], result["reason"] = ReleaseStatus.EXTERNAL_VERIFICATION_FAILED, external_check["reasons"]
         return result
 
     result["status"], result["reason"] = ReleaseStatus.PASS_, None

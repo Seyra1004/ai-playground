@@ -294,6 +294,25 @@ _KAKAO_MUSIC_WHY_STEP = 10
 # MEDIUM/LOW line would read as more certain than it really is.
 _KAKAO_MUSIC_AR_MIN_CONFIDENCE = "HIGH"
 
+# PRODUCTION INCIDENT FIX (2026-08-19, confirmed real defect -- see
+# render_music_kakao_digest's own final-fallback comment): a real 2026-08-19
+# LEAD+INDUSTRY pair, both titles near their own _KAKAO_MUSIC_TITLE_BUDGET
+# cap, assembled to a few characters OVER the real Kakao limit even with
+# every why-line already dropped -- the TITLE RULE (never truncate a
+# title) means the degradation ladder had nothing left to shrink, and the
+# unhandled AssertionError that used to fire here crashed the entire
+# Kakao delivery process (MUSIC AND DAILY, since DAILY runs after MUSIC in
+# scripts/run_daily_kakao_delivery_v2.py) before any real Kakao send.
+# Always well under MAX_TEXT_LENGTH regardless of the KST date -- never
+# fabricates content, only points the reader at the real web page.
+_MUSIC_SAFE_FALLBACK_BODY = "오늘의 음악 브리핑이 업데이트되었습니다."
+
+
+def _music_safe_fallback_text(header):
+    text = f"{header}\n\n{_MUSIC_SAFE_FALLBACK_BODY}\n\n{_MUSIC_CTA_LINE}"
+    assert len(text) <= MAX_TEXT_LENGTH  # real: longest real KST date header is ~10 chars
+    return text
+
 # COPY QUALITY MICRO-FIX (2026-08-18): a real why_it_matters/reason
 # sentence in this codebase overwhelmingly follows Korean's ordinary
 # topic-comment structure ("X는/은 Y") -- X restates the SAME subject the
@@ -546,15 +565,31 @@ def render_music_kakao_digest(dashboard_data_v2):
             else:
                 why_limits[i] = None
             continue
-        if len(active_blocks) > 2 and active_blocks[-1][0] == "A&R":
+        # Every remaining why-line is already fully dropped. blocks is
+        # already priority-ordered LEAD, INDUSTRY, [A&R] (see
+        # _music_kakao_blocks) -- drop the LOWEST-priority whole block
+        # next (was: A&R-only special case; generalized 2026-08-19 so
+        # INDUSTRY can drop too when even two bare headlines don't fit --
+        # see render_music_kakao_digest's own fallback comment). LEAD
+        # (index 0) is never dropped here.
+        if len(active_blocks) > 1:
             del active_blocks[-1]
             del why_limits[-1]
             continue
-        break  # both headlines alone still don't fit -- nothing safe left to drop
+        break  # LEAD headline alone still doesn't fit -- nothing safe left to drop
 
     body = f"{header}\n\n" + _render_music_blocks(active_blocks, why_limits)
     text = body + cta_block
-    assert len(text) <= MAX_TEXT_LENGTH  # invariant, not a runtime user-facing check
+    if len(text) > MAX_TEXT_LENGTH:
+        # PRODUCTION INCIDENT FIX (2026-08-19): a real LEAD+INDUSTRY title
+        # pair assembled over budget even with every why-line dropped and
+        # INDUSTRY/A&R removed (TITLE RULE means a title itself is never
+        # shortened here) -- this used to be an unhandled AssertionError
+        # that crashed the whole Kakao delivery process for BOTH products.
+        # Fall back to a static, always-in-budget message instead of
+        # crashing; see _music_safe_fallback_text's own docstring.
+        text = _music_safe_fallback_text(header)
+    assert len(text) <= MAX_TEXT_LENGTH  # invariant, now guaranteed by the fallback above
     return text
 
 
