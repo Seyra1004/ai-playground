@@ -48,7 +48,7 @@ def _page_number_bar(page: CarouselPage, total_pages: int, accent: str, accent2:
 # gradient rectangle. Capping it to a fixed basis keeps every layout a
 # consistent, content-sized card -- leftover space becomes normal bottom
 # page margin instead of dead space inside the card.
-_CARD_BASIS = "flex:0 1 640px;min-height:320px;"
+_CARD_BASIS = "flex:0 1 480px;"
 
 
 def _render_visual(vd: dict, accent: str, accent2: str, text_color: str) -> str:
