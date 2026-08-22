@@ -208,6 +208,24 @@ def run_daily(account_id: str, run_date: str, dry_run: bool, resume: bool) -> in
     else:
         semantic = semantic_cache.load_semantic_output(semantic_dir, semantic_key)
         if semantic is None:
+            # Unattended ZERO-PAYG authoring attempt: the already-authenticated
+            # subscription `claude` CLI, same pattern SUPER_NEWS runs in
+            # production. Never falls back to a paid API on failure -- only
+            # to the existing deterministic mechanical assembler.
+            page_count_for_cli = select_page_count(page_inputs, account.content.pages_min, account.content.pages_max)
+            page_plan_for_cli = select_page_plan(selected_fact_sheet, page_inputs, page_count_for_cli)
+            try:
+                from pipeline.semantic_claude_cli import SemanticCLIError, generate_semantic_output
+
+                generated = generate_semantic_output(_fact_sheet_to_dict(selected_fact_sheet), page_plan_for_cli)
+                semantic_cache.save_semantic_output(semantic_dir, semantic_key, generated)
+                semantic = generated
+                print("SEMANTIC_AUTHORED_BY=claude_cli")
+            except Exception as exc:  # noqa: BLE001 -- any CLI failure falls back, never raises here
+                print(f"SEMANTIC_CLI_FAILED={exc}")
+                semantic = None
+
+        if semantic is None:
             daily_state.upsert_run(
                 conn, run_tracking_account, run_date, status="NEEDS_REVIEW",
                 content_id=content_id, topic_fingerprint=topic_fingerprint, finished_at=_now_iso(),
@@ -217,7 +235,7 @@ def run_daily(account_id: str, run_date: str, dry_run: bool, resume: bool) -> in
             _write_failure_report(
                 out_dir,
                 "semantic_authoring",
-                f"no cached semantic output for key={semantic_key}",
+                f"no cached semantic output for key={semantic_key} and claude CLI authoring failed",
                 0,
                 "Author carousel copy/caption/Threads text for this fact sheet and save via "
                 "pipeline.semantic_cache.save_semantic_output(), then rerun with --resume.",
