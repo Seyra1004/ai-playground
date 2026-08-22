@@ -1,0 +1,72 @@
+[
+  {
+    "candidate_id": "c1-hospital-refund",
+    "topic": "병원비 본인부담상한액 초과금 환급 신청",
+    "category": "health_insurance",
+    "summary": "본인부담상한액을 초과한 병원비를 국민건강보험공단에서 환급",
+    "urgent": false,
+    "timeliness_signal": 1.0,
+    "practical_value_signal": 1.0,
+    "population_reach_signal": 0.9,
+    "verification_availability_signal": 1.0,
+    "save_share_signal": 0.9,
+    "duplication_penalty_signal": 0.05,
+    "has_authoritative_source": true
+  },
+  {
+    "candidate_id": "c2-voicephishing",
+    "topic": "상품권 대출빙자 신종 보이스피싱 주의",
+    "category": "scam_prevention",
+    "summary": "상품권 구매실적을 대출조건으로 속여 통장을 편취하는 신종 사기 (금감원 소비자경보, 2026-08-10)",
+    "urgent": false,
+    "timeliness_signal": 0.7,
+    "practical_value_signal": 0.85,
+    "population_reach_signal": 0.7,
+    "verification_availability_signal": 0.5,
+    "save_share_signal": 0.8,
+    "duplication_penalty_signal": 0.1,
+    "has_authoritative_source": true
+  },
+  {
+    "candidate_id": "c3-workincome-benefit",
+    "topic": "근로장려금·자녀장려금 정기분 8월 지급",
+    "category": "benefits",
+    "summary": "5월 신청분 근로/자녀장려금이 8월 말 지급 예정 (국세청)",
+    "urgent": false,
+    "timeliness_signal": 0.6,
+    "practical_value_signal": 0.7,
+    "population_reach_signal": 0.8,
+    "verification_availability_signal": 0.5,
+    "save_share_signal": 0.5,
+    "duplication_penalty_signal": 0.1,
+    "has_authoritative_source": true
+  },
+  {
+    "candidate_id": "c4-scholarship",
+    "topic": "2026년 2학기 국가장학금 신청",
+    "category": "benefits",
+    "summary": "한국장학재단 2학기 국가장학금 및 지역인재장학금 신청 접수",
+    "urgent": false,
+    "timeliness_signal": 0.6,
+    "practical_value_signal": 0.6,
+    "population_reach_signal": 0.4,
+    "verification_availability_signal": 0.5,
+    "save_share_signal": 0.5,
+    "duplication_penalty_signal": 0.1,
+    "has_authoritative_source": true
+  },
+  {
+    "candidate_id": "c5-income-tax-refund",
+    "topic": "종합소득세 환급 안내",
+    "category": "finance_savings",
+    "summary": "종합소득세 신고 후 환급금 조회 및 지급 (신고 시즌 이미 종료, 낮은 시의성)",
+    "urgent": false,
+    "timeliness_signal": 0.2,
+    "practical_value_signal": 0.5,
+    "population_reach_signal": 0.5,
+    "verification_availability_signal": 0.6,
+    "save_share_signal": 0.3,
+    "duplication_penalty_signal": 0.3,
+    "has_authoritative_source": true
+  }
+]
