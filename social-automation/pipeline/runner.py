@@ -176,8 +176,13 @@ def run_pipeline(
     page_selection_result, _ = run_stage(
         conn, account_id, content_id, "page_selection", page_selection_input, _do_page_selection, now
     )
-    page_count = page_selection_result["page_count"]
     page_plan = page_selection_result["page_plan"]
+    # select_page_plan can legitimately return fewer roles than the target
+    # page_count when the fact sheet doesn't have enough distinct content to
+    # fill it (it never pads with invented roles). page_count must reflect
+    # what's actually being delivered, or downstream adapters correctly
+    # reject the resulting canonical content as inconsistent.
+    page_count = len(page_plan)
 
     # --- stage: canonical_content ---
     if pages_override is not None:
