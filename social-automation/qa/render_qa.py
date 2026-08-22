@@ -21,3 +21,23 @@ def run_render_qa(renderer_input: list, brand: BrandConfig) -> QAResult:
 
     status = QAStatus.FAIL if failed else QAStatus.PASS
     return QAResult(status=status, checks_passed=passed, checks_failed=failed)
+
+
+def verify_png_dimensions(png_paths: list, brand: BrandConfig) -> QAResult:
+    """Post-render P0 check on the actual rendered files (not just the
+    pre-render HTML spec) -- catches a real Playwright/viewport malfunction
+    that the HTML-level check above cannot see."""
+    from PIL import Image
+
+    passed = []
+    failed = []
+    for path in png_paths:
+        with Image.open(path) as im:
+            size = im.size
+        if size != (brand.canvas_width, brand.canvas_height):
+            failed.append(f"png_dimension_mismatch:{path}:{size}")
+    if png_paths and not failed:
+        passed.append("png_dimensions_correct")
+
+    status = QAStatus.FAIL if failed else QAStatus.PASS
+    return QAResult(status=status, checks_passed=passed, checks_failed=failed)

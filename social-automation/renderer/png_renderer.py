@@ -47,9 +47,11 @@ def build_contact_sheet(png_paths: list, out_path: str, columns: int = 4) -> str
     if not png_paths:
         raise ValueError("cannot build contact sheet: no PNG pages provided")
 
-    thumbs = [Image.open(p) for p in png_paths]
     thumb_w, thumb_h = 270, 338  # 1080x1350 scaled down 4x, keeps exact 4:5 ratio
-    thumbs = [t.resize((thumb_w, thumb_h)) for t in thumbs]
+    thumbs = []
+    for p in png_paths:
+        with Image.open(p) as im:
+            thumbs.append(im.resize((thumb_w, thumb_h)))  # .resize() returns a new, independent image
 
     rows = (len(thumbs) + columns - 1) // columns
     sheet = Image.new("RGB", (thumb_w * columns, thumb_h * rows), "white")

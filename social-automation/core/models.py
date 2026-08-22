@@ -83,6 +83,21 @@ class Claim:
 
 
 @dataclass
+class SourceExcerpt:
+    """A deterministically-extracted, relevant slice of a source page --
+    the unit actually handed to the semantic layer, instead of a full raw
+    page (context minimization). extracted_fields holds structured pulls
+    (amounts/dates/eligibility text/etc) found by deterministic extraction.
+    """
+
+    excerpt_id: str
+    source_id: str
+    text: str
+    extracted_fields: dict = field(default_factory=dict)
+    excerpt_hash: str = ""
+
+
+@dataclass
 class TopicCandidate:
     candidate_id: str
     topic: str
@@ -173,6 +188,19 @@ class CanonicalContent:
     pages: list = field(default_factory=list)
     instagram: Optional[InstagramContent] = None
     threads: Optional[ThreadsContent] = None
+
+
+@dataclass
+class RenderPackage:
+    """The rendered-page contract handed to the PNG renderer: one entry per
+    page (page_number/role/layout_variant/width/height/html), plus enough
+    identity to trace it back to a run.
+    """
+
+    content_id: str
+    canvas_width: int
+    canvas_height: int
+    pages: list  # list[dict], as produced by renderer.html_renderer.build_renderer_input
 
 
 @dataclass

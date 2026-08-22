@@ -82,6 +82,22 @@ CREATE TABLE IF NOT EXISTS publications (
     external_id TEXT,
     PRIMARY KEY (content_id, platform)
 );
+
+-- One row per (account_id, run_date): the daily orchestrator's idempotency
+-- record. run_id is the deterministic "account_id:run_date" key, so a
+-- second invocation for the same day finds the same row instead of
+-- creating a duplicate run/content package.
+CREATE TABLE IF NOT EXISTS runs (
+    run_id TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL,
+    run_date TEXT NOT NULL,
+    content_id TEXT,
+    topic_fingerprint TEXT,
+    status TEXT NOT NULL,
+    retry_count INTEGER DEFAULT 0,
+    started_at TEXT,
+    finished_at TEXT
+);
 """
 
 

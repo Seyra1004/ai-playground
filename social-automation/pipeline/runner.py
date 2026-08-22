@@ -198,6 +198,13 @@ def run_pipeline(
         pages=pages,
     )
 
+    # Computed once and reused as part of every downstream stage's cache key.
+    # Two calls can share an identical page_plan (same roles) while the page
+    # *content* differs (e.g. a mechanical QA repair rewrote a page body) --
+    # without this, the adapter/render/qa stages would wrongly cache-hit a
+    # stale result keyed only on the unchanged role list.
+    pages_content_hash = compute_hash([dataclasses.asdict(p) for p in pages])
+
     def _do_canonical_content():
         return {"page_count": len(pages), "roles": [p.role for p in pages]}
 
@@ -206,11 +213,7 @@ def run_pipeline(
         account_id,
         content_id,
         "canonical_content",
-        {
-            "page_plan": page_plan,
-            "fact_sheet_topic": fact_sheet.topic,
-            "pages_content_hash": compute_hash([dataclasses.asdict(p) for p in pages]),
-        },
+        {"page_plan": page_plan, "fact_sheet_topic": fact_sheet.topic, "pages_content_hash": pages_content_hash},
         _do_canonical_content,
         now,
     )
@@ -228,7 +231,7 @@ def run_pipeline(
             account_id,
             content_id,
             "instagram_adapter",
-            {"page_plan": page_plan, "caption_override": instagram_caption_override},
+            {"pages_content_hash": pages_content_hash, "caption_override": instagram_caption_override},
             _do_instagram,
             now,
         )
@@ -247,7 +250,7 @@ def run_pipeline(
             account_id,
             content_id,
             "threads_adapter",
-            {"page_plan": page_plan, "threads_text_override": threads_text_override},
+            {"pages_content_hash": pages_content_hash, "threads_text_override": threads_text_override},
             _do_threads,
             now,
         )
@@ -260,7 +263,13 @@ def run_pipeline(
             return build_renderer_input(canonical, brand)
 
         renderer_input, _ = run_stage(
-            conn, account_id, content_id, "renderer_input", {"page_plan": page_plan}, _do_renderer_input, now
+            conn,
+            account_id,
+            content_id,
+            "renderer_input",
+            {"pages_content_hash": pages_content_hash},
+            _do_renderer_input,
+            now,
         )
 
     # --- stage: qa ---
@@ -284,7 +293,9 @@ def run_pipeline(
             "notes": qa_content.notes,
         }
 
-    qa_summary, _ = run_stage(conn, account_id, content_id, "qa", {"page_plan": page_plan}, _do_qa, now)
+    qa_summary, _ = run_stage(
+        conn, account_id, content_id, "qa", {"pages_content_hash": pages_content_hash}, _do_qa, now
+    )
 
     from core.models import QAResult
 

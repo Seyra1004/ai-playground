@@ -2,3 +2,7 @@ __pycache__/
 *.pyc
 data/*.db
 !data/.gitkeep
+
+# Daily orchestrator deliverables (scripts/run_daily.py) -- generated,
+# per-run output the user reviews/publishes from, not source.
+output/

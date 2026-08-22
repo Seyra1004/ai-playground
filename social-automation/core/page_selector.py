@@ -14,6 +14,46 @@ class PageCountInputs:
     estimated_text_density: float  # 0-1, higher = denser
 
 
+_CONDITION_SPLIT_RE = None  # set lazily below to avoid an import at module load if unused
+
+
+def derive_page_inputs_from_fact_sheet(fact_sheet) -> "PageCountInputs":
+    """Deterministically derive PageCountInputs straight from a verified
+    FactSheet's own fields -- no per-topic hand-tuning, no Claude judgment.
+    Used by the daily orchestrator so page-count complexity scales with what
+    the fact sheet actually contains."""
+    import re
+
+    global _CONDITION_SPLIT_RE
+    if _CONDITION_SPLIT_RE is None:
+        _CONDITION_SPLIT_RE = re.compile(r"[,·;]|그리고|또는")
+
+    critical_info_blocks = sum(
+        1
+        for v in (fact_sheet.eligibility, fact_sheet.amount_or_benefit, fact_sheet.exclusions, fact_sheet.action_steps)
+        if v
+    )
+    eligibility_conditions = max(1, len(_CONDITION_SPLIT_RE.split(fact_sheet.eligibility or "")))
+    exclusions_count = len(_CONDITION_SPLIT_RE.split(fact_sheet.exclusions)) if fact_sheet.exclusions else 0
+    procedure_steps = len(fact_sheet.action_steps or [])
+    has_comparison = any(kw in (fact_sheet.event_or_policy or "") for kw in ("비교", " vs ", "대비"))
+    volatility_risk = bool(fact_sheet.volatile_fields)
+    density_chars = sum(
+        len(v or "") for v in (fact_sheet.eligibility, fact_sheet.amount_or_benefit, fact_sheet.exclusions)
+    )
+    estimated_text_density = min(1.0, density_chars / 600)
+
+    return PageCountInputs(
+        critical_info_blocks=critical_info_blocks,
+        eligibility_conditions=eligibility_conditions,
+        exclusions_count=exclusions_count,
+        procedure_steps=procedure_steps,
+        has_comparison=has_comparison,
+        volatility_risk=volatility_risk,
+        estimated_text_density=estimated_text_density,
+    )
+
+
 def select_page_count(inputs: PageCountInputs, pages_min: int, pages_max: int) -> int:
     complexity = 0
     complexity += inputs.critical_info_blocks
