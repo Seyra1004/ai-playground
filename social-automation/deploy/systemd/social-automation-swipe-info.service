@@ -1,5 +1,5 @@
 [Unit]
-Description=SWIPE_INFO daily content pipeline (discovery -> scoring -> verification -> render -> QA, no auto-publish)
+Description=SWIPE_INFO daily pipeline (research -> verify -> semantic -> render -> QA -> review page -> Kakao), no auto-publish
 Wants=network-online.target
 After=network-online.target
 
@@ -8,7 +8,7 @@ Type=oneshot
 User=ubuntu
 WorkingDirectory=/opt/ai-playground-src-v2/social-automation
 Environment=SOCIAL_AUTOMATION_NO_PAYG=1
-ExecStart=/opt/ai-playground-src-v2/social-automation/.venv/bin/python3 /opt/ai-playground-src-v2/social-automation/scripts/run_daily.py --account swipe_info
-TimeoutStartSec=15min
+ExecStart=/opt/ai-playground-src-v2/social-automation/.venv/bin/python3 /opt/ai-playground-src-v2/social-automation/scripts/run_daily_full.py --account swipe_info
+TimeoutStartSec=20min
 StandardOutput=journal
 StandardError=journal
