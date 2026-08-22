@@ -1,0 +1,46 @@
+brand:
+  name: "SWIPE_INFO"
+
+canvas:
+  width: 1080
+  height: 1350
+  ratio: "4:5"
+
+colors:
+  violet: "#7848D8"
+  light_purple: "#A848F0"
+  magenta: "#F04890"
+  coral: "#F06078"
+  orange: "#F09060"
+  text_primary: "#241B31"
+
+backgrounds:
+  white: "#FFFFFF"
+  light_lavender: "#F7F2FF"
+  light_pink: "#FFF1F6"
+  light_peach: "#FFF3EC"
+
+typography:
+  family: "Pretendard"
+
+layout:
+  safe_margin_left: 84
+  safe_margin_right: 84
+  safe_margin_top: 80
+  safe_margin_bottom: 92
+
+design_rules:
+  max_strong_colors_per_page: 2
+  full_background_gradient: false
+  gradient_usage:
+    - underline
+    - page_number
+    - accent_line
+
+consistency:
+  fixed_brand_system: true
+  allow_daily_variation:
+    - photo
+    - layout_variant
+    - accent_color
+  prohibit_random_redesign: true

@@ -1,0 +1,27 @@
+account:
+  id: "swipe_info"
+  name: "SWIPE_INFO"
+  enabled: true
+
+content:
+  categories:
+    - benefits
+    - health_insurance
+    - consumer_rights
+    - finance_savings
+    - scam_prevention
+
+  min_candidates: 5
+  min_score: 70
+  pages_min: 4
+  pages_max: 8
+
+platforms:
+  instagram: true
+  threads: true
+
+publishing:
+  instagram_time: "08:00"
+  threads_time: "08:10"
+
+brand_config: "accounts/swipe_info/brand.yaml"
