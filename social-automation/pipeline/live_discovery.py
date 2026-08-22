@@ -256,10 +256,20 @@ _DEADLINE_RE = re.compile(r"(까지|기한|마감|시행|부터)")
 _ELIGIBILITY_RE = re.compile(r"(대상|자격|가입자|지원|납세자|기업|근로자)")
 
 
-def fetch_html(url: str, timeout: int = 10) -> str:
+def fetch_html(url: str, timeout: int = 20, retries: int = 1) -> str:
+    """Some official boards (observed: FSS) are simply slower/less reliable
+    than others under real network conditions -- a single short retry with
+    a more realistic timeout is a generic robustness improvement (applies to
+    every source), not a site-specific hack."""
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (SWIPE_INFO discovery bot)"})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return resp.read().decode("utf-8", errors="replace")
+    last_exc = None
+    for attempt in range(retries + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return resp.read().decode("utf-8", errors="replace")
+        except Exception as exc:
+            last_exc = exc
+    raise last_exc
 
 
 _TAG_RE = re.compile(r"<[^>]+>")
