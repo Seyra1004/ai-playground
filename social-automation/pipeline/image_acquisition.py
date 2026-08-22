@@ -23,7 +23,14 @@ import urllib.request
 
 from core.models import Source
 
-MIN_BYTES = 3000
+# Calibrated against a real official press-release PDF (2026-08-22): its
+# letterhead/agency-seal logo images were 6.9-23.7KB, while its genuinely
+# informative Hometax UI screenshots were 47-68KB -- a flat-color logo/seal
+# JPEG-compresses far more efficiently than a real photo/screenshot at a
+# similar pixel size, even though both clear a pixel-dimension floor. This
+# is a generic file-size heuristic (not tied to today's specific filenames/
+# page numbers), reused for any future source.
+MIN_BYTES = 25000
 MIN_DIMENSION = 150
 MAX_CANDIDATES_TO_FETCH = 12
 MAX_IMAGES = 4

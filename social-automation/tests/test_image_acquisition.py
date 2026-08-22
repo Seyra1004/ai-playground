@@ -95,6 +95,25 @@ class TestImageAcquisition(unittest.TestCase):
             result = ia.discover_and_acquire_images(news_source, TEST_OUT_DIR)
         self.assertEqual(result, [])
 
+    def test_small_filesize_flat_logo_rejected_despite_valid_dimensions(self):
+        # A flat-color/simple-shape logo can clear the pixel-dimension floor
+        # while still being obviously not real photo/screenshot content --
+        # caught by MIN_BYTES, calibrated against a real logo vs real
+        # screenshot from an actual official PDF (see module comment).
+        import io
+
+        from PIL import Image
+
+        buf = io.BytesIO()
+        Image.new("RGB", (1086, 467), (0, 30, 80)).save(buf, format="JPEG")  # solid color, compresses tiny
+        logo_bytes = buf.getvalue()
+        self.assertLess(len(logo_bytes), ia.MIN_BYTES, "test fixture must actually be under the threshold")
+
+        accepted, seen = [], set()
+        ia._maybe_accept(logo_bytes, "Im1.jpg", "https://example.go.kr/Im1.jpg", "embedded-in-document",
+                          _gov_source(), TEST_OUT_DIR, accepted, seen, max_images=4)
+        self.assertEqual(accepted, [])
+
     def test_tiny_image_rejected(self):
         accepted, seen = [], set()
         tiny = _real_jpeg_bytes(size=(50, 50))
