@@ -93,7 +93,14 @@ _KEYWORD_CONCEPTS = [
     (("신청", "접수", "서류"), "paperwork application", "paperwork application form"),
     (("문의", "상담", "콜센터"), "phone call customer support", "phone call customer support"),
     (("은행", "금융기관", "금융"), "bank consultation", "bank consultation"),
-    (("긴급", "재난", "특별재난", "피해"), "disaster relief emergency", "disaster relief emergency"),
+    # NOTE: a generic "disaster relief emergency" entry was deliberately
+    # removed here -- tested and confirmed to surface foreign
+    # military/humanitarian-operation photos (wrong country, wrong
+    # institution) that pass a bare word-match gate while being contextually
+    # wrong. A genuine flood scene is already covered by the more specific
+    # "수해/호우/침수/홍수/태풍" entry above; a bare "긴급/재난/특별재난/피해"
+    # marker alone is too broad to safely anchor a photo search and now
+    # correctly falls through to NO_PHOTO instead.
     (("복구", "지원"), "recovery assistance volunteers", "recovery assistance volunteers"),
     (("위기", "경보", "주의", "제외"), "warning caution sign", "warning caution sign"),
 ]
@@ -210,7 +217,12 @@ def _is_relevant(candidate: dict, subject: str) -> bool:
     ever be set True."""
     title = candidate.get("title", "").lower()
     words = _concept_words(subject)
-    return any(w in title for w in words) if words else False
+    if not words:
+        return False
+    # Word-boundary match, not a bare substring check -- "bank" must appear
+    # as its own word, not merely inside an unrelated compound like a Dutch
+    # "spaarbank"/"savingsbank" archival building name.
+    return any(re.search(rf"\b{re.escape(w)}\b", title) for w in words)
 
 
 def _passes_generic_gates(candidate: dict) -> bool:
