@@ -164,6 +164,12 @@ _GENERIC_CONCEPT_WORDS = {
     "person", "people", "consultation", "doctor", "patient", "employee", "desk",
 }
 
+# Function words that carry no topical meaning of their own -- excluded
+# before the GENERIC-vs-IRRELEVANT subset check in classify_relevance so a
+# stray preposition/article never keeps an otherwise-generic title out of
+# the GENERIC bucket.
+_STOPWORDS = {"with", "from", "this", "that", "your", "their", "have", "been", "over", "into", "onto"}
+
 
 def _is_generic_concept(subject: str) -> bool:
     """True when EVERY word of the subject is itself a broad-category
@@ -306,8 +312,35 @@ def derive_concepts(headline: str, body: str, role: str = "", max_concepts: int 
         if len(concepts) >= max_concepts:
             break
     if concepts:
-        return concepts[:max_concepts]
-    return derive_concepts_semantic(headline, body, role, max_concepts)
+        return _enforce_ladder_coherence(concepts[:max_concepts])
+    return _enforce_ladder_coherence(derive_concepts_semantic(headline, body, role, max_concepts))
+
+
+def _enforce_ladder_coherence(concepts: list) -> list:
+    """Keep the first (most distinctive) concept as the ladder's anchor;
+    drop any later concept that shares no non-generic word with it.
+
+    Evidence from a live Golden Test trace: Tier 2 returned a 3-concept
+    ladder for one page where concepts #1/#2 stayed anchored to the same
+    real subject but #3 drifted to an unrelated idea ("calendar with days
+    marked for leave") that individually passed _is_generic_concept (no
+    single word of it is generic) but shared nothing with the page's
+    actual distinctive subject -- wasting a search on a query that could
+    not possibly return a relevant photo. A query ladder must stay
+    orbiting the SAME real-world subject at increasing breadth, never
+    drift into an unrelated idea just because no single word triggered
+    the generic-word filter."""
+    if len(concepts) <= 1:
+        return concepts
+    anchor_words = _concept_words(concepts[0][0]) - _GENERIC_CONCEPT_WORDS
+    if not anchor_words:
+        return concepts
+    kept = [concepts[0]]
+    for subject, query in concepts[1:]:
+        candidate_words = _concept_words(subject) | _concept_words(query)
+        if anchor_words & candidate_words:
+            kept.append((subject, query))
+    return kept
 
 
 def _fetch_json(url: str, timeout: int = 15) -> dict:
@@ -384,6 +417,46 @@ def search_pexels(query: str, limit: int = POOL_PER_SOURCE) -> list:
     return results
 
 
+_PIXABAY_URL = "https://pixabay.com/api/"
+PIXABAY_API_KEY_ENV = "PIXABAY_API_KEY"
+
+
+def search_pixabay(query: str, limit: int = POOL_PER_SOURCE) -> list:
+    """Second modern-editorial-photography source, same free-credential
+    pattern as search_pexels: reads PIXABAY_API_KEY from the environment,
+    NEVER hardcoded, returns [] (never raises) when unconfigured or on any
+    request failure. Pixabay's own content license is free for commercial
+    and noncommercial use with no attribution required -- the same
+    "inherently reusable" tier as Pexels/Openverse (see _is_reusable)."""
+    api_key = os.environ.get(PIXABAY_API_KEY_ENV, "")
+    if not api_key:
+        return []
+    url = _PIXABAY_URL + "?" + urllib.parse.urlencode(
+        {"key": api_key, "q": query, "image_type": "photo", "per_page": limit, "safesearch": "true"}
+    )
+    req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode("utf-8", errors="replace"))
+    except Exception:
+        return []
+    results = []
+    for h in data.get("hits", []) or []:
+        results.append(
+            {
+                "source": "pixabay",
+                "title": h.get("tags", "") or f"Photo by {h.get('user', '')}",
+                "url": h.get("largeImageURL") or h.get("webformatURL") or "",
+                "descriptionurl": h.get("pageURL", ""),
+                "width": h.get("imageWidth", 0) or 0, "height": h.get("imageHeight", 0) or 0,
+                "mime": "image/jpeg",
+                "license": "pixabay license", "usage_terms": "Pixabay Content License -- free to use, no attribution required",
+                "artist": h.get("user", "") or "Pixabay",
+            }
+        )
+    return results
+
+
 def search_commons(query: str, max_results: int = POOL_PER_SOURCE) -> list:
     url = _COMMONS_URL + "?" + urllib.parse.urlencode(
         {
@@ -420,7 +493,7 @@ def _is_reusable(candidate: dict) -> bool:
     license_text = f"{candidate.get('license', '')} {candidate.get('usage_terms', '')}"
     if _NON_REUSABLE_RE.search(license_text):
         return False
-    if candidate.get("source") in ("openverse", "pexels"):
+    if candidate.get("source") in ("openverse", "pexels", "pixabay"):
         return True
     return bool(_REUSABLE_LICENSE_RE.search(license_text))
 
@@ -429,25 +502,64 @@ def _concept_words(concept: str) -> set:
     return {w for w in concept.lower().split() if len(w) >= 4}
 
 
-def _is_relevant(candidate: dict, subject: str) -> bool:
-    """The semantic relevance gate: a candidate's title must actually
-    contain one of the page's SUBJECT's own meaningful words -- not just
-    any word from the (longer, looser) full search query. This is what
-    makes an off-topic-but-plausible-sounding result (e.g. a Ghanaian
-    "Agricultural business owner" photo surfacing for a "small shop
-    owner"-style query) fail automatically: "agricultural"/"ghana" share
-    no word with the subject "small shop owner", so it's rejected even
-    though the broader query happened to return it. License/resolution
-    alone were never enough; this check is mandatory before has_photo can
-    ever be set True."""
-    title = candidate.get("title", "").lower()
-    words = _concept_words(subject)
-    if not words:
-        return False
+def _word_in_title(title: str, words: set) -> bool:
     # Word-boundary match, not a bare substring check -- "bank" must appear
     # as its own word, not merely inside an unrelated compound like a Dutch
     # "spaarbank"/"savingsbank" archival building name.
     return any(re.search(rf"\b{re.escape(w)}\b", title) for w in words)
+
+
+def _context_words(query: str, subject_words: set) -> set:
+    """The query's own vocabulary MINUS the subject's words -- describes
+    the same real-world environment/action/object the subject names, so a
+    candidate matching one of these still depicts a genuinely relevant
+    scene, not just an exact restatement of the subject noun phrase.
+    Generic-only words (see _GENERIC_CONCEPT_WORDS) never count -- a
+    context match must still be domain-specific, purely mechanical
+    set-difference over already-derived text, so this generalizes to any
+    topic's own query without new per-domain data."""
+    words = _concept_words(query) - subject_words
+    return {w for w in words if w not in _GENERIC_CONCEPT_WORDS}
+
+
+def classify_relevance(candidate: dict, subject: str, query: str = "") -> str:
+    """EXACT_SUBJECT / CONTEXTUALLY_RELEVANT / GENERIC / IRRELEVANT.
+
+    A useful editorial photo does not always have to literally restate the
+    subject noun phrase in its title -- a candidate whose title engages
+    with the query's own non-generic context vocabulary (the environment/
+    action/object associated with the same real-world subject) is still
+    a legitimate match. A candidate whose only meaningful words are broad-
+    category terms (see _GENERIC_CONCEPT_WORDS) is GENERIC and must be
+    rejected; a candidate with no meaningful overlap at all is IRRELEVANT.
+    Both EXACT_SUBJECT and CONTEXTUALLY_RELEVANT pass; GENERIC and
+    IRRELEVANT never do (see _is_relevant)."""
+    title = candidate.get("title", "").lower()
+    subject_words = _concept_words(subject)
+    if subject_words and _word_in_title(title, subject_words):
+        return "EXACT_SUBJECT"
+    ctx_words = _context_words(query, subject_words)
+    if ctx_words and _word_in_title(title, ctx_words):
+        return "CONTEXTUALLY_RELEVANT"
+    # GENERIC vs IRRELEVANT is a reporting distinction only -- both reject
+    # (see _is_relevant) -- so function words ("with", "from", "this")
+    # are stripped before the subset check: a title that's substantively
+    # ONLY broad-category words is GENERIC even if it also contains a
+    # stray preposition or article.
+    title_words = {w.strip(".,()") for w in title.split() if len(w) >= 4} - _STOPWORDS
+    if title_words and title_words.issubset(_GENERIC_CONCEPT_WORDS):
+        return "GENERIC"
+    return "IRRELEVANT"
+
+
+def _is_relevant(candidate: dict, subject: str, query: str = "") -> bool:
+    """The semantic relevance gate: mandatory before has_photo can ever be
+    set True. Passes only EXACT_SUBJECT and CONTEXTUALLY_RELEVANT
+    candidates (see classify_relevance) -- GENERIC and IRRELEVANT never
+    pass regardless of license/resolution."""
+    if not _concept_words(subject):
+        return False
+    return classify_relevance(candidate, subject, query) in ("EXACT_SUBJECT", "CONTEXTUALLY_RELEVANT")
 
 
 def _passes_generic_gates(candidate: dict) -> bool:
@@ -484,11 +596,11 @@ def _passes_generic_gates(candidate: dict) -> bool:
     return True
 
 
-def _select_candidate(candidates: list, subject: str, seen_hashes: set) -> dict:
+def _select_candidate(candidates: list, subject: str, seen_hashes: set, query: str = "") -> dict:
     for c in candidates:
         if not _passes_generic_gates(c):
             continue
-        if not _is_relevant(c, subject):
+        if not _is_relevant(c, subject, query):
             continue
         try:
             data = _fetch_bytes(c["url"])
@@ -510,10 +622,11 @@ def acquire_photo_for_page(
     """Tries each derived (subject, query) concept in order -- max 3, a
     small query ladder, never a broad search spree -- until one candidate
     passes every quality/semantic-relevance/license gate. Per concept,
-    searches Pexels (modern editorial/lifestyle photography, when
-    PEXELS_API_KEY is configured) first, then Openverse, then Commons,
-    merging all three pools before gating/selection so a stronger modern
-    result is never skipped just because an older archive answered first.
+    searches Pexels and Pixabay (modern editorial/lifestyle photography,
+    each only when its own *_API_KEY is configured) plus Openverse and
+    Commons, merging all four pools before gating/selection so a stronger
+    modern result is never skipped just because an older archive answered
+    first.
     If the page's own text yields NO concept at all, this makes ZERO
     network calls and returns None immediately: a page whose subject
     can't be confidently derived from its own verified text must never
@@ -535,13 +648,18 @@ def acquire_photo_for_page(
 
     chosen, chosen_subject, chosen_query = None, None, None
     for subject, query in concepts:
-        pool = search_pexels(query) + search_openverse(query) + search_commons(query)
-        selected = _select_candidate(pool, subject, seen_hashes)
+        pool = search_pexels(query) + search_pixabay(query) + search_openverse(query) + search_commons(query)
+        selected = _select_candidate(pool, subject, seen_hashes, query)
         if debug_log is not None:
+            breakdown = {"EXACT_SUBJECT": 0, "CONTEXTUALLY_RELEVANT": 0, "GENERIC": 0, "IRRELEVANT": 0, "gate_rejected": 0}
+            for c in pool:
+                if not _passes_generic_gates(c):
+                    breakdown["gate_rejected"] += 1
+                else:
+                    breakdown[classify_relevance(c, subject, query)] += 1
             debug_log.append({
                 "subject": subject, "query": query, "candidates_found": len(pool),
-                "candidates_rejected": len(pool) - (1 if selected is not None else 0),
-                "accepted": selected is not None,
+                "relevance_breakdown": breakdown, "accepted": selected is not None,
             })
         if selected is not None:
             chosen, chosen_subject, chosen_query = selected, subject, query
