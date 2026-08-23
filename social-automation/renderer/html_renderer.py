@@ -1024,13 +1024,19 @@ def _compose_relationship_page(page: CarouselPage, brand: BrandConfig, accent: s
         )
         if i < len(groups) - 1:
             parts.append(f'<div style="display:flex;align-items:center;font-size:34px;font-weight:900;color:{accent};opacity:0.4;padding:0 4px;">+</div>')
+    # Sparse group content (e.g. 2+2 items) forced the columns alone into
+    # flex:1 while headline/body stayed pinned at top -- that split the
+    # empty space into two awkward gaps instead of one coherent
+    # composition. Centering the WHOLE block (pill/headline/body/columns)
+    # as one unit within the available height reads as a deliberate
+    # centered layout instead.
     html = [_chrome_open(brand, bg, text_color)]
     html.append(_masthead(brand, accent, text_color, page.page_number, total_pages))
-    html.append('<div style="flex:1;display:flex;flex-direction:column;margin-top:24px;min-height:0;">')
+    html.append('<div style="flex:1;display:flex;flex-direction:column;justify-content:center;margin-top:24px;min-height:0;">')
     html.append(_pill(tag, accent))
     html.append(_highlighted_headline(page.headline, accent))
     html.append(_body_text(page.body, text_color))
-    html.append(f'<div style="flex:1;display:flex;align-items:stretch;">{"".join(parts)}</div>')
+    html.append(f'<div style="flex:0 1 auto;display:flex;align-items:stretch;margin-top:20px;">{"".join(parts)}</div>')
     html.append("</div>")
     html.append(_footer(brand, accent, accent2, text_color))
     html.append("</div>")
