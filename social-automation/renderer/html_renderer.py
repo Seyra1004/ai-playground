@@ -155,15 +155,26 @@ def _render_visual(vd: dict, accent: str, accent2: str, text_color: str, card_st
 
     if vtype == "process_flow":
         steps = vd.get("steps", [])
-        arrow = f'<div style="font-size:34px;color:{accent};text-align:center;margin:4px 0;">↓</div>'
+        # Fixed-size boxes overflowed their allocated space once composed
+        # alongside an image panel shrank this card below its natural
+        # content height (4+ steps spilled into the headline above and
+        # behind the image below). Scale each step's footprint down as the
+        # list grows -- generic for any step count, not just 4 -- and clip
+        # as a safety net instead of leaking into neighboring elements.
+        n = max(len(steps), 1)
+        box_font = max(20, 30 - (n - 2) * 2)
+        box_pad_v = max(8, 18 - (n - 2) * 3)
+        arrow_font = max(20, 34 - (n - 2) * 3)
+        arrow_margin = max(1, 4 - (n - 2))
+        arrow = f'<div style="font-size:{arrow_font}px;color:{accent};text-align:center;margin:{arrow_margin}px 0;">↓</div>'
         blocks = arrow.join(
             f'<div style="background:{accent}14;border:2px solid {accent};border-radius:16px;'
-            f'padding:18px 24px;text-align:center;font-size:28px;font-weight:700;">{step}</div>'
+            f'padding:{box_pad_v}px 24px;text-align:center;font-size:{box_font}px;font-weight:700;">{step}</div>'
             for step in steps
         )
         return (
             f'<div style="{card_style}display:flex;flex-direction:column;justify-content:center;'
-            f'gap:0;padding:24px;">{blocks}</div>'
+            f'gap:0;padding:24px;overflow:hidden;">{blocks}</div>'
         )
 
     if vtype == "bar_chart":
