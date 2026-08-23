@@ -848,7 +848,7 @@ def _select_layout_family(page: CarouselPage, total_pages: int, prev_family: str
             return "checklist"
         return "checklist" if vd.get("highlight") else "stat_hero"
 
-    if vtype == "comparison" and vd.get("left") and vd.get("right"):
+    if vtype == "comparison" and (vd.get("metrics") or (vd.get("left") and vd.get("right"))):
         family = "comparison"
     elif vtype == "process_flow" and steps:
         family = "process" if 3 <= len(steps) <= 6 else "numbered_infographic"
