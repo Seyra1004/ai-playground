@@ -672,9 +672,13 @@ def render_page_html(page: CarouselPage, total_pages: int, brand: BrandConfig, f
         # A highlight_box/stat-hero-eligible claim rejected/tie-broken into
         # checklist has no "items" list of its own -- fall back to its own
         # single short claim so the content is still shown, just at
-        # checklist scale instead of a giant numeral.
+        # checklist scale instead of a giant numeral. A single fallback row
+        # forced to fill the full remaining canvas height (flex:1 1 auto)
+        # leaves a large accidental empty card -- let it size to its own
+        # content instead; a real multi-item checklist still fills the page.
         items = vd.get("items") or ([vd["highlight"]] if vd.get("highlight") else ([vd["big_text"]] if vd.get("big_text") else []))
-        html.append(_check_rows(items, accent, flex="1 1 auto"))
+        checklist_flex = "0 1 auto" if len(items) <= 1 else "1 1 auto"
+        html.append(_check_rows(items, accent, flex=checklist_flex))
 
     elif family == "numbered_infographic":
         items = vd.get("items") or vd.get("steps") or []
