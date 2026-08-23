@@ -5,12 +5,17 @@ from __future__ import annotations
 image_acquisition; this module is the next fallback: rights-clear web
 photography), used for ANY future topic, never hardcoded to one date/story.
 
-Sources (both keyless, free, no PAYG):
-  1. Openverse (api.openverse.org) -- aggregates CC-licensed photography
-     from Wikimedia Commons, Flickr Commons, museums, etc.; built-in
-     license filtering and a much larger, more editorial-photo-like pool
-     than Commons' own search alone.
-  2. Wikimedia Commons search -- fallback when Openverse yields nothing
+Sources, searched in this order per concept (never once per source
+overall -- once per derived concept, up to 3 concepts per page):
+  1. Pexels (api.pexels.com) -- modern editorial/lifestyle stock
+     photography; the strongest source for realistic people-in-situations
+     imagery Commons/Openverse alone under-cover. Requires PEXELS_API_KEY
+     in the environment; silently contributes zero candidates (never
+     raises) when unconfigured, so the pipeline degrades cleanly to the
+     sources below.
+  2. Openverse (api.openverse.org) -- aggregates CC-licensed photography
+     from Wikimedia Commons, Flickr Commons, museums, etc.
+  3. Wikimedia Commons search -- fallback when the above yield nothing
      acceptable for a concept.
 
 Search concepts are derived deterministically from each page's own
@@ -18,26 +23,19 @@ verified headline/body text via a small, reusable Korean-keyword ->
 English-(subject, query) glossary (same style of deterministic marker
 dictionary already used in pipeline/live_discovery.py and pipeline/
 daily_state.py) -- topic-adaptive, never the full headline verbatim,
-never hardcoded to one date/story.
-
-When the page's own text matches nothing in that content glossary, a
-SECOND, deliberately generic and role-keyed (not topic-keyed) tier
-supplies one broad contextual scene -- a relatable human moment or a
-documents/desk moment, the same two categories for every topic every
-day -- so a real photo opportunity still gets a genuine attempt instead
-of the page being searched zero times. This is NOT the old bug (a
-previous topic's specific leftover vocabulary, e.g. "family small
-business owner", leaking onto an unrelated page): the fallback text is
-always the same two universal categories, never anything derived from a
-different topic's content. Every candidate, from either tier, still has
-to clear the exact same quality/relevance/license gates below -- NO_PHOTO
-remains the outcome whenever nothing genuinely acceptable turns up.
+never hardcoded to one date/story. There is deliberately NO generic
+role-based fallback: a page whose text matches no glossary marker
+returns zero concepts, and the caller must treat that as an immediate
+NO_PHOTO -- a broad-category "relatable person" or "documents on a desk"
+substitute is not editorially specific to any one page's actual
+distinctive subject.
 
 Never fabricates documentary context: an accepted photo illustrates the
 GENERAL concept a page conveys, not a claim that it depicts the actual
 verified event/person/place. If nothing acceptable is found after
-checking a real candidate pool across all derived concepts, the caller
-gets None -- a weak/irrelevant photo is never silently substituted.
+checking a real candidate pool (across all sources, across all derived
+concepts), the caller gets None -- a weak/irrelevant photo is never
+silently substituted.
 """
 
 import hashlib
@@ -205,6 +203,46 @@ def search_openverse(query: str, limit: int = POOL_PER_SOURCE) -> list:
     return results
 
 
+_PEXELS_URL = "https://api.pexels.com/v1/search"
+PEXELS_API_KEY_ENV = "PEXELS_API_KEY"
+
+
+def search_pexels(query: str, limit: int = POOL_PER_SOURCE) -> list:
+    """Modern editorial/lifestyle stock photography -- the source most
+    likely to cover realistic people-in-situations imagery that Commons/
+    Openverse alone under-cover. Reads the key from PEXELS_API_KEY in the
+    environment; NEVER hardcoded. Returns [] (never raises) when
+    unconfigured or on any request failure, so the caller transparently
+    falls through to Commons/Openverse -- the same safe-fallback contract
+    every other source here already follows."""
+    api_key = os.environ.get(PEXELS_API_KEY_ENV, "")
+    if not api_key:
+        return []
+    url = _PEXELS_URL + "?" + urllib.parse.urlencode({"query": query, "per_page": limit, "orientation": "portrait"})
+    req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT, "Authorization": api_key})
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode("utf-8", errors="replace"))
+    except Exception:
+        return []
+    results = []
+    for p in data.get("photos", []) or []:
+        src = p.get("src", {}) or {}
+        results.append(
+            {
+                "source": "pexels",
+                "title": p.get("alt") or f"Photo by {p.get('photographer', '')}",
+                "url": src.get("large2x") or src.get("original") or src.get("large") or "",
+                "descriptionurl": p.get("url", ""),
+                "width": p.get("width", 0) or 0, "height": p.get("height", 0) or 0,
+                "mime": "image/jpeg",
+                "license": "pexels license", "usage_terms": "Pexels License -- free to use, no attribution required",
+                "artist": p.get("photographer", "") or "Pexels",
+            }
+        )
+    return results
+
+
 def search_commons(query: str, max_results: int = POOL_PER_SOURCE) -> list:
     url = _COMMONS_URL + "?" + urllib.parse.urlencode(
         {
@@ -241,7 +279,9 @@ def _is_reusable(candidate: dict) -> bool:
     license_text = f"{candidate.get('license', '')} {candidate.get('usage_terms', '')}"
     if _NON_REUSABLE_RE.search(license_text):
         return False
-    return bool(_REUSABLE_LICENSE_RE.search(license_text)) or candidate.get("source") == "openverse"
+    if candidate.get("source") in ("openverse", "pexels"):
+        return True
+    return bool(_REUSABLE_LICENSE_RE.search(license_text))
 
 
 def _concept_words(concept: str) -> set:
@@ -323,16 +363,20 @@ def _select_candidate(candidates: list, subject: str, seen_hashes: set) -> dict:
 
 
 def acquire_photo_for_page(role: str, headline: str, body: str, page_number: int, out_dir: str, seen_hashes: set) -> dict:
-    """Tries each derived (subject, query) concept (Openverse pool first,
-    then Commons) in order -- max 3, a small query ladder, never a broad
-    search spree -- until one candidate passes every quality/semantic-
-    relevance/license gate. If the page's own text yields NO concept at
-    all, this makes ZERO network calls and returns None immediately: a
-    page whose subject can't be confidently derived from its own verified
-    text must never search the web with borrowed vocabulary. Returns an
-    asset dict (file/path/source_url/publisher/description/rights/
-    acquisition_method/width/height/bytes) or None if nothing acceptable
-    was found -- callers must treat that as NO_ACCEPTABLE_PHOTO, never
+    """Tries each derived (subject, query) concept in order -- max 3, a
+    small query ladder, never a broad search spree -- until one candidate
+    passes every quality/semantic-relevance/license gate. Per concept,
+    searches Pexels (modern editorial/lifestyle photography, when
+    PEXELS_API_KEY is configured) first, then Openverse, then Commons,
+    merging all three pools before gating/selection so a stronger modern
+    result is never skipped just because an older archive answered first.
+    If the page's own text yields NO concept at all, this makes ZERO
+    network calls and returns None immediately: a page whose subject
+    can't be confidently derived from its own verified text must never
+    search the web with borrowed vocabulary. Returns an asset dict (file/
+    path/source_url/publisher/description/rights/acquisition_method/
+    width/height/bytes) or None if nothing acceptable was found across
+    every source -- callers must treat that as NO_ACCEPTABLE_PHOTO, never
     substitute a weak result to hit coverage."""
     concepts = derive_concepts(headline, body, role)
     if not concepts:
@@ -340,7 +384,7 @@ def acquire_photo_for_page(role: str, headline: str, body: str, page_number: int
 
     chosen, chosen_subject, chosen_query = None, None, None
     for subject, query in concepts:
-        pool = search_openverse(query) + search_commons(query)
+        pool = search_pexels(query) + search_openverse(query) + search_commons(query)
         chosen = _select_candidate(pool, subject, seen_hashes)
         if chosen is not None:
             chosen_subject, chosen_query = subject, query
@@ -361,7 +405,7 @@ def acquire_photo_for_page(role: str, headline: str, body: str, page_number: int
         "file": fname,
         "path": path,
         "source_url": chosen.get("descriptionurl") or chosen.get("url"),
-        "publisher": "Openverse" if chosen.get("source") == "openverse" else "Wikimedia Commons",
+        "publisher": {"openverse": "Openverse", "pexels": "Pexels"}.get(chosen.get("source"), "Wikimedia Commons"),
         "description": f"Editorial photo for '{role}' page, subject: {chosen_subject!r}, query: {chosen_query!r}. {chosen['title']}",
         "rights": f"{chosen.get('license') or chosen.get('usage_terms') or 'reusable license'} -- {attribution}",
         "acquisition_method": f"{chosen.get('source')}_search",
