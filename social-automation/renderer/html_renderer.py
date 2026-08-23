@@ -164,8 +164,12 @@ def _photo_panel(image_data: dict, tag: str, caption: str, accent: str, flex: st
     same surface instead of a picture floating in its own separate boxed
     card next to text."""
     src = _image_src(image_data)
-    fit = "contain" if (image_data or {}).get("type") == "generated_editorial_asset" else "cover"
-    img_tag = f'<img src="{src}" style="width:100%;height:100%;object-fit:{fit};display:block;">' if src else f'<div style="width:100%;height:100%;background:{accent}12;"></div>'
+    # Generated illustrations are centered-focal-point scenes (icon +
+    # decorative background fill) now, not the tall stacked compositions
+    # that once needed "contain" to avoid cropping content -- "cover" fills
+    # the panel edge-to-edge like a real bleeding photo instead of leaving
+    # black letterbox bars around a small centered image.
+    img_tag = f'<img src="{src}" style="width:100%;height:100%;object-fit:cover;display:block;">' if src else f'<div style="width:100%;height:100%;background:{accent}12;"></div>'
     overlay = ""
     if tag or caption:
         overlay = (
