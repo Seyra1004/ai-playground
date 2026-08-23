@@ -46,12 +46,14 @@ def _page_number_bar(page: CarouselPage, total_pages: int, accent: str, accent2:
     )
 
 
-# The visual block used to be `flex:1` (grow to fill 100% of remaining page
-# height), which on a light/short list turned into one huge, mostly-empty
-# gradient rectangle. Capping it to a fixed basis keeps every layout a
-# consistent, content-sized card -- leftover space becomes normal bottom
-# page margin instead of dead space inside the card.
-_CARD_BASIS = "flex:0 1 480px;"
+# A hard fixed basis (previously flex:0 1 480px) left large dead white space
+# below short-content cards, since nothing absorbed the canvas's remaining
+# height. flex:1 1 auto lets the card grow to fill actual leftover space
+# (light pages get a fuller, roomier card instead of a small box floating
+# over blank canvas); min/max bound it so it never shrinks below a usable
+# size or balloons into one huge mostly-empty gradient (the original flex:1
+# bug this replaced).
+_CARD_BASIS = "flex:1 1 auto;min-height:420px;max-height:700px;"
 
 
 def _render_visual(vd: dict, accent: str, accent2: str, text_color: str) -> str:
