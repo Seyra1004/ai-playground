@@ -296,6 +296,14 @@ def _passes_generic_gates(candidate: dict) -> bool:
         return False
     if _REJECT_NAME_RE.search(title) or _OLD_YEAR_RE.search(title) or _BOOK_SCAN_RE.search(title):
         return False
+    # Openverse's own category=photograph filter isn't fully reliable for
+    # aggregated third-party sources (confirmed: a "Doctor Spurzheim his
+    # consulting room" engraving passed it, but the source's own landing
+    # page URL self-describes it as "image-cartoon-person-art"). The
+    # description/landing URL is a second, independent signal worth
+    # checking even when the title itself looks innocuous.
+    if re.search(r"cartoon|illustration|clipart|vector-art|-art\b", candidate.get("descriptionurl", ""), re.I):
+        return False
     if _NAMED_PERSON_RE.match(stem):
         return False
     if not _is_reusable(candidate):
