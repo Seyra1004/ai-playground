@@ -88,7 +88,6 @@ _KEYWORD_CONCEPTS = [
     (("전세", "월세", "임대차", "부동산"), "housing documents", "housing rental documents keys"),
     (("스마트폰", "휴대폰", "앱"), "smartphone user", "person using smartphone app"),
     (("보이스피싱", "스미싱", "사기"), "suspicious phone message", "person looking at suspicious phone message"),
-    (("대중교통", "버스", "지하철", "통근"), "commuter public transportation", "commuter public transportation station"),
     (("신청", "접수", "서류"), "paperwork application", "paperwork application form"),
     (("문의", "상담", "콜센터"), "phone call customer support", "phone call customer support"),
     (("위기", "경보", "주의", "제외"), "warning caution sign", "warning caution sign"),
@@ -104,6 +103,11 @@ _KEYWORD_CONCEPTS = [
 # scene is still covered by the more specific "수해/호우/침수/홍수/태풍"
 # entry above; pages that would have matched only these removed markers
 # now correctly fall through to NO_PHOTO instead of a wrong-context photo.
+# A fourth, "commuter public transportation" (대중교통/버스/지하철/통근), was
+# removed the same way: its top real results were a US transit-authority
+# mask-mandate notice photo and a 1970s NARA archival Philadelphia parking-
+# lot photo -- country-specific institutional/archival imagery, not a
+# generic commuting scene.
 
 
 def derive_concepts(headline: str, body: str, role: str = "", max_concepts: int = 3) -> list:
