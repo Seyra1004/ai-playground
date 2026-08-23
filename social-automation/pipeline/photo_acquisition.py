@@ -63,7 +63,7 @@ _NAMED_PERSON_RE = re.compile(r"^[A-Z][a-zA-Z'\-]+(\s[A-Z][a-zA-Z'\-]+){1,2}$")
 # rewritten per date/story. Order matters: earlier entries win when a page
 # matches several.
 _KEYWORD_CONCEPTS = [
-    (("수해", "호우", "침수", "홍수", "태풍"), "flooded house damage"),
+    (("수해", "호우", "침수", "홍수", "태풍"), "flood damaged building street"),
     (("소상공인", "중소기업", "자영업", "상공인"), "small shop owner business"),
     (("가계", "가정", "세대", "가족"), "family household home"),
     (("대출", "상환"), "loan consultation bank"),
@@ -121,7 +121,7 @@ def _fetch_bytes(url: str, timeout: int = 15) -> bytes:
 
 def search_openverse(query: str, limit: int = POOL_PER_SOURCE) -> list:
     url = _OPENVERSE_URL + "?" + urllib.parse.urlencode(
-        {"q": query, "license_type": "commercial,modification", "page_size": limit, "mature": "false"}
+        {"q": query, "license_type": "commercial,modification", "page_size": limit, "mature": "false", "category": "photograph"}
     )
     try:
         data = _fetch_json(url)
