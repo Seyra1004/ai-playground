@@ -21,11 +21,13 @@ per discovery run for the whole bounded pool -- never once per source.
 
 import json
 import os
+import re
 import subprocess
 
 from pipeline.semantic_claude_cli import DEFAULT_MODEL, _resolve_executable
 
 DEFAULT_TIMEOUT_SECONDS = 180
+_HANGUL_RE = re.compile(r"[가-힣]")
 
 SCHEMA = {
     "type": "object",
@@ -84,6 +86,33 @@ SYSTEM_PROMPT = (
 
 class TopicTransformError(RuntimeError):
     pass
+
+
+def _is_well_formed(result: dict) -> bool:
+    """Generic structural validation for one raw transform result --
+    catches ANY result shaped like an internal artifact rather than a real
+    transformed candidate (missing/wrong-typed required fields, an empty
+    topic, a qualified result with no actual topic content), not just a
+    specific string a prior run happened to produce. A genuine SWIPE_INFO
+    topic is always Korean-language text, so a qualified result whose
+    derived_topic contains no Hangul at all cannot be real content -- it's
+    treated the same as a missing field, discarded here regardless of what
+    the placeholder text says."""
+    if not isinstance(result, dict):
+        return False
+    candidate_id = result.get("candidate_id")
+    if not isinstance(candidate_id, str) or not candidate_id.strip():
+        return False
+    qualified = result.get("qualified")
+    if not isinstance(qualified, bool):
+        return False
+    if qualified:
+        topic = result.get("derived_topic")
+        if not isinstance(topic, str) or not topic.strip():
+            return False
+        if not _HANGUL_RE.search(topic):
+            return False
+    return True
 
 
 def _build_user_prompt(pool: list) -> str:
@@ -168,7 +197,11 @@ def transform_candidates(pool: list, model: str = None, timeout_seconds: int = N
     for _attempt in range(2):
         try:
             parsed = _run_once(executable, model, timeout_seconds, user_prompt)
-            results = {r["candidate_id"]: r for r in parsed.get("results", []) if r.get("candidate_id") in expected_ids}
+            results = {
+                r["candidate_id"]: r
+                for r in parsed.get("results", [])
+                if r.get("candidate_id") in expected_ids and _is_well_formed(r)
+            }
             if not results:
                 raise TopicTransformError("no recognizable results for the submitted candidate batch")
             return results
