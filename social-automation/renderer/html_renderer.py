@@ -332,6 +332,29 @@ def _content_plus_accent(primary_html: str, label: str, value: str, accent: str,
     return f'<div style="flex:0 1 auto;display:flex;gap:18px;align-items:stretch;">' f'<div style="flex:1;">{primary_html}</div>{panel}</div>'
 
 
+def _example_tags(label: str, tags: list, accent: str, accent2: str) -> str:
+    """A compact row of short real-world examples/precedents -- a SECOND
+    genuine content block for a page whose primary list doesn't use all
+    the already-verified supporting detail on its own (e.g. eligibility
+    facts PLUS how real companies actually apply them). Reusable for any
+    topic that has real examples/precedents in its verified evidence, not
+    just this fixture; never invents an example that isn't already in
+    page.visual_data."""
+    if not tags:
+        return ""
+    colors = [accent, accent2]
+    chips = "".join(
+        f'<span style="display:inline-block;background:{colors[i % 2]}16;color:{colors[i % 2]};font-weight:700;'
+        f'font-size:20px;padding:10px 18px;border-radius:999px;margin:0 8px 8px 0;">{t}</span>'
+        for i, t in enumerate(tags)
+    )
+    return (
+        f'<div style="flex:0 1 auto;margin-top:24px;">'
+        f'<div style="font-size:18px;font-weight:700;color:{accent};opacity:0.8;margin-bottom:10px;">{label}</div>'
+        f'<div>{chips}</div></div>'
+    )
+
+
 def _comparison_cards_v2(left: dict, right: dict, accent: str, accent2: str) -> str:
     """VISUAL ENGINE V2 primitive: two content-sized (not flex:1-stretched)
     comparison cards with a floating transition badge overlapping between
@@ -896,6 +919,7 @@ def render_page_html(page: CarouselPage, total_pages: int, brand: BrandConfig, f
         rows_html = _check_rows(items, accent, flex="0 1 auto")
         label, value = _extract_accent_stat(page.body, items)
         html.append(_content_plus_accent(rows_html, label, value, accent, accent2))
+        html.append(_example_tags(vd.get("secondary_label", ""), vd.get("secondary_items") or [], accent, accent2))
 
     elif family == "numbered_infographic":
         items = vd.get("items") or vd.get("steps") or []
