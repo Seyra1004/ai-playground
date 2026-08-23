@@ -573,24 +573,83 @@ def _timeliness_signal(published_date: str, today: str) -> float:
 # fixed neutral placeholders (0.5/0.5/0.4 for every candidate, which made
 # timeliness the only variable component -- see diagnostic finding). No
 # Claude/LLM judgment; pure substring matching against the real title.
-_VALUE_MARKERS = ["환급", "지원", "세정지원", "신고", "납부", "기한", "마감", "보험료", "과오납", "할인", "감면", "신청"]
-_SCAM_MARKERS = ["피해예방", "보이스피싱", "소비자 피해"]
-_AUDIENCE_MARKERS = ["납세자", "근로자", "가입자", "가구"]
+#
+# Grouped by MEANING, not one flat list -- a flat list biased toward old
+# NTS/FSS tax/insurance vocabulary (환급/세정지원/납세자/가입자) made every
+# genuinely different MOEL/MOHW/MOIS candidate collapse to the same score,
+# since they only ever matched the single generic word "지원". Groups also
+# fix a real double-counting bug: "세정지원" and "지원" would BOTH match the
+# same substring ("세정지원" contains "지원"), inflating the hit count for
+# one concept. _match_concepts() matches longest phrase first and marks its
+# character span consumed, so a shorter marker fully inside an already-
+# matched longer one is never counted a second time.
+_CONCEPT_MARKERS = {
+    # direct financial/action value: refunds, subsidies, discounts, relief
+    "financial_action": [
+        "재취업지원서비스", "환자전원보호지원단", "복구대책지원본부", "고용지원",
+        "재취업지원", "구호물품", "복구비", "지원방안", "지원대책", "지원금",
+        "세정지원", "재취업", "환급", "감면", "할인", "과오납", "보험료", "지원",
+    ],
+    # eligibility/application/action: something the reader can do/submit
+    "eligibility_action": [
+        "희망신청", "신청", "접수", "신고", "납부", "기한", "마감", "대상", "자격",
+    ],
+    # safety/protection: disaster recovery, patient protection, scam prevention
+    "safety_protection": [
+        "중앙재난안전대책본부", "환자전원보호", "특별재난지역", "피해예방", "보이스피싱",
+        "소비자 피해", "전원보호", "위기경보", "재난", "이재민", "피해지역", "복구", "피해", "수해",
+    ],
+    # broad citizen reach: who this affects
+    "broad_reach": [
+        "특별재난지역", "중소기업", "납세자", "근로자", "가입자", "이재민", "가구", "주민", "국민", "소비자", "가계",
+    ],
+}
+
+# A group hit count is capped before scoring so repeating one word (e.g.
+# "지원" three times) can't game the score past a couple of genuine hits.
+_GROUP_HIT_CAP = 2
+
+
+def _match_concepts(text: str) -> dict:
+    """Non-overlapping, longest-match-first concept matching across every
+    group at once. Returns {group: capped_hit_count}."""
+    all_markers = sorted(
+        ((phrase, group) for group, phrases in _CONCEPT_MARKERS.items() for phrase in phrases),
+        key=lambda pg: len(pg[0]),
+        reverse=True,
+    )
+    consumed = bytearray(len(text))
+    hits = {group: 0 for group in _CONCEPT_MARKERS}
+    for phrase, group in all_markers:
+        start = 0
+        while True:
+            idx = text.find(phrase, start)
+            if idx == -1:
+                break
+            span = range(idx, idx + len(phrase))
+            if not any(consumed[i] for i in span):
+                for i in span:
+                    consumed[i] = 1
+                hits[group] = min(hits[group] + 1, _GROUP_HIT_CAP)
+            start = idx + len(phrase)
+    return hits
 
 
 def _practical_value_signal(text: str) -> float:
-    hits = sum(1 for k in _VALUE_MARKERS if k in text) + sum(2 for k in _SCAM_MARKERS if k in text)
-    return min(1.0, 0.3 + 0.15 * hits)
+    hits = _match_concepts(text)
+    raw = hits["financial_action"] * 0.15 + hits["eligibility_action"] * 0.10 + hits["safety_protection"] * 0.15
+    return min(1.0, 0.3 + raw)
 
 
 def _population_reach_signal(text: str) -> float:
-    hits = sum(1 for k in _AUDIENCE_MARKERS if k in text)
-    return min(1.0, 0.3 + 0.25 * hits)
+    hits = _match_concepts(text)
+    return min(1.0, 0.3 + hits["broad_reach"] * 0.25)
 
 
 def _save_share_signal(text: str) -> float:
-    hits = sum(1 for k in _VALUE_MARKERS if k in text) + sum(1 for k in _SCAM_MARKERS if k in text)
-    return min(1.0, 0.25 + 0.15 * hits)
+    hits = _match_concepts(text)
+    raw = hits["financial_action"] * 0.12 + hits["safety_protection"] * 0.15
+    return min(1.0, 0.25 + raw)
 
 
 def has_sufficient_evidence(text: str) -> bool:
