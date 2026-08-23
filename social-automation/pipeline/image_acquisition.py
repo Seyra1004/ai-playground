@@ -283,7 +283,9 @@ def fill_missing_pages_with_generated_assets(pages: list, out_dir: str, brand) -
     for page in pages:
         if page.image_data and page.image_data.get("type") in ("real_image", "generated_editorial_asset"):
             continue
-        asset = generate_editorial_illustration(page.role, page.page_number, out_dir, brand)
+        asset = generate_editorial_illustration(
+            page.role, page.page_number, out_dir, brand, visual_type=(page.visual_data or {}).get("type")
+        )
         page.image_data = {
             "type": "generated_editorial_asset",
             "image_path": asset["path"],

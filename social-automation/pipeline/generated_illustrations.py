@@ -16,6 +16,7 @@ per-topic maintenance.
 """
 
 import hashlib
+import math
 import os
 
 from PIL import Image, ImageDraw
@@ -65,49 +66,85 @@ def _bg_accents(draw, cx, cy, fg, accent, variant):
 
 
 def _scene_shield_alert(draw, cx, cy, fg, accent, variant):
-    s = 170 + variant * 8
+    # Scene, not one icon: a phone under threat (danger burst) being
+    # actively blocked by a shield, off to the side -- "the call, and the
+    # protection stopping it" rather than a lone warning glyph.
+    px, py = cx - 130, cy + 10
+    draw.rounded_rectangle([px - 60, py - 110, px + 60, py + 110], radius=26, fill=_tint(fg, 0.15), outline=fg, width=6)
+    draw.rounded_rectangle([px - 34, py + 70, px + 34, py + 92], radius=10, fill=fg)
+    for i, ang in enumerate((200, 235, 270)):
+        r0, r1 = 74, 74 + 26 + i * 8
+        rad = math.radians(ang)
+        draw.line(
+            [(px + r0 * math.cos(rad), py + r0 * math.sin(rad)), (px + r1 * math.cos(rad), py + r1 * math.sin(rad))],
+            fill=accent, width=8,
+        )
+    draw.line([(px - 76, py - 76), (px + 76, py + 76)], fill=accent, width=14)
+
+    sx, sy = cx + 140, cy - 10
+    s = 130 + variant * 6
     pts = [
-        (cx, cy - s), (cx + s * 0.8, cy - s * 0.55), (cx + s * 0.8, cy + s * 0.2),
-        (cx, cy + s * 1.05), (cx - s * 0.8, cy + s * 0.2), (cx - s * 0.8, cy - s * 0.55),
+        (sx, sy - s), (sx + s * 0.78, sy - s * 0.5), (sx + s * 0.78, sy + s * 0.2),
+        (sx, sy + s * 1.0), (sx - s * 0.78, sy + s * 0.2), (sx - s * 0.78, sy - s * 0.5),
     ]
-    draw.polygon(pts, fill=_tint(fg, 0.15), outline=fg, width=6)
-    bar_h = s * 0.7
-    draw.rounded_rectangle(
-        [cx - 14, cy - bar_h * 0.55, cx + 14, cy - bar_h * 0.55 + bar_h * 0.65], radius=12, fill=accent
-    )
-    draw.ellipse([cx - 14, cy + bar_h * 0.28, cx + 14, cy + bar_h * 0.28 + 28], fill=accent)
+    draw.polygon(pts, fill=_tint(accent, 0.12), outline=accent, width=6)
+    draw.line([(sx - 28, sy), (sx - 8, sy + 24)], fill=accent, width=12)
+    draw.line([(sx - 8, sy + 24), (sx + 34, sy - 26)], fill=accent, width=12)
 
 
 def _scene_calendar(draw, cx, cy, fg, accent, variant):
-    w, h = 320, 280
-    box = [cx - w / 2, cy - h / 2 + 10, cx + w / 2, cy + h / 2 + 10]
+    # Calendar plus a "new announcement" bell badge and a small clock --
+    # date + urgency + notice, not a bare calendar icon.
+    w, h = 300, 260
+    box = [cx - w / 2 - 40, cy - h / 2 + 10, cx + w / 2 - 40, cy + h / 2 + 10]
     _rrect(draw, box, 24, fill=_tint(fg, 0.85), outline=fg, width=6)
-    draw.rectangle([box[0], box[1], box[2], box[1] + 60], fill=fg)
+    draw.rectangle([box[0], box[1], box[2], box[1] + 56], fill=fg)
     for i in range(2):
-        x = cx - 70 + i * 140
-        draw.rounded_rectangle([x - 10, box[1] - 24, x + 10, box[1] + 20], radius=8, fill=accent)
-    cell = 46
-    gx0, gy0 = cx - cell * 1.5, box[1] + 90
+        x = box[0] + w * 0.28 + i * w * 0.44
+        draw.rounded_rectangle([x - 9, box[1] - 22, x + 9, box[1] + 18], radius=8, fill=accent)
+    cell = 42
+    gx0, gy0 = box[0] + 28, box[1] + 84
     highlight = (1 + variant) % 6
     n = 0
     for r in range(2):
         for c in range(3):
             x0, y0 = gx0 + c * cell, gy0 + r * cell
-            fill = accent if n == highlight else _tint(fg, 0.6)
+            fill = accent if n == highlight else _tint(fg, 0.55)
             draw.rounded_rectangle([x0, y0, x0 + cell - 10, y0 + cell - 10], radius=8, fill=fill)
             n += 1
 
+    bx, by = box[2] - 6, box[1] + 4
+    draw.ellipse([bx - 34, by - 34, bx + 34, by + 34], fill=accent, outline="white", width=5)
+    draw.polygon([(bx - 12, by + 6), (bx + 12, by + 6), (bx, by + 20)], fill="white")
+    draw.rounded_rectangle([bx - 10, by - 16, bx + 10, by + 8], radius=6, fill="white")
+
+    clx, cly = box[0] - 6, box[3] - 4
+    draw.ellipse([clx - 30, cly - 30, clx + 30, cly + 30], outline=fg, width=6, fill=_tint(fg, 0.9))
+    draw.line([(clx, cly), (clx, cly - 16)], fill=fg, width=5)
+    draw.line([(clx, cly), (clx + 12, cly + 4)], fill=fg, width=5)
+
 
 def _scene_people(draw, cx, cy, fg, accent, variant):
+    # People plus a covering arc ("included/protected together") and a
+    # checkmark badge on one figure -- "this group is covered", not a bare
+    # row of identical pictograms.
     count = 3
-    spacing = 150
+    spacing = 145
+    heights = (0, -18, 10)  # slightly uneven heights so figures aren't identical
     colors = [fg, accent, _tint(fg, 0.35)]
     start_x = cx - spacing * (count - 1) / 2
+    arc_top = cy - 210
+    draw.arc([cx - spacing * 1.35, arc_top, cx + spacing * 1.35, arc_top + 220], 200, 340, fill=_tint(accent, 0.3), width=8)
     for i in range(count):
         x = start_x + i * spacing + (variant % 3) * 6
+        y = cy + heights[i]
         color = colors[i % len(colors)]
-        draw.ellipse([x - 38, cy - 140, x + 38, cy - 64], fill=color)
-        draw.rounded_rectangle([x - 60, cy - 60, x + 60, cy + 120], radius=40, fill=color)
+        draw.ellipse([x - 38, y - 140, x + 38, y - 64], fill=color)
+        draw.rounded_rectangle([x - 58, y - 60, x + 58, y + 118], radius=38, fill=color)
+    bx, by = start_x + spacing, cy - 150
+    draw.ellipse([bx - 24, by - 24, bx + 24, by + 24], fill=accent, outline="white", width=4)
+    draw.line([(bx - 10, by), (bx - 2, by + 9)], fill="white", width=5)
+    draw.line([(bx - 2, by + 9), (bx + 12, by - 10)], fill="white", width=5)
 
 
 def _scene_document(draw, cx, cy, fg, accent, variant):
@@ -170,7 +207,10 @@ def _scene_balance(draw, cx, cy, fg, accent, variant):
         else:
             draw.line([(lx - 34, cy + 4), (lx - 8, cy + 32)], fill=color, width=14)
             draw.line([(lx - 8, cy + 32), (lx + 40, cy - 30)], fill=color, width=14)
-    draw.polygon([(cx - 26, cy), (cx + 26, cy), (cx, cy - 22)], fill=_tint(fg, 0.4 - (variant % 3) * 0.05))
+    # A visible transformation arrow between the two states, not just a
+    # small triangle -- the "before -> after" connector should read clearly.
+    draw.line([(cx - 42, cy), (cx + 26, cy)], fill=_tint(accent, 0.15), width=10)
+    draw.polygon([(cx + 18, cy - 22), (cx + 18, cy + 22), (cx + 52, cy)], fill=_tint(accent, 0.15))
 
 
 def _scene_warning(draw, cx, cy, fg, accent, variant):
@@ -190,14 +230,23 @@ def _scene_spotlight(draw, cx, cy, fg, accent, variant):
 
 
 def _scene_megaphone(draw, cx, cy, fg, accent, variant):
+    # Megaphone broadcasting toward two small figures receiving it --
+    # "sharing protects people", not a lone speaker icon.
+    mx = cx - 150
     draw.polygon(
-        [(cx - 120, cy - 40), (cx + 40, cy - 100), (cx + 40, cy + 100), (cx - 120, cy + 40)],
+        [(mx - 120, cy - 40), (mx + 40, cy - 100), (mx + 40, cy + 100), (mx - 120, cy + 40)],
         fill=_tint(accent, 0.1), outline=accent, width=6,
     )
-    draw.rounded_rectangle([cx - 150, cy - 30, cx - 110, cy + 30], radius=10, fill=fg)
-    for i, r in enumerate((60, 95, 130)):
-        bbox = [cx + 40 - r * 0.3, cy - r * 0.6, cx + 40 + r, cy + r * 0.6]
+    draw.rounded_rectangle([mx - 150, cy - 30, mx - 110, cy + 30], radius=10, fill=fg)
+    for i, r in enumerate((55, 85, 115)):
+        bbox = [mx + 40 - r * 0.3, cy - r * 0.6, mx + 40 + r, cy + r * 0.6]
         draw.arc(bbox, -40, 40, fill=_tint(fg, i * 0.15), width=7)
+
+    for i, (dx, dy) in enumerate(((110, -70), (150, 60))):
+        px, py = cx + dx, cy + dy
+        color = fg if i == 0 else accent
+        draw.ellipse([px - 20, py - 46, px + 20, py - 6], fill=color)
+        draw.rounded_rectangle([px - 32, py - 4, px + 32, py + 62], radius=24, fill=color)
 
 
 _ROLE_SCENES = {
@@ -215,14 +264,23 @@ _ROLE_SCENES = {
 }
 
 
-def generate_editorial_illustration(role: str, page_number: int, out_dir: str, brand) -> dict:
+def generate_editorial_illustration(role: str, page_number: int, out_dir: str, brand, visual_type: str = None) -> dict:
     """Deterministic per (role, page_number, brand palette) -- same inputs
     always produce the same file (idempotent, cacheable), while varying
     color pairing/layout by page_number so no two pages in one carousel
     render identically even when a role repeats. Never raises for an
-    unrecognized role -- falls back to a generic document scene."""
+    unrecognized role -- falls back to a generic document scene.
+
+    visual_type (the page's own informative visual_data.type, e.g.
+    "comparison") is a stronger content signal than role alone -- a page
+    whose role is generic ("examples") but whose actual content is a
+    before/after comparison should still get the comparison scene, not a
+    role-only fallback. Never a page-number-specific rule."""
     os.makedirs(out_dir, exist_ok=True)
-    scene_fn = _ROLE_SCENES.get(role, _scene_document)
+    if visual_type == "comparison":
+        scene_fn = _scene_balance
+    else:
+        scene_fn = _ROLE_SCENES.get(role, _scene_document)
 
     palette = [c for c in brand.colors.values() if isinstance(c, str) and c.startswith("#")]
     if len(palette) < 2:
