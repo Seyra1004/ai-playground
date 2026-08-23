@@ -933,7 +933,14 @@ def _compose_cover_page(page: CarouselPage, brand: BrandConfig, accent: str, acc
     has_photo = bool(page.image_data)
     html = [_chrome_open(brand, bg, text_color)]
     html.append(_masthead(brand, accent, text_color, page.page_number, total_pages))
-    html.append('<div style="flex:1;display:flex;flex-direction:column;margin-top:10px;min-height:0;">')
+    # A photo genuinely benefits from filling the whole remaining canvas
+    # (flex:1, edge-to-edge). A small evidence card forced to the same
+    # flex:1 height just centers a short number inside a mostly-empty
+    # card -- the same dead-space problem in a different color. The card
+    # gets its OWN content-sized height instead, and space-between spreads
+    # the two zones (copy, evidence card) across the full page height.
+    html.append(f'<div style="flex:1;display:flex;flex-direction:column;'
+                 f'justify-content:{"flex-start" if has_photo else "space-between"};margin-top:10px;min-height:0;">')
     html.append('<div>')
     html.append(_pill(tag, accent))
     html.append(f'<div style="font-size:44px;font-weight:800;line-height:1.28;color:{text_color};margin-bottom:14px;">{page.headline}</div>')
@@ -945,13 +952,13 @@ def _compose_cover_page(page: CarouselPage, brand: BrandConfig, accent: str, acc
                      + _photo_panel(page.image_data, "", stat, accent, flex="1 1 auto") + '</div>')
     elif stat:
         html.append(
-            f'<div style="flex:1;min-height:0;margin-top:26px;position:relative;background:#fff;'
-            f'border:2px solid {accent}30;border-radius:20px;padding:38px 32px 30px 32px;'
-            f'display:flex;flex-direction:column;justify-content:center;box-shadow:0 4px 16px {accent}14;">'
+            f'<div style="margin-top:26px;position:relative;background:#fff;'
+            f'border:2px solid {accent}30;border-radius:20px;padding:34px 32px 30px 32px;'
+            f'box-shadow:0 4px 16px {accent}14;">'
             f'<div style="position:absolute;top:-2px;left:28px;right:28px;height:3px;'
             f'background:repeating-linear-gradient(90deg,{accent}80 0 10px,transparent 10px 19px);"></div>'
-            f'<div style="font-size:14px;font-weight:800;color:{accent};letter-spacing:2px;text-transform:uppercase;margin-bottom:12px;">핵심 수치</div>'
-            f'<div style="font-size:118px;font-weight:900;line-height:0.95;letter-spacing:-3px;color:{accent};">{stat}</div>'
+            f'<div style="font-size:14px;font-weight:800;color:{accent};letter-spacing:2px;text-transform:uppercase;margin-bottom:14px;">핵심 수치</div>'
+            f'<div style="font-size:138px;font-weight:900;line-height:0.95;letter-spacing:-3px;color:{accent};">{stat}</div>'
             f'</div>'
         )
     html.append("</div>")
