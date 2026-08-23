@@ -299,15 +299,15 @@ _KOREAN_DATE_RE = re.compile(r"\d{1,2}월\s?\d{1,2}일")
 
 
 def _extract_accent_stat(body: str, items: list) -> tuple:
-    """Deterministic secondary-panel fact -- a real date already present in
-    the page's own body text if there is one, else the true item count.
-    Never invented; both are mechanically derived from already-approved
-    content, reusable for any future topic's list-shaped page."""
+    """Deterministic secondary-panel fact -- a real date already present
+    in the page's own body text, if there is one. No item-count fallback:
+    "확인할 항목 4가지" next to a visible 4-item list restates something
+    already on the page and adds no information -- a decorative-filler
+    pattern, not a genuine second fact. A page with no real date simply
+    gets no accent panel."""
     m = _KOREAN_DATE_RE.search(body or "")
     if m:
         return "시행일", m.group(0)
-    if items:
-        return "확인할 항목", f"{len(items)}가지"
     return "", ""
 
 
@@ -353,6 +353,73 @@ def _example_tags(label: str, tags: list, accent: str, accent2: str) -> str:
         f'<div style="font-size:18px;font-weight:700;color:{accent};opacity:0.8;margin-bottom:10px;">{label}</div>'
         f'<div>{chips}</div></div>'
     )
+
+
+def _change_metrics_block(metrics: list, accent: str, accent2: str) -> str:
+    """VISUAL ENGINE V3 primitive: when a page's core message is a
+    numeric BEFORE -> AFTER change, the numbers themselves are the
+    dominant visual element -- one row per changing metric, small faded
+    "before" value, large "after" value, connected by an arrow -- not two
+    same-weight cards a reader has to compare by reading. metrics:
+    [{"label", "before", "after"}, ...], all values already-verified."""
+    rows = "".join(
+        (
+            f'<div style="display:flex;align-items:baseline;gap:14px;padding:20px 0;'
+            f'{"border-bottom:2px solid " + accent + "14;" if i < len(metrics) - 1 else ""}">'
+            f'<div style="flex:0 0 96px;font-size:17px;font-weight:700;opacity:0.6;align-self:center;">{m["label"]}</div>'
+            f'<div style="font-size:30px;font-weight:800;color:{accent};opacity:0.4;">{m["before"]}</div>'
+            f'<div style="font-size:24px;font-weight:900;color:{accent2};">→</div>'
+            f'<div style="font-size:42px;font-weight:900;color:{accent2};">{m["after"]}</div></div>'
+        )
+        for i, m in enumerate(metrics)
+    )
+    return f'<div style="flex:0 1 auto;background:#fff;border-radius:22px;padding:12px 28px;box-shadow:0 2px 10px {accent}14;">{rows}</div>'
+
+
+def _grouped_scope_block(groups: list, accent: str, accent2: str) -> str:
+    """VISUAL ENGINE V3 primitive: for a page whose message is SCOPE
+    ("what's included"), visually separates distinct categories side by
+    side instead of one flat enumerated list -- the RELATIONSHIP between
+    groups (e.g. procedure vs. preparation) is the actual information,
+    not just a row count. groups: [{"label", "items":[...]}, ...],
+    already-verified content only."""
+    colors = [accent, accent2]
+    blocks = "".join(
+        (
+            f'<div style="flex:1;background:{colors[i % 2]}0d;border:2px solid {colors[i % 2]}33;'
+            f'border-radius:18px;padding:22px 20px;">'
+            f'<div style="font-size:16px;font-weight:800;color:{colors[i % 2]};margin-bottom:14px;">{g["label"]}</div>'
+            + "".join(f'<div style="font-size:23px;font-weight:700;line-height:1.4;margin:9px 0;">{it}</div>' for it in g["items"])
+            + "</div>"
+        )
+        for i, g in enumerate(groups)
+    )
+    return f'<div style="flex:0 1 auto;display:flex;gap:16px;align-items:stretch;">{blocks}</div>'
+
+
+def _multi_system_block(sections: list, accent: str, accent2: str) -> str:
+    """VISUAL ENGINE V3 primitive: for a page mixing genuinely different
+    KINDS of information (legal rights vs. practical preparation vs.
+    real-world examples), a labeled section per kind makes that
+    distinction visible instead of one undifferentiated checklist.
+    sections: [{"label", "items":[...]}, ...], already-verified only."""
+    colors = [accent, accent2]
+    parts = []
+    for i, s in enumerate(sections):
+        color = colors[i % 2]
+        rows = "".join(
+            f'<div style="display:flex;align-items:flex-start;gap:12px;margin:8px 0;">'
+            f'<div style="width:26px;height:26px;border-radius:50%;background:{color};color:#fff;flex-shrink:0;'
+            f'display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;">✓</div>'
+            f'<div style="font-size:22px;font-weight:700;line-height:1.35;">{it}</div></div>'
+            for it in s["items"]
+        )
+        parts.append(
+            f'<div style="margin-bottom:18px;">'
+            f'<div style="font-size:15px;font-weight:800;color:{color};letter-spacing:0.3px;margin-bottom:10px;">{s["label"]}</div>'
+            f"{rows}</div>"
+        )
+    return f'<div style="flex:0 1 auto;background:#fff;border-radius:20px;padding:26px 26px 8px 26px;box-shadow:0 2px 10px {accent}14;">{"".join(parts)}</div>'
 
 
 def _comparison_cards_v2(left: dict, right: dict, accent: str, accent2: str) -> str:
@@ -912,28 +979,43 @@ def render_page_html(page: CarouselPage, total_pages: int, brand: BrandConfig, f
         html.append(_content_plus_accent(rows_html, label, value, accent, accent2))
 
     elif family == "checklist":
-        # A highlight_box/stat-hero-eligible claim rejected/tie-broken into
-        # checklist has no "items" list of its own -- fall back to its own
-        # single short claim.
-        items = vd.get("items") or ([vd["highlight"]] if vd.get("highlight") else ([vd["big_text"]] if vd.get("big_text") else []))
-        rows_html = _check_rows(items, accent, flex="0 1 auto")
-        label, value = _extract_accent_stat(page.body, items)
-        html.append(_content_plus_accent(rows_html, label, value, accent, accent2))
-        html.append(_example_tags(vd.get("secondary_label", ""), vd.get("secondary_items") or [], accent, accent2))
+        if vd.get("sections"):
+            # Genuinely different KINDS of information (rights vs. prep vs.
+            # real-world examples) -- keep them visibly separated.
+            html.append(_multi_system_block(vd["sections"], accent, accent2))
+        elif vd.get("groups"):
+            html.append(_grouped_scope_block(vd["groups"], accent, accent2))
+        else:
+            # A highlight_box/stat-hero-eligible claim rejected/tie-broken
+            # into checklist has no "items" list of its own -- fall back to
+            # its own single short claim.
+            items = vd.get("items") or ([vd["highlight"]] if vd.get("highlight") else ([vd["big_text"]] if vd.get("big_text") else []))
+            rows_html = _check_rows(items, accent, flex="0 1 auto")
+            label, value = _extract_accent_stat(page.body, items)
+            html.append(_content_plus_accent(rows_html, label, value, accent, accent2))
+            html.append(_example_tags(vd.get("secondary_label", ""), vd.get("secondary_items") or [], accent, accent2))
 
     elif family == "numbered_infographic":
-        items = vd.get("items") or vd.get("steps") or []
-        rows_html = _infographic_numbered_rows(items, accent, accent2, flex="0 1 auto")
-        label, value = _extract_accent_stat(page.body, items)
-        html.append(_content_plus_accent(rows_html, label, value, accent, accent2))
+        if vd.get("groups"):
+            html.append(_grouped_scope_block(vd["groups"], accent, accent2))
+        elif vd.get("sections"):
+            html.append(_multi_system_block(vd["sections"], accent, accent2))
+        else:
+            items = vd.get("items") or vd.get("steps") or []
+            rows_html = _infographic_numbered_rows(items, accent, accent2, flex="0 1 auto")
+            label, value = _extract_accent_stat(page.body, items)
+            html.append(_content_plus_accent(rows_html, label, value, accent, accent2))
 
     elif family == "card_grid":
         items = vd.get("items") or vd.get("steps") or []
         html.append(_card_grid_rows(items, accent, accent2, flex="0 1 auto"))
 
     elif family == "comparison":
-        left, right = vd.get("left", {}), vd.get("right", {})
-        html.append(_comparison_cards_v2(left, right, accent, accent2))
+        if vd.get("metrics"):
+            html.append(_change_metrics_block(vd["metrics"], accent, accent2))
+        else:
+            left, right = vd.get("left", {}), vd.get("right", {})
+            html.append(_comparison_cards_v2(left, right, accent, accent2))
 
     elif family == "cta":
         steps, trailing = _extract_step_flow(page.body) if page.body else ([], "")
