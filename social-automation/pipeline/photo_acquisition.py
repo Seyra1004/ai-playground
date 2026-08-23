@@ -35,6 +35,14 @@ _DECORATIVE_NAME_RE = re.compile(
 )
 _REUSABLE_LICENSE_RE = re.compile(r"(cc[\s-]?by|cc0|public domain|pdm)", re.I)
 _NON_REUSABLE_RE = re.compile(r"(non-?free|fair use|all rights reserved|copyrighted)", re.I)
+# Commons is an encyclopedic archive, not a curated stock-photo library --
+# generic queries can surface a pre-1950 archival photo or an unrelated
+# notable individual's portrait, both a jarring/inappropriate mismatch next
+# to a current-day informational graphic. Reject obviously old scans
+# (a 4-digit year before 1950 in the title/filename) and single-portrait-
+# style titles (a lone personal name pattern), as a generic safety net.
+_OLD_YEAR_RE = re.compile(r"\b(1[0-8]\d{2}|19[0-4]\d)\b")
+_BOOK_SCAN_RE = re.compile(r"(plate|page \d+|illustration from|frontispiece)", re.I)
 
 # Generic, topic-agnostic search concepts -- keyed by the FIXED role/
 # category vocabulary every topic already uses (core/page_selector.py's
@@ -45,11 +53,11 @@ _NON_REUSABLE_RE = re.compile(r"(non-?free|fair use|all rights reserved|copyrigh
 # short (role phrase + one category noun) since compounding 3+ concrete
 # nouns can over-narrow the search to zero results.
 _ROLE_PHRASE = {
-    "hook": "", "why_now": "notice board", "eligibility": "meeting people",
-    "amount": "paperwork", "conditions": "paperwork", "procedure": "consultation",
-    "comparison": "two people", "examples": "two people",
+    "hook": "exterior", "why_now": "documents", "eligibility": "building",
+    "amount": "documents desk", "conditions": "documents desk", "procedure": "office interior",
+    "comparison": "buildings", "examples": "buildings",
     "exclusions": "warning sign", "warnings": "warning sign",
-    "cta": "customer service",
+    "cta": "telephone",
 }
 
 _CATEGORY_NOUN = {
@@ -135,7 +143,7 @@ def _select_candidate(candidates: list, seen_hashes: set) -> dict:
             continue
         if min(c.get("width", 0), c.get("height", 0)) < MIN_DIMENSION:
             continue
-        if _DECORATIVE_NAME_RE.search(c.get("title", "")):
+        if _DECORATIVE_NAME_RE.search(c.get("title", "")) or _OLD_YEAR_RE.search(c.get("title", "")) or _BOOK_SCAN_RE.search(c.get("title", "")):
             continue
         if not _is_reusable(c):
             continue
