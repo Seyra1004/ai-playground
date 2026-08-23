@@ -42,8 +42,11 @@ import hashlib
 import json
 import os
 import re
+import subprocess
 import urllib.parse
 import urllib.request
+
+from pipeline.semantic_claude_cli import DEFAULT_MODEL, _resolve_executable
 
 _OPENVERSE_URL = "https://api.openverse.org/v1/images/"
 _COMMONS_URL = "https://commons.wikimedia.org/w/api.php"
@@ -148,25 +151,163 @@ _KEYWORD_CONCEPTS = [
 _GEOGRAPH_SOURCE_RE = re.compile(r"geograph\.org\.uk", re.I)
 
 
+# Words that, ALONE or in combination with only each other, collapse a
+# concept into a broad category rather than this page's actual
+# distinctive subject -- "medical clinic" passes (clinic isn't generic),
+# "doctor patient" fails (both words are). Applied to EVERY concept from
+# EITHER tier below, so the semantic fallback can never smuggle back the
+# broad-category substitutes already proven unsafe (generic doctor/
+# patient, generic office worker, generic person/documents).
+_GENERIC_CONCEPT_WORDS = {
+    "healthcare", "medical", "office", "worker", "workplace", "finance", "financial",
+    "phone", "smartphone", "house", "home", "document", "documents", "paperwork",
+    "person", "people", "consultation", "doctor", "patient", "employee", "desk",
+}
+
+
+def _is_generic_concept(subject: str) -> bool:
+    """True when EVERY word of the subject is itself a broad-category
+    term -- i.e. the concept carries no distinctive meaning of its own
+    beyond the category. A subject with at least one non-generic word
+    (e.g. "fertility" in "fertility clinic") passes."""
+    words = {w.strip(".,").lower() for w in (subject or "").split()}
+    if not words:
+        return True
+    return words.issubset(_GENERIC_CONCEPT_WORDS)
+
+
+_CONCEPT_CLI_SCHEMA = {
+    "type": "object",
+    "required": ["concepts"],
+    "properties": {
+        "concepts": {
+            "type": "array",
+            "maxItems": 3,
+            "items": {
+                "type": "object",
+                "required": ["subject", "query"],
+                "properties": {"subject": {"type": "string"}, "query": {"type": "string"}},
+            },
+        }
+    },
+}
+
+_CONCEPT_CLI_SYSTEM_PROMPT = (
+    "You derive PHOTOGRAPHABLE visual search concepts for one page of a Korean practical-"
+    "information Instagram carousel, from that page's own already-verified headline/body text "
+    "ONLY -- never invent facts, never use general world knowledge about the topic beyond what's "
+    "in the text. Return 1-3 concepts. Each concept must be a real-world subject/scene/object a "
+    "camera could actually photograph, DISTINCTIVE to this page's actual subject matter -- reject "
+    "your own idea if it would only represent a broad category (healthcare, medical, office, "
+    "worker, finance, phone, house, documents, person, consultation, doctor, patient) and nothing "
+    "more specific. 'subject' = a short (2-4 word) noun phrase that is the mandatory relevance "
+    "anchor (a candidate photo's title must contain at least one of these words); 'query' = a "
+    "natural, concrete English search phrase for a stock-photo API (e.g. 'fertility clinic "
+    "consultation room', not corporate jargon like 'office worker workplace'). If nothing "
+    "distinctive can honestly be derived from this page's own text, return an empty concepts "
+    "array -- never guess or force a generic category."
+)
+
+
+def _run_concept_cli(headline: str, body: str, role: str, timeout_seconds: int = 60) -> list:
+    try:
+        executable = _resolve_executable()
+    except Exception:
+        return []
+    user_prompt = json.dumps({"headline": headline, "body": body, "role": role}, ensure_ascii=False)
+    cmd = [
+        executable, "-p",
+        "--output-format", "json",
+        "--json-schema", json.dumps(_CONCEPT_CLI_SCHEMA),
+        "--tools", "",
+        "--no-session-persistence",
+        "--model", DEFAULT_MODEL,
+        "--system-prompt", _CONCEPT_CLI_SYSTEM_PROMPT,
+    ]
+    env = os.environ.copy()
+    env.pop("ANTHROPIC_API_KEY", None)
+    try:
+        result = subprocess.run(
+            cmd, shell=False, capture_output=True, text=True, encoding="utf-8",
+            errors="replace", env=env, timeout=timeout_seconds, input=user_prompt,
+        )
+    except Exception:
+        return []
+    if result.returncode != 0:
+        return []
+    try:
+        payload = json.loads(result.stdout)
+    except Exception:
+        return []
+    if payload.get("is_error"):
+        return []
+    parsed = payload.get("structured_output")
+    if parsed is None:
+        raw = payload.get("result")
+        if not isinstance(raw, str):
+            return []
+        try:
+            parsed = json.loads(raw)
+        except Exception:
+            return []
+    return parsed.get("concepts") or []
+
+
+def derive_concepts_semantic(headline: str, body: str, role: str, max_concepts: int = 3) -> list:
+    """Tier 2 concept generation -- called ONLY when the deterministic
+    glossary (Tier 1) finds nothing, or finds only overly-broad concepts.
+    Calls the SAME ZERO-PAYG, already-authenticated subscription `claude`
+    CLI pattern already used for topic transformation and semantic
+    authoring elsewhere in this pipeline (never api.anthropic.com; never
+    a new paid service). Every returned concept still passes through the
+    identical _is_generic_concept validator Tier 1 uses -- the fallback
+    can never smuggle back a broad-category substitute."""
+    raw = _run_concept_cli(headline, body, role)
+    concepts = []
+    for c in raw:
+        if not isinstance(c, dict):
+            continue
+        subject, query = str(c.get("subject", "")).strip(), str(c.get("query", "")).strip()
+        if not subject or not query or _is_generic_concept(subject):
+            continue
+        pair = (subject, query)
+        if pair not in concepts:
+            concepts.append(pair)
+        if len(concepts) >= max_concepts:
+            break
+    return concepts
+
+
 def derive_concepts(headline: str, body: str, role: str = "", max_concepts: int = 3) -> list:
-    """Up to 3 (subject, query) concept pairs for one page -- derived ONLY
-    from its own verified text via the glossary above, in a small query
-    ladder (most-matched concepts first). Returns [] when the text
-    matches nothing -- callers MUST treat that as an immediate NO_PHOTO.
-    No generic/role-based fallback: a broad-category "relatable person" or
-    "documents on a desk" substitute is not editorially specific to any
-    one page's actual distinctive subject, and NO_PHOTO is always
-    preferable to a photo that could represent almost any topic."""
+    """Up to 3 (subject, query) concept pairs for one page.
+
+    Tier 1 (fast, free, deterministic): matched from the page's own text
+    against the glossary above, most-matched first, filtered through the
+    same anti-generic check Tier 2 uses.
+
+    Tier 2 (only when Tier 1 finds nothing): a small, structured call to
+    the local `claude` CLI subscription (see derive_concepts_semantic) to
+    handle topics with no glossary entry -- SWIPE_INFO covers open-ended
+    future domains a fixed keyword dictionary can never fully anticipate.
+
+    Either tier can legitimately return [] -- callers MUST treat that as
+    an immediate NO_PHOTO. No generic/role-based substitute: a
+    broad-category "relatable person" or "documents on a desk" photo is
+    not editorially specific to any one page's actual distinctive
+    subject, and NO_PHOTO is always preferable to one that could
+    represent almost any topic."""
     text = f"{headline} {body}"
     concepts = []
     for markers, subject, query in _KEYWORD_CONCEPTS:
-        if any(m in text for m in markers):
+        if any(m in text for m in markers) and not _is_generic_concept(subject):
             pair = (subject, query)
             if pair not in concepts:
                 concepts.append(pair)
         if len(concepts) >= max_concepts:
             break
-    return concepts[:max_concepts]
+    if concepts:
+        return concepts[:max_concepts]
+    return derive_concepts_semantic(headline, body, role, max_concepts)
 
 
 def _fetch_json(url: str, timeout: int = 15) -> dict:
