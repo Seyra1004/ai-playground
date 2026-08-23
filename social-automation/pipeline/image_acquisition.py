@@ -232,6 +232,16 @@ def discover_and_acquire_images(source: Source, out_dir: str, max_images: int = 
     return accepted
 
 
+def _caption_from_headline(headline: str) -> str:
+    """The page's own real headline, used verbatim as the image caption --
+    a fixed char cutoff risked slicing off the final syllable mid-word
+    (e.g. "...막습니" instead of "...막습니다"), which reads as clipped/
+    broken text. Headlines are already short by editorial design, so no
+    truncation is needed; the caption bar wraps rather than clips if a
+    headline is unusually long."""
+    return headline or ""
+
+
 def assign_images_to_pages(pages: list, accepted_images: list) -> list:
     """Deterministic role-priority placement -- never a hardcoded page
     number, never a Claude call. Only touches as many pages as there are
@@ -255,7 +265,7 @@ def assign_images_to_pages(pages: list, accepted_images: list) -> list:
         page.visual_data = {
             "type": "real_image",
             "image_path": img["path"],
-            "caption": (page.headline or "")[:20],
+            "caption": _caption_from_headline(page.headline),
         }
         changed.append(page.page_number)
         image_idx += 1
@@ -283,7 +293,7 @@ def fill_missing_pages_with_generated_assets(pages: list, out_dir: str, brand) -
         page.visual_data = {
             "type": "generated_editorial_asset",
             "image_path": asset["path"],
-            "caption": (page.headline or "")[:20],
+            "caption": _caption_from_headline(page.headline),
         }
         generated_entries.append(asset)
         filled.append(page.page_number)
