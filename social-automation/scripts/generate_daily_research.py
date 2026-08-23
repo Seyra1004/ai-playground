@@ -35,6 +35,7 @@ from pipeline.live_discovery import (  # noqa: E402
     discover_live_candidates,
     fetch_article_body,
     has_sufficient_evidence,
+    passes_practical_shape_gate,
 )
 from pipeline.topic_transform import TopicTransformError, transform_candidates  # noqa: E402
 
@@ -77,6 +78,15 @@ def main() -> int:
     # reporting the identical press release shouldn't cost two transform
     # slots).
     candidates = daily_state.dedupe_candidates(candidates)
+
+    # Hard pre-reject gate -- BEFORE ranking/pool selection, not after.
+    # Purely institutional/ceremonial/staffing material (a meeting, a
+    # ribbon-cutting, a personnel appointment) must never even compete for
+    # a transform-pool slot just because it scored decently on a generic
+    # keyword heuristic -- that's the actual "SOURCE -> TOPIC" contamination
+    # root cause, not a wording problem in the transform step itself.
+    shape_rejected = [c for c in candidates if not passes_practical_shape_gate(c.topic)]
+    candidates = [c for c in candidates if passes_practical_shape_gate(c.topic)]
 
     # --- SOURCE -> TOPIC transformation -------------------------------
     # A raw government/press title is a discovery source, never a carousel
@@ -168,7 +178,11 @@ def main() -> int:
     if not ranked:
         print("(none -- NO_QUALIFIED_TOPIC)")
 
-    print("=== REJECTED (news/PR/status) EXAMPLES ===")
+    print(f"=== HARD PRE-REJECT (institutional/ceremonial, {len(shape_rejected)} total) EXAMPLES ===")
+    for c in shape_rejected[:5]:
+        print(f"- RAW: {c.topic}")
+
+    print("=== REJECTED (news/PR/status, post-transform) EXAMPLES ===")
     for r in rejected_examples[:10]:
         print(f"- RAW: {r['raw_title']}")
         print(f"  REJECTION_REASON: {r['rejection_reason']}")

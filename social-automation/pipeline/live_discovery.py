@@ -505,6 +505,74 @@ _AMOUNT_RE = re.compile(r"\d[\d,]*\s*(원|만원|억원)")
 _DEADLINE_RE = re.compile(r"(까지|기한|마감|시행|부터)")
 _ELIGIBILITY_RE = re.compile(r"(대상|자격|가입자|지원|납세자|기업|근로자)")
 
+# Hard pre-reject gate: a small, reusable marker list for candidates whose
+# ONLY visible content is institutional activity -- a meeting, a staffing/
+# personnel action, a ceremony, ribbon-cutting, ambiguous partnership/PR --
+# with nothing a reader could plausibly benefit from, prevent, save, or act
+# on. Applied BEFORE a candidate ever enters the practical-topic pool, so
+# purely institutional source material never reaches (and never costs
+# tokens in) the transformation step. A candidate is rejected ONLY when it
+# shows an institutional-only marker AND no countervailing practical-value
+# marker -- a genuine benefit announcement that happens to be framed as an
+# event (e.g. "환급금 지급 관련 설명회 개최") still passes through, since the
+# nuanced accept/reject judgment for that case belongs to the transform
+# step, not this cheap deterministic filter.
+_INSTITUTIONAL_ONLY_MARKERS = (
+    "회의 개최", "간담회", "협약", "체결식", "위촉", "임용", "인사발령", "인사 발령",
+    "유공자", "표창", "축사", "준공식", "발대식", "총회", "워크숍", "세미나 개최",
+    "격려 방문", "격려방문", "현장 방문", "보도설명자료", "해명자료", "포토뉴스",
+    "화보", "출범식", "기념식", "간담회", "업무협약", "MOU", "방한", "예방 차원의 방문",
+)
+_PRACTICAL_SIGNAL_MARKERS = (
+    "환급", "환불", "지원금", "신청", "접수", "기한", "마감", "감면", "할인", "혜택",
+    "피해", "예방", "주의보", "경보", "신고", "제보", "익명신고", "과태료", "위약금",
+    "대상자", "자격", "보험료", "보험금", "수당", "체납", "압류", "유예", "환급금",
+    "돌려받", "절약", "요금", "소비자", "부담", "면제",
+)
+
+
+def passes_practical_shape_gate(text: str) -> bool:
+    """Deterministic hard pre-reject: True unless the text shows an
+    institutional-only marker with no countervailing practical-benefit
+    marker. This is the fix for the "SOURCE -> TOPIC" contamination root
+    cause -- raw press-release/meeting/ceremony material must never even
+    enter the practical-topic candidate pool just because it happened to
+    rank well on a generic keyword score."""
+    has_institutional_marker = any(m in text for m in _INSTITUTIONAL_ONLY_MARKERS)
+    if not has_institutional_marker:
+        return True
+    return any(m in text for m in _PRACTICAL_SIGNAL_MARKERS)
+
+
+# Small, deterministic Korea-seasonal-month theme table -- calendar
+# knowledge, not a claimed current fact, so it needs no source
+# verification. Used only to recognize a genuine seasonal tie-in (a
+# candidate mentioning a theme that matches the run date's month), never
+# to fabricate a "current" claim on its own.
+_SEASONAL_MONTH_THEMES = {
+    1: ("연말정산", "설날", "난방비", "동파"),
+    2: ("연말정산", "졸업", "이사철"),
+    3: ("신학기", "이사철", "봄철"),
+    4: ("황사", "봄철", "미세먼지"),
+    5: ("가정의달", "어린이날", "종합소득세"),
+    6: ("장마", "여름철", "휴가철"),
+    7: ("폭염", "휴가철", "장마", "태풍"),
+    8: ("폭염", "휴가철", "태풍", "개학", "물놀이"),
+    9: ("추석", "가을철", "환절기", "태풍"),
+    10: ("가을철", "환절기", "단풍"),
+    11: ("연말정산", "김장", "난방비"),
+    12: ("연말정산", "겨울철", "난방비", "한파"),
+}
+
+
+def _seasonal_relevance_bonus(text: str, today: str) -> float:
+    try:
+        month = _date.fromisoformat(today).month
+    except ValueError:
+        return 0.0
+    themes = _SEASONAL_MONTH_THEMES.get(month, ())
+    return 0.25 if any(t in text for t in themes) else 0.0
+
 
 def fetch_html(url: str, timeout: int = 20, retries: int = 1) -> str:
     """A UA string that self-identifies as a bot (previously "...discovery
@@ -553,20 +621,33 @@ def fetch_body_excerpt(url: str, max_chars: int = 2000) -> str:
     return re.sub(r"\s+", " ", text).strip()[:max_chars]
 
 
-def _timeliness_signal(published_date: str, today: str) -> float:
+def _recency_base(published_date: str, today: str) -> float:
     try:
         age_days = (_date.fromisoformat(today) - _date.fromisoformat(published_date)).days
     except ValueError:
         return 0.2
     if age_days < 0:
-        return 0.5
-    if age_days <= 7:
-        return 1.0
-    if age_days <= 30:
-        return 0.6
-    if age_days <= 180:
         return 0.3
-    return 0.15
+    if age_days <= 7:
+        return 0.5
+    if age_days <= 30:
+        return 0.3
+    if age_days <= 180:
+        return 0.15
+    return 0.05
+
+
+def _timeliness_signal(published_date: str, today: str, text: str = "") -> float:
+    """Real timeliness -- why this is especially useful RIGHT NOW -- not
+    merely "was this recently published." A genuine deadline marker in the
+    text or a real Korea-seasonal tie-in for the run date's month now
+    dominates the score; recency alone is kept as a small base component
+    (a brand-new notice is still somewhat more actionable than a stale
+    one) but can no longer carry a candidate to a high score by itself."""
+    base = _recency_base(published_date, today)
+    deadline_bonus = 0.4 if _DEADLINE_RE.search(text) else 0.0
+    seasonal_bonus = _seasonal_relevance_bonus(text, today)
+    return min(1.0, base + deadline_bonus + seasonal_bonus)
 
 
 # Deterministic keyword/rule calibration for the 3 signals that used to be
@@ -702,7 +783,7 @@ def discover_live_candidates(today: str):
                     topic=item["title"],
                     category=src["category"],
                     summary=item["title"],
-                    timeliness_signal=_timeliness_signal(item["published_date"], today),
+                    timeliness_signal=_timeliness_signal(item["published_date"], today, item["title"]),
                     practical_value_signal=_practical_value_signal(item["title"]),
                     population_reach_signal=_population_reach_signal(item["title"]),
                     # Directly fetchable primary source -- verification is
