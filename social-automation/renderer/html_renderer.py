@@ -250,16 +250,34 @@ def _photo_panel(image_data: dict, tag: str, caption: str, accent: str, flex: st
     )
 
 
+def _ambient_glyph(glyph: str, accent: str, size: int = 300) -> str:
+    """A large, very-faint (6-7%) content-derived glyph, self-contained
+    within its own caller-provided relative/overflow:hidden wrapper --
+    the same proven texture technique _cta_full/_cta_designed already use
+    for their arrow, generalized to every family so a content-sized
+    primary block still carries real visual weight in the space it
+    doesn't need for text, instead of leaving that space merely blank."""
+    if not glyph:
+        return ""
+    return (
+        f'<div style="position:absolute;right:-{size // 6}px;bottom:-{size // 6}px;font-size:{size}px;'
+        f'font-weight:900;color:{accent};opacity:0.065;line-height:1;pointer-events:none;">{glyph}</div>'
+    )
+
+
 def _focal_number_block(big_text: str, sub_text: str, accent: str) -> str:
     """VISUAL ENGINE V2 primitive: a strong standalone number/claim as an
     editorial pull-stat -- left-aligned, sized to its own content (no
-    flex:1 stretch, no decorative ring/circle). Pairs with
+    flex:1 stretch, no decorative ring/circle). A self-contained faint
+    ambient glyph gives the block real presence without stretching the
+    number itself or leaving plain blank canvas beneath it. Pairs with
     _pull_quote_panel below it so the page carries TWO genuine content
     blocks instead of one shape trying to fill empty space."""
     sub_html = f'<div style="font-size:28px;font-weight:700;margin-top:12px;color:{accent};opacity:0.85;">{sub_text}</div>' if sub_text else ""
     return (
-        f'<div style="flex:0 1 auto;padding:4px 0 0 0;">'
-        f'<div style="font-size:112px;font-weight:900;line-height:0.98;letter-spacing:-3px;color:{accent};">{big_text}</div>'
+        f'<div style="flex:0 1 auto;min-height:280px;position:relative;overflow:hidden;padding:4px 0 0 0;">'
+        f'{_ambient_glyph("→", accent, 320)}'
+        f'<div style="font-size:112px;font-weight:900;line-height:0.98;letter-spacing:-3px;color:{accent};position:relative;">{big_text}</div>'
         f"{sub_html}</div>"
     )
 
@@ -296,16 +314,20 @@ def _extract_accent_stat(body: str, items: list) -> tuple:
 def _content_plus_accent(primary_html: str, label: str, value: str, accent: str, accent2: str) -> str:
     """VISUAL ENGINE V2 primitive: a two-zone asymmetric composition --
     the primary content (sized to its own real content, never stretched)
-    beside a compact colored panel carrying one genuine derived fact. This
-    is what replaces "one giant white box" for any list/checklist-shaped
-    page: real secondary visual weight instead of an empty stretched card."""
+    beside a compact colored panel carrying one genuine derived fact. A
+    floor min-height plus a self-contained ambient glyph in the accent
+    panel give the block real presence instead of leaving the remaining
+    canvas plain blank. This is what replaces "one giant white box" for
+    any list/checklist-shaped page."""
     if not value:
         return f'<div style="flex:0 1 auto;">{primary_html}</div>'
     panel = (
-        f'<div style="flex:0 0 30%;background:linear-gradient(160deg,{accent},{accent2});border-radius:20px;'
+        f'<div style="flex:0 0 30%;min-height:320px;position:relative;overflow:hidden;'
+        f'background:linear-gradient(160deg,{accent},{accent2});border-radius:20px;'
         f'padding:26px 18px;display:flex;flex-direction:column;justify-content:center;color:#fff;">'
-        f'<div style="font-size:17px;font-weight:700;opacity:0.85;margin-bottom:8px;">{label}</div>'
-        f'<div style="font-size:32px;font-weight:900;line-height:1.2;">{value}</div></div>'
+        f'{_ambient_glyph("✓", "#ffffff", 220)}'
+        f'<div style="font-size:17px;font-weight:700;opacity:0.85;margin-bottom:8px;position:relative;">{label}</div>'
+        f'<div style="font-size:32px;font-weight:900;line-height:1.2;position:relative;">{value}</div></div>'
     )
     return f'<div style="flex:0 1 auto;display:flex;gap:18px;align-items:stretch;">' f'<div style="flex:1;">{primary_html}</div>{panel}</div>'
 
@@ -316,10 +338,11 @@ def _comparison_cards_v2(left: dict, right: dict, accent: str, accent2: str) -> 
     them -- visualizes the CHANGE itself, not just two static boxes."""
     def card(d, color):
         return (
-            f'<div style="flex:1;background:#fff;border:3px solid {color}55;border-top:8px solid {color};'
-            f'border-radius:18px;padding:34px 24px;text-align:center;">'
-            f'<div style="font-size:22px;font-weight:700;color:{color};opacity:0.85;margin-bottom:10px;">{d.get("title", "")}</div>'
-            f'<div style="font-size:27px;font-weight:800;line-height:1.4;">{d.get("desc", "")}</div></div>'
+            f'<div style="flex:1;min-height:300px;position:relative;overflow:hidden;background:#fff;'
+            f'border:3px solid {color}55;border-top:8px solid {color};border-radius:18px;padding:34px 24px;text-align:center;">'
+            f'{_ambient_glyph("●", color, 220)}'
+            f'<div style="font-size:22px;font-weight:700;color:{color};opacity:0.85;margin-bottom:10px;position:relative;">{d.get("title", "")}</div>'
+            f'<div style="font-size:27px;font-weight:800;line-height:1.4;position:relative;">{d.get("desc", "")}</div></div>'
         )
     arrow = (
         f'<div style="width:0;display:flex;align-items:center;justify-content:center;z-index:2;">'
