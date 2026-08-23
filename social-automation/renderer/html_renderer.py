@@ -238,12 +238,20 @@ def _photo_panel(image_data: dict, tag: str, caption: str, accent: str, flex: st
 
 def _stat_hero_block(big_text: str, sub_text: str, accent: str, accent2: str, flex: str = "1 1 auto") -> str:
     """A strong standalone number/short claim IS the page's whole story --
-    no list, no photo needed to carry it."""
-    sub_html = f'<div style="font-size:32px;font-weight:700;margin-top:18px;line-height:1.4;">{sub_text}</div>' if sub_text else ""
+    no list, no photo needed to carry it. A single centered line in a tall
+    flex:1 card left a large accidental empty gradient area (the same
+    defect the CTA card had); a large faded decorative ring behind the
+    number fills that space as deliberate texture instead, the same fix
+    pattern used for _cta_full -- content-agnostic, not tuned to any one
+    fixture's number/text length."""
+    sub_html = f'<div style="font-size:32px;font-weight:700;margin-top:18px;line-height:1.4;position:relative;">{sub_text}</div>' if sub_text else ""
     return (
-        f'<div style="flex:{flex};display:flex;flex-direction:column;align-items:center;justify-content:center;'
-        f'text-align:center;background:linear-gradient(135deg,{accent}1f,{accent2}1f);border-radius:26px;padding:40px;">'
-        f'<div style="font-size:104px;font-weight:900;color:{accent};line-height:1.05;letter-spacing:-2px;">{big_text}</div>'
+        f'<div style="flex:{flex};position:relative;overflow:hidden;display:flex;flex-direction:column;'
+        f'align-items:center;justify-content:center;text-align:center;'
+        f'background:linear-gradient(135deg,{accent}1f,{accent2}1f);border-radius:26px;padding:40px;">'
+        f'<div style="position:absolute;width:560px;height:560px;border-radius:50%;'
+        f'border:44px solid {accent};opacity:0.07;"></div>'
+        f'<div style="font-size:104px;font-weight:900;color:{accent};line-height:1.05;letter-spacing:-2px;position:relative;">{big_text}</div>'
         f"{sub_html}</div>"
     )
 
@@ -252,16 +260,24 @@ def _card_grid_rows(items: list, accent: str, accent2: str, flex: str = "1 1 aut
     """A denser alternative to _infographic_numbered_rows for several
     benefits/programs -- two-column cards instead of stacked rows, used
     when a stacked list would repeat the immediately preceding page's
-    composition."""
+    composition. flex-wrap + align-content:center left large accidental
+    empty bands above/below the card block in a tall flex:1 container
+    (same empty-space defect class); a CSS grid with grid-auto-rows:1fr
+    makes the cards themselves stretch to occupy the full available
+    height instead, for any item count -- not sized to one fixture."""
     colors = [accent, accent2]
     cards = "".join(
-        f'<div style="flex:1 1 42%;background:#fff;border-radius:16px;padding:22px 20px;'
-        f'box-shadow:0 1px 3px {colors[i % 2]}22;border-top:6px solid {colors[i % 2]};">'
-        f'<div style="font-size:22px;font-weight:900;color:{colors[i % 2]};opacity:0.55;margin-bottom:6px;">{i + 1:02d}</div>'
-        f'<div style="font-size:24px;font-weight:700;line-height:1.35;">{item}</div></div>'
+        f'<div style="background:#fff;border-radius:16px;padding:26px 22px;'
+        f'box-shadow:0 1px 3px {colors[i % 2]}22;border-top:6px solid {colors[i % 2]};'
+        f'display:flex;flex-direction:column;justify-content:center;">'
+        f'<div style="font-size:24px;font-weight:900;color:{colors[i % 2]};opacity:0.55;margin-bottom:8px;">{i + 1:02d}</div>'
+        f'<div style="font-size:26px;font-weight:700;line-height:1.35;">{item}</div></div>'
         for i, item in enumerate(items)
     )
-    return f'<div style="flex:{flex};display:flex;flex-wrap:wrap;gap:16px;align-content:center;overflow:hidden;">{cards}</div>'
+    return (
+        f'<div style="flex:{flex};display:grid;grid-template-columns:1fr 1fr;'
+        f'grid-auto-rows:1fr;gap:18px;overflow:hidden;">{cards}</div>'
+    )
 
 
 def _photo_info_overlay(image_data: dict, tag: str, vd: dict, accent: str, flex: str = "1 1 auto") -> str:
