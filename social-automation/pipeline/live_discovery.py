@@ -111,15 +111,85 @@ def _extract_body_nhis(html: str) -> str:
     return _clean_chunk(html[idx : idx + 6000])
 
 
+_FSS_FILE_LINK_RE = re.compile(r'href="(/fss/cmmn/file/fileDown\.do\?[^"]+)"')
+_FSS_FILENAME_RE = re.compile(r'<span class="name">\s*([^<\n]+)')
+_FSS_ATCHFILEID_RE = re.compile(r"atchFileId=([0-9a-fA-F]+)")
+_FSS_FILESN_RE = re.compile(r"fileSn=(\d+)")
+
+
+def _find_fss_pdf_download_url(html: str):
+    """Each attachment is `<a href="/fss/cmmn/file/fileDown.do?...atchFileId=
+    ..&fileSn=N&bbsId=">` followed within a few lines by `<span class="name">
+    <filename>.<ext>` (verified 2026-08-23). Same "prefer pdf over hwp/hwpx"
+    contract as NTS's finder. Returns (download_url, cache_key) or None."""
+    for m in _FSS_FILE_LINK_RE.finditer(html):
+        href = m.group(1)
+        window = html[m.end() : m.end() + 400]
+        fname_m = _FSS_FILENAME_RE.search(window)
+        if fname_m and fname_m.group(1).strip().lower().endswith(".pdf"):
+            atch_m, sn_m = _FSS_ATCHFILEID_RE.search(href), _FSS_FILESN_RE.search(href)
+            cache_key = f"{atch_m.group(1) if atch_m else href}:{sn_m.group(1) if sn_m else ''}"
+            return "https://www.fss.or.kr" + href, cache_key
+    return None
+
+
+def _extract_fss_pdf_text(html: str) -> str:
+    """Downloads+extracts the detail page's attached PDF text (pypdf, free,
+    offline, no PAYG), reusing the exact same cache/extract mechanics as
+    _extract_body_nts. Returns "" on any failure/absence -- never raises."""
+    found = _find_fss_pdf_download_url(html)
+    if found is None:
+        return ""
+    download_url, cache_key = found
+
+    from core.cache import get_cached, set_cached
+    from core.database import get_connection, init_db
+
+    conn = get_connection(_NTS_ATTACHMENT_CACHE_DB)
+    init_db(conn)
+    full_cache_key = f"swipe_info:fss_attachment_text:{cache_key}"
+    cached = get_cached(conn, full_cache_key)
+    if cached is not None:
+        conn.close()
+        return cached.get("text", "")
+
+    try:
+        req = urllib.request.Request(
+            download_url,
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/120.0 Safari/537.36"
+            },
+        )
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = resp.read()
+    except Exception:
+        conn.close()
+        return ""
+
+    text = _extract_pdf_text(data)
+    import hashlib
+
+    set_cached(conn, full_cache_key, {"text": text, "sha256": hashlib.sha256(data).hexdigest()}, "")
+    conn.close()
+    return text
+
+
 def _extract_body_fss(html: str) -> str:
     """Real article body lives in <div class="dbdata">...</div>, with no
     nested <div> inside it (verified 2026-08-22), so the first closing
-    </div> after the opening tag safely bounds just the body text."""
+    </div> after the opening tag safely bounds just the body text. That
+    on-page summary is often just bullet points ending in "자세한 내용은
+    첨부파일을 참고하시기 바랍니다" (see attachment for details) -- the real
+    eligibility/amount/deadline detail lives in the attached PDF, same as
+    NTS. Combines both so has_sufficient_evidence sees the real full text."""
     idx = html.find('class="dbdata"')
-    if idx == -1:
-        return ""
-    end = html.find("</div>", idx)
-    return _clean_chunk(html[idx:end] if end != -1 else html[idx : idx + 3000])
+    summary = ""
+    if idx != -1:
+        end = html.find("</div>", idx)
+        summary = _clean_chunk(html[idx:end] if end != -1 else html[idx : idx + 3000])
+    pdf_text = _extract_fss_pdf_text(html)
+    return f"{summary} {pdf_text}".strip()
 
 
 _NTS_FILE_BLOCK_RE = re.compile(r"\{[^{}]*\}")
