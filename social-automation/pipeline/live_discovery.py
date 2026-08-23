@@ -93,6 +93,50 @@ def _extract_nts(html: str) -> list:
     return items
 
 
+def _extract_moel(html: str) -> list:
+    """고용노동부 보도자료 (고용/노동) -- verified 2026-08-23."""
+    row_re = re.compile(r"<tr>(.*?)</tr>", re.S)
+    title_re = re.compile(r'href="enewsView\.do\?news_seq=(\d+)"[^>]*title="([^"]+)"')
+    date_re = re.compile(r'aria-label="등록일">(\d{4})\.(\d{2})\.(\d{2})<')
+
+    items = []
+    for row in row_re.findall(html):
+        m_title, m_date = title_re.search(row), date_re.search(row)
+        if m_title and m_date:
+            items.append(
+                {
+                    "id": m_title.group(1),
+                    "title": m_title.group(2).strip(),
+                    "published_date": "-".join(m_date.groups()),
+                    "url": f"https://www.moel.go.kr/news/enews/report/enewsView.do?news_seq={m_title.group(1)}",
+                }
+            )
+    return items
+
+
+def _extract_mohw(html: str) -> list:
+    """보건복지부 보도자료 (복지/보건) -- verified 2026-08-23."""
+    row_re = re.compile(r"<tr>(.*?)</tr>", re.S)
+    link_re = re.compile(r'<a href="(/board\.es\?[^"]*bid=0027[^"]*act=view[^"]*list_no=(\d+)[^"]*)" class="txt_title">(.*?)</a>', re.S)
+    date_re = re.compile(r'data-label="등록일">(\d{4}-\d{2}-\d{2})<')
+
+    items = []
+    for row in row_re.findall(html):
+        m_link, m_date = link_re.search(row), date_re.search(row)
+        if m_link and m_date:
+            title = re.sub(r"<[^>]+>", "", m_link.group(3)).strip()
+            href = m_link.group(1).replace("&amp;", "&")
+            items.append(
+                {
+                    "id": m_link.group(2),
+                    "title": title,
+                    "published_date": m_date.group(1),
+                    "url": "https://www.mohw.go.kr" + href,
+                }
+            )
+    return items
+
+
 _BODY_TAG_RE = re.compile(r"<[^>]+>")
 _BODY_ENTITY_RE = re.compile(r"&[a-zA-Z#0-9]+;")
 
@@ -271,6 +315,76 @@ def _extract_body_nts(html: str) -> str:
     return text
 
 
+def _extract_body_moel(html: str) -> str:
+    """고용노동부 -- body lives directly in <div class=" b_content
+    news_content">...</div> (verified 2026-08-23), no nested <div> inside
+    it, so the first closing </div> after the opening tag safely bounds
+    just the body text (no PDF needed, unlike NTS/FSS)."""
+    idx = html.find("news_content")
+    if idx == -1:
+        return ""
+    end = html.find("</div>", idx)
+    return _clean_chunk(html[idx:end] if end != -1 else html[idx : idx + 6000])
+
+
+_MOHW_ATTACH_RE = re.compile(r'href="(/boardDownload\.es\?[^"]*)" title="[^"]*\.pdf"')
+
+
+def _find_mohw_pdf_download_url(html: str):
+    """보건복지부 detail pages link their PDF attachment as
+    /boardDownload.es?bid=...&list_no=...&seq=N with a title ending
+    in .pdf (verified 2026-08-23) -- same "prefer the one whose filename
+    says pdf" contract as NTS/FSS's finders. Returns (download_url,
+    cache_key) or None."""
+    m = _MOHW_ATTACH_RE.search(html)
+    if not m:
+        return None
+    href = m.group(1).replace("&amp;", "&")
+    return "https://www.mohw.go.kr" + href, href
+
+
+def _extract_body_mohw(html: str) -> str:
+    """보건복지부 press-release bodies aren't in the static page HTML --
+    only in an attached PDF, same pattern as NTS/FSS. Reuses the generic
+    _extract_pdf_text and the same cache mechanics/db as those two."""
+    found = _find_mohw_pdf_download_url(html)
+    if found is None:
+        return ""
+    download_url, cache_key = found
+
+    from core.cache import get_cached, set_cached
+    from core.database import get_connection, init_db
+
+    conn = get_connection(_NTS_ATTACHMENT_CACHE_DB)
+    init_db(conn)
+    full_cache_key = f"swipe_info:mohw_attachment_text:{cache_key}"
+    cached = get_cached(conn, full_cache_key)
+    if cached is not None:
+        conn.close()
+        return cached.get("text", "")
+
+    try:
+        req = urllib.request.Request(
+            download_url,
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/120.0 Safari/537.36"
+            },
+        )
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = resp.read()
+    except Exception:
+        conn.close()
+        return ""
+
+    text = _extract_pdf_text(data)
+    import hashlib
+
+    set_cached(conn, full_cache_key, {"text": text, "sha256": hashlib.sha256(data).hexdigest()}, "")
+    conn.close()
+    return text
+
+
 OFFICIAL_SOURCES = [
     {
         "board_id": "nhis-together",
@@ -298,6 +412,24 @@ OFFICIAL_SOURCES = [
         "category": "finance_savings",
         "extractor": _extract_nts,
         "body_extractor": _extract_body_nts,
+    },
+    {
+        "board_id": "moel-enews",
+        "institution": "고용노동부",
+        "list_url": "https://www.moel.go.kr/news/enews/report/enewsList.do",
+        "source_type": SourceType.GOVERNMENT,
+        "category": "employment_labor",
+        "extractor": _extract_moel,
+        "body_extractor": _extract_body_moel,
+    },
+    {
+        "board_id": "mohw-press",
+        "institution": "보건복지부",
+        "list_url": "https://www.mohw.go.kr/board.es?mid=a10503000000&bid=0027",
+        "source_type": SourceType.GOVERNMENT,
+        "category": "welfare_benefits",
+        "extractor": _extract_mohw,
+        "body_extractor": _extract_body_mohw,
     },
 ]
 
