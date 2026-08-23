@@ -228,7 +228,14 @@ def _render_image_panel(image_data: dict, accent: str, card_style: str) -> str:
         mime = "image/jpeg" if ext in ("jpg", "jpeg") else f"image/{ext}" if ext else "image/jpeg"
         with open(image_path, "rb") as f:
             b64 = base64.b64encode(f.read()).decode("ascii")
-        img_tag = f'<img src="data:{mime};base64,{b64}" style="width:100%;height:100%;object-fit:cover;display:block;">'
+        # Generated illustrations are deliberately composed scenes (a tall
+        # flow/steps stack, etc.) -- cropping them with object-fit:cover in
+        # a short composed panel cuts off content (seen: top/bottom flow
+        # boxes sliced off). "contain" never crops a generated asset; real
+        # photos/screenshots stay "cover" since a slight crop is normal/
+        # expected for those.
+        fit = "contain" if image_data.get("type") == "generated_editorial_asset" else "cover"
+        img_tag = f'<img src="data:{mime};base64,{b64}" style="width:100%;height:100%;object-fit:{fit};display:block;">'
     if not img_tag:
         return ""
     attribution_html = (
