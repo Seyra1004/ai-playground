@@ -145,7 +145,7 @@ def _extract_mois(html: str) -> list:
     """행정안전부 보도자료 (정책/안전/생활) -- verified 2026-08-23."""
     row_re = re.compile(r"<tr>(.*?)</tr>", re.S)
     link_re = re.compile(r'commonSelectBoardArticle\.do[^"]*nttId=(\d+)"[^>]*>([^<]+)</a>')
-    date_re = re.compile(r">(\d{4}\.\d{2}\.\d{2})\.<")
+    date_re = re.compile(r"\s(\d{4}\.\d{2}\.\d{2})\.\s")
 
     items = []
     for row in row_re.findall(html):
