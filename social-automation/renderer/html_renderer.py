@@ -173,13 +173,22 @@ def _cta_full(headline: str, button_text: str, region: str, accent: str, accent2
         f'<div style="color:#fff;opacity:0.65;font-weight:700;font-size:22px;margin-bottom:16px;">📍 {region}</div>'
         if region else ""
     )
+    # A tall dark block with only a headline+button left a large empty gap
+    # below them (content naturally sized well under the full available
+    # height). A big faded decorative arrow behind the text fills that
+    # space intentionally -- a deliberate editorial texture, not accidental
+    # whitespace -- while the actual copy/button stay bottom-anchored so
+    # the CTA is the last thing the eye lands on before swiping.
     return (
         f'<div style="flex:{flex};background:#181022;border-radius:28px;padding:52px 40px;'
-        f'display:flex;flex-direction:column;align-items:flex-start;justify-content:center;">'
+        f'display:flex;flex-direction:column;align-items:flex-start;justify-content:flex-end;'
+        f'position:relative;overflow:hidden;">'
+        f'<div style="position:absolute;top:-40px;right:-60px;font-size:420px;font-weight:900;'
+        f'color:{accent};opacity:0.08;line-height:1;">→</div>'
         f"{region_html}"
-        f'<div style="color:#fff;font-weight:800;font-size:42px;line-height:1.3;margin-bottom:34px;">{headline}</div>'
+        f'<div style="color:#fff;font-weight:800;font-size:42px;line-height:1.3;margin-bottom:34px;position:relative;">{headline}</div>'
         f'<div style="background:linear-gradient(90deg,{accent},{accent2});color:#fff;font-weight:800;'
-        f'font-size:30px;padding:24px 44px;border-radius:16px;">{button_text} →</div>'
+        f'font-size:30px;padding:24px 44px;border-radius:16px;position:relative;">{button_text} →</div>'
         f"</div>"
     )
 
