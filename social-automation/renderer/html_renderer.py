@@ -546,6 +546,13 @@ def _select_layout_family(page: CarouselPage, total_pages: int, prev_family: str
         family = "comparison"
     elif vtype == "process_flow" and steps:
         family = "process" if 3 <= len(steps) <= 6 else "numbered_infographic"
+    elif vtype == "bar_chart" and items:
+        # A two-entity number comparison (e.g. two regions' rainfall) reads
+        # as an A-vs-B comparison; more than two values reads as a ranked
+        # list instead -- either way this must never fall through to the
+        # generic checklist default, which would print each [label, value]
+        # pair's raw Python repr as literal page text.
+        family = "comparison" if len(items) == 2 else "numbered_infographic"
     elif vtype == "checklist" and items:
         if len(items) <= 3:
             family = "checklist"
@@ -590,6 +597,20 @@ def render_page_html(page: CarouselPage, total_pages: int, brand: BrandConfig, f
     vd = page.visual_data or {}
     tag = _pill_label_for_role(page.role)
     is_cta = family == "cta"
+
+    if vd.get("type") == "bar_chart":
+        # _select_layout_family routes this into "comparison" (2 values) or
+        # "numbered_infographic" (3+); both renderers expect their own
+        # shape (left/right dicts, or plain display strings) -- not raw
+        # [label, value] pairs -- so normalize once here rather than
+        # teaching every row-renderer about the bar_chart data shape.
+        unit = vd.get("unit", "")
+        pairs = [(p[0], p[1]) if isinstance(p, (list, tuple)) and len(p) >= 2 else (p, "") for p in (vd.get("items") or [])]
+        if family == "comparison" and len(pairs) >= 2:
+            (l_label, l_val), (r_label, r_val) = pairs[0], pairs[1]
+            vd = {**vd, "left": {"title": str(l_label), "desc": f"{l_val}{unit}"}, "right": {"title": str(r_label), "desc": f"{r_val}{unit}"}}
+        else:
+            vd = {**vd, "items": [f"{label} {value}{unit}" for label, value in pairs]}
 
     html = [_chrome_open(brand, bg, text_color)]
     html.append(_masthead(brand, accent, text_color, page.page_number, total_pages))
