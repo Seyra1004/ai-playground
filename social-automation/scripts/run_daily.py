@@ -132,6 +132,15 @@ def run_daily(account_id: str, run_date: str, dry_run: bool, resume: bool) -> in
     recent_fps = daily_state.recent_topic_fingerprints(conn, run_tracking_account, run_date, RECENCY_WINDOW_DAYS)
     daily_state.apply_recency_penalty(candidates, recent_fps)
 
+    # Permanent (all-time, not just RECENCY_WINDOW_DAYS) duplicate guard:
+    # same source/candidate_id, exact/near-exact title, or a same-story
+    # keyword-similarity near-duplicate -- runs every day forever, so
+    # "recent" alone can't guarantee a topic is never repeated.
+    all_time_fps = daily_state.recent_topic_fingerprints(
+        conn, run_tracking_account, run_date, daily_state.PERMANENT_WINDOW_DAYS
+    )
+    daily_state.reject_previously_used_candidates(conn, run_tracking_account, candidates, all_time_fps)
+
     ranked = []
     for c in candidates:
         accepted, breakdown, reason = evaluate_candidate(c, account.content.min_score)
@@ -187,6 +196,16 @@ def run_daily(account_id: str, run_date: str, dry_run: bool, resume: bool) -> in
     content_id = f"dryrun-{account_id}-{run_date}" if dry_run else f"{account_id}-{run_date}"
     selected_fact_sheet.content_id = content_id
     topic_fingerprint = daily_state.compute_topic_fingerprint(selected_candidate.topic)
+
+    # Persist the final selection permanently (survives restarts/future
+    # runs) so it's never picked again -- exact/near-exact title, same
+    # candidate_id, or same-story keyword match all get rejected upstream
+    # next time via reject_previously_used_candidates.
+    selected_score = next((r["score"] for r in ranked if r["candidate"] is selected_candidate), 0.0)
+    daily_state.record_selected_topic(
+        conn, run_tracking_account, selected_candidate.candidate_id, selected_candidate.topic,
+        selected_candidate.category, selected_score, "SELECTED", _now_iso(),
+    )
 
     # --- deterministic page plan ---
     page_inputs = derive_page_inputs_from_fact_sheet(selected_fact_sheet)

@@ -103,3 +103,98 @@ def apply_recency_penalty(candidates: list, recent_fingerprints: set) -> None:
         fp = compute_topic_fingerprint(c.topic)
         if fp in recent_fingerprints:
             c.duplication_penalty_signal = max(c.duplication_penalty_signal, 0.9)
+
+
+# A run happens every day forever, so "recent" (RECENCY_WINDOW_DAYS) isn't
+# enough to guarantee a topic is never repeated -- pass this as
+# recent_topic_fingerprints' window_days to get an effectively permanent,
+# all-time set instead (reuses that function unchanged rather than adding a
+# parallel "all time" query).
+PERMANENT_WINDOW_DAYS = 36500
+
+# A same-story follow-up article (different headline, same underlying
+# event/policy) shares most of its substantive keywords even when titles
+# differ -- Jaccard overlap at/above this is treated as the same story.
+TOPIC_SIMILARITY_THRESHOLD = 0.5
+
+_TOPIC_STOPWORDS = {"관련", "실시", "위한", "대한", "발표", "안내", "추진", "개최", "실태", "제도개선", "등"}
+_TOPIC_SPLIT_RE = re.compile(r"[\s,·.!?():\[\]{}\-]+")
+
+
+def _topic_keyword_set(topic: str) -> set:
+    """Deterministic keyword set for near-duplicate detection -- splits on
+    whitespace/punctuation, stems common Korean particles (reuses qa.
+    content_qa's existing stemmer instead of a second copy of that logic),
+    and drops short/boilerplate press-release words. No LLM call."""
+    from qa.content_qa import _korean_stem
+
+    tokens = (t for t in _TOPIC_SPLIT_RE.split(topic) if len(t) >= 2)
+    stems = {_korean_stem(t) for t in tokens}
+    return {s for s in stems if len(s) >= 2 and s not in _TOPIC_STOPWORDS}
+
+
+def topic_similarity(a: str, b: str) -> float:
+    """Jaccard similarity of two topics' keyword sets, 0.0-1.0."""
+    sa, sb = _topic_keyword_set(a), _topic_keyword_set(b)
+    if not sa or not sb:
+        return 0.0
+    return len(sa & sb) / len(sa | sb)
+
+
+def historical_topics(conn: sqlite3.Connection, account_id: str) -> list:
+    """Every topic ever finally selected for this account, permanently --
+    (candidate_id, topic) pairs from the `topics` table (already defined in
+    core/database.py's schema; this is its first reader/writer)."""
+    rows = conn.execute(
+        "SELECT candidate_id, topic FROM topics WHERE account_id = ?", (account_id,)
+    ).fetchall()
+    return [(r["candidate_id"], r["topic"]) for r in rows]
+
+
+def reject_previously_used_candidates(
+    conn: sqlite3.Connection, account_id: str, candidates: list, all_time_fingerprints: set
+) -> None:
+    """Mutates candidates in place: permanently rejects (a) the exact same
+    source/candidate_id ever selected before, (b) an exact/near-exact title
+    fingerprint match at any time (not just a recent window), and (c) a
+    near-duplicate follow-up about the same underlying story (keyword-
+    similarity gate) -- by pushing duplication_penalty_signal above core.
+    scoring's existing DUPLICATION_REJECT_THRESHOLD, so the existing scoring
+    gate (not a second copy of that rejection logic) does the actual
+    reject. A candidate that fails this always falls through to the next
+    ranked candidate in scripts/run_daily.py's existing selection loop."""
+    history = historical_topics(conn, account_id)
+    seen_ids = {cid for cid, _ in history if cid}
+    seen_topics = [t for _, t in history if t]
+
+    for c in candidates:
+        if c.candidate_id in seen_ids:
+            c.duplication_penalty_signal = max(c.duplication_penalty_signal, 0.95)
+            continue
+        if compute_topic_fingerprint(c.topic) in all_time_fingerprints:
+            c.duplication_penalty_signal = max(c.duplication_penalty_signal, 0.95)
+            continue
+        if any(topic_similarity(c.topic, t) >= TOPIC_SIMILARITY_THRESHOLD for t in seen_topics):
+            c.duplication_penalty_signal = max(c.duplication_penalty_signal, 0.9)
+
+
+def record_selected_topic(
+    conn: sqlite3.Connection,
+    account_id: str,
+    candidate_id: str,
+    topic: str,
+    category: str,
+    score: float,
+    status: str,
+    created_at: str,
+) -> None:
+    """Persists the finally-selected topic into the `topics` table so future
+    runs (including after a restart) permanently reject it -- the actual
+    persistence requirement, not just an in-memory/per-run check."""
+    conn.execute(
+        "INSERT INTO topics (candidate_id, account_id, topic, category, score, status, urgent, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, 0, ?) "
+        "ON CONFLICT(candidate_id) DO UPDATE SET status=excluded.status, score=excluded.score",
+        (candidate_id, account_id, topic, category, score, status, created_at),
+    )
+    conn.commit()
