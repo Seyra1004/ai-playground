@@ -194,7 +194,7 @@ def _cta_full(headline: str, button_text: str, region: str, accent: str, accent2
     # whitespace -- while the actual copy/button stay bottom-anchored so
     # the CTA is the last thing the eye lands on before swiping.
     return (
-        f'<div style="flex:{flex};background:#181022;border-radius:28px;padding:52px 40px;'
+        f'<div style="flex:{flex};background:#0F1E38;border-radius:28px;padding:52px 40px;'
         f'display:flex;flex-direction:column;align-items:flex-start;justify-content:flex-end;'
         f'position:relative;overflow:hidden;">'
         f'<div style="position:absolute;top:-40px;right:-60px;font-size:420px;font-weight:900;'
@@ -483,7 +483,7 @@ def _cta_designed(steps: list, trailing: str, button_text: str, accent: str, acc
     )
     trailing_html = f'<div style="color:#fff;opacity:0.7;font-weight:600;font-size:20px;margin-top:4px;">{trailing}</div>' if trailing else ""
     return (
-        f'<div style="flex:0 1 auto;background:#181022;border-radius:28px;padding:40px 34px;'
+        f'<div style="flex:0 1 auto;background:#0F1E38;border-radius:28px;padding:40px 34px;'
         f'display:flex;flex-direction:column;gap:22px;position:relative;overflow:hidden;">'
         f'<div style="position:absolute;top:-30px;right:-50px;font-size:280px;font-weight:900;color:{accent};opacity:0.07;line-height:1;">→</div>'
         f'<div style="display:flex;flex-direction:column;gap:8px;position:relative;">{chips}</div>'
@@ -548,7 +548,7 @@ def _closing_strip(text: str, accent: str, text_color: str) -> str:
     if not text:
         return ""
     return (
-        f'<div style="background:#181022;border-radius:16px;padding:22px 26px;margin-top:18px;'
+        f'<div style="background:#0F1E38;border-radius:16px;padding:22px 26px;margin-top:18px;'
         f'flex-shrink:0;"><div style="color:#fff;font-weight:700;font-size:24px;line-height:1.5;">{text}</div></div>'
     )
 
@@ -1058,11 +1058,22 @@ def _compose_magazine_page(page: CarouselPage, brand: BrandConfig, accent: str, 
             items_html = "".join(f'<div style="font-size:29px;font-weight:800;line-height:1.4;margin:6px 0;">{it}</div>' for it in s["items"])
             blocks.append(f'<div style="margin:16px 0;"><div style="font-size:16px;font-weight:800;color:{color};margin-bottom:8px;">{s["label"]}</div>{items_html}</div>')
         elif treatment == "compact_strip":
-            items_html = " · ".join(s["items"])
+            # REAL-WORLD INFORMATION OBJECT: a document/notice-slip
+            # treatment (perforated top edge, dashed row rules, small-caps
+            # label) so a "what paperwork you need" section reads as an
+            # actual document object, not another plain text rectangle.
+            rows_html = "".join(
+                f'<div style="padding:9px 0;border-bottom:1px dashed {color}40;font-size:19px;font-weight:700;line-height:1.4;'
+                f'{"border-bottom:none;" if j == len(s["items"]) - 1 else ""}">{it}</div>'
+                for j, it in enumerate(s["items"])
+            )
             blocks.append(
-                f'<div style="margin:16px 0;padding:16px 18px;border-left:4px solid {color};background:{color}0d;">'
-                f'<span style="font-size:14px;font-weight:800;color:{color};">{s["label"]}</span> '
-                f'<span style="font-size:20px;font-weight:700;">{items_html}</span></div>'
+                f'<div style="margin:16px 0;position:relative;background:#fff;border:2px solid {color}3a;'
+                f'border-radius:6px;padding:20px 20px 14px 20px;box-shadow:0 2px 8px {color}12;">'
+                f'<div style="position:absolute;top:-2px;left:18px;right:18px;height:2px;'
+                f'background:repeating-linear-gradient(90deg,{color}70 0 8px,transparent 8px 15px);"></div>'
+                f'<div style="font-size:12px;font-weight:800;color:{color};letter-spacing:1.5px;text-transform:uppercase;margin-bottom:10px;">{s["label"]}</div>'
+                f"{rows_html}</div>"
             )
         else:
             tags = "".join(
@@ -1125,9 +1136,13 @@ def render_page_html(page: CarouselPage, total_pages: int, brand: BrandConfig, f
     not its role). Uses only page.headline/body/visual_data/image_data
     already produced upstream; no new content is authored here.
     """
-    accent = brand.colors.get("violet", "#7848D8")
-    accent2 = brand.colors.get("magenta", "#F04890")
-    text_color = brand.colors.get("text_primary", "#241B31")
+    # Permanent SWIPE_INFO palette: warm paper base + deep navy (primary
+    # information color) + orange (action/signal color). The old violet/
+    # magenta heritage colors remain available in brand.yaml as
+    # controlled secondary accents only -- no longer the primary system.
+    accent = brand.colors.get("navy", "#16233F")
+    accent2 = brand.colors.get("orange", "#E8600A")
+    text_color = brand.colors.get("text_primary", "#1B2233")
     bg_cycle = list(brand.backgrounds.values()) or ["#FFFFFF"]
     bg = bg_cycle[(page.page_number - 1) % len(bg_cycle)]
 

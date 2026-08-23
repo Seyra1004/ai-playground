@@ -7,18 +7,19 @@ canvas:
   ratio: "4:5"
 
 colors:
+  navy: "#16233F"
+  orange: "#E8600A"
   violet: "#7848D8"
   light_purple: "#A848F0"
   magenta: "#F04890"
   coral: "#F06078"
-  orange: "#F09060"
-  text_primary: "#241B31"
+  text_primary: "#1B2233"
 
 backgrounds:
+  warm_paper: "#FBF6EE"
+  warm_paper_soft: "#F5EFE2"
   white: "#FFFFFF"
   light_lavender: "#F7F2FF"
-  light_pink: "#FFF1F6"
-  light_peach: "#FFF3EC"
 
 typography:
   family: "Pretendard"
