@@ -937,10 +937,11 @@ def _compose_cover_page(page: CarouselPage, brand: BrandConfig, accent: str, acc
     # (flex:1, edge-to-edge). A small evidence card forced to the same
     # flex:1 height just centers a short number inside a mostly-empty
     # card -- the same dead-space problem in a different color. The card
-    # gets its OWN content-sized height instead, and space-between spreads
-    # the two zones (copy, evidence card) across the full page height.
-    html.append(f'<div style="flex:1;display:flex;flex-direction:column;'
-                 f'justify-content:{"flex-start" if has_photo else "space-between"};margin-top:10px;min-height:0;">')
+    # is content-sized instead; with only two short zones (copy, card),
+    # space-between just relocates the void to one big middle gap, so
+    # both zones stay top-clustered and any leftover space trails below
+    # the card instead of splitting the page in two.
+    html.append('<div style="flex:1;display:flex;flex-direction:column;margin-top:10px;min-height:0;">')
     html.append('<div>')
     html.append(_pill(tag, accent))
     html.append(f'<div style="font-size:44px;font-weight:800;line-height:1.28;color:{text_color};margin-bottom:14px;">{page.headline}</div>')
