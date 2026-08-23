@@ -115,15 +115,19 @@ def _render_visual(vd: dict, accent: str, accent2: str, text_color: str) -> str:
 
     if vtype == "comparison":
         left, right = vd.get("left", {}), vd.get("right", {})
+        # align-items:stretch (not :center) so both colored columns fill the
+        # full card height -- centering left blank gaps above/below the
+        # columns whenever the card grows taller than their own content.
         col = lambda d, color: (
-            f'<div style="flex:1;background:{color}18;border:3px solid {color};border-radius:20px;padding:32px;'
+            f'<div style="flex:1;display:flex;flex-direction:column;justify-content:center;'
+            f'background:{color}18;border:3px solid {color};border-radius:20px;padding:32px;'
             f'text-align:center;">'
             f'<div style="font-size:44px;">{d.get("icon", "")}</div>'
             f'<div style="font-size:36px;font-weight:800;color:{color};margin-top:8px;">{d.get("title", "")}</div>'
             f'<div style="font-size:26px;font-weight:600;margin-top:16px;">{d.get("desc", "")}</div></div>'
         )
         return (
-            f'<div style="{_CARD_BASIS}display:flex;gap:24px;align-items:center;">'
+            f'<div style="{_CARD_BASIS}display:flex;gap:24px;align-items:stretch;">'
             f"{col(left, accent)}{col(right, accent2)}</div>"
         )
 
@@ -212,8 +216,13 @@ def _render_visual(vd: dict, accent: str, accent2: str, text_color: str) -> str:
         region_html = (
             f'<div style="font-size:28px;font-weight:700;margin-bottom:24px;">\U0001F4CD {region}</div>' if region else ""
         )
+        # A tinted bordered card (matching highlight_box/checklist/etc.)
+        # instead of a transparent box -- without it, growing the card taller
+        # just adds more blank white space around the button rather than
+        # reading as an intentional roomy card.
         return (
-            f'<div style="{_CARD_BASIS}display:flex;flex-direction:column;justify-content:center;align-items:center;">'
+            f'<div style="{_CARD_BASIS}display:flex;flex-direction:column;justify-content:center;align-items:center;'
+            f'background:{accent}0d;border:3px solid {accent};border-radius:24px;">'
             f"{region_html}"
             f'<div style="background:linear-gradient(90deg, {accent}, {accent2});color:white;font-size:38px;'
             f'font-weight:800;padding:28px 56px;border-radius:60px;">{vd.get("button_text", "")}</div>'
