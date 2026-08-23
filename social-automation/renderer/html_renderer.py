@@ -917,32 +917,30 @@ def _pill_label_for_role(role: str) -> str:
 
 
 def _compose_cover_page(page: CarouselPage, brand: BrandConfig, accent: str, accent2: str, text_color: str, bg: str, total_pages: int, vd: dict, tag: str) -> str:
-    """P1-shaped composer: the headline and the key stat are ONE
-    integrated typographic block, bottom-anchored so negative space reads
-    as deliberate cover design, not "headline on top, card below." Used
-    for any hook-role page whose visual_data is a single dominant claim."""
+    """P1-shaped composer: pill+headline+body as a top zone (matching the
+    reference baseline's proportions), and the key stat as a genuine
+    visual-weight panel below -- the same role a lead photo plays in the
+    reference cover when no photo is available. Splitting stat and body
+    into two thin floating fragments (an earlier version of this
+    composer) just relocated the dead space to the middle; giving the
+    stat its own solid-color panel gives it real graphic mass instead."""
     stat = vd.get("big_text") or vd.get("highlight", "")
-    # Bottom-anchoring the WHOLE block left a bare void under the masthead
-    # on short-copy topics -- a "cover" that was half empty canvas.
-    # Splitting into a top zone (pill+headline) and a bottom zone (giant
-    # stat+body), spread with space-between, uses the full page height as
-    # one deliberate composition instead of one cluster at the bottom.
     html = [_chrome_open(brand, bg, text_color)]
     html.append(_masthead(brand, accent, text_color, page.page_number, total_pages))
-    html.append('<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;margin-top:10px;">')
+    html.append('<div style="flex:1;display:flex;flex-direction:column;margin-top:10px;min-height:0;">')
     html.append('<div>')
     html.append(_pill(tag, accent))
-    html.append(f'<div style="font-size:44px;font-weight:800;line-height:1.28;color:{text_color};">{page.headline}</div>')
+    html.append(f'<div style="font-size:44px;font-weight:800;line-height:1.28;color:{text_color};margin-bottom:14px;">{page.headline}</div>')
+    if page.body:
+        html.append(f'<div style="font-size:24px;font-weight:600;line-height:1.5;color:{text_color};opacity:0.75;max-width:92%;">{page.body}</div>')
     html.append('</div>')
-    html.append('<div>')
     if stat:
         html.append(
-            f'<div style="font-size:148px;font-weight:900;line-height:0.9;letter-spacing:-4px;'
-            f'color:{accent};margin:6px 0 20px 0;">{stat}</div>'
+            f'<div style="flex:1;min-height:0;margin-top:26px;border-radius:28px;background:{accent};'
+            f'display:flex;align-items:center;justify-content:center;padding:24px;">'
+            f'<div style="font-size:126px;font-weight:900;line-height:0.95;letter-spacing:-3px;color:#fff;text-align:center;">{stat}</div>'
+            f'</div>'
         )
-    if page.body:
-        html.append(f'<div style="font-size:24px;font-weight:600;line-height:1.5;color:{text_color};opacity:0.75;max-width:90%;">{page.body}</div>')
-    html.append('</div>')
     html.append("</div>")
     html.append(_footer(brand, accent, accent2, text_color))
     html.append("</div>")
