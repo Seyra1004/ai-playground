@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from core.config import BrandConfig
 from core.models import CanonicalContent, CarouselPage
 
@@ -287,6 +289,47 @@ def _photo_info_overlay(image_data: dict, tag: str, vd: dict, accent: str, flex:
     items = vd.get("items") or []
     caption = vd.get("highlight") or vd.get("big_text") or (items[0] if items else "")
     return _photo_panel(image_data, tag, caption, accent, flex=flex)
+
+
+def _photo_side_panel(image_data: dict, items: list, accent: str, flex: str = "1 1 auto") -> str:
+    """A narrow SIDE photo strip (not a full-width top/bottom band) paired
+    with a short list beside it -- a second, genuinely different photo
+    shape/position from _photo_panel's full-bleed top/bottom treatment, so
+    a carousel with more than one photo+list page doesn't repeat the same
+    silhouette. Reuses _photo_panel (just narrower) and _check_rows -- no
+    new photo-rendering logic, just a different composition of existing
+    primitives."""
+    photo = _photo_panel(image_data, "", "", accent, flex="0 0 38%")
+    rows = _check_rows(items, accent, flex="1 1 auto")
+    return f'<div style="flex:{flex};display:flex;gap:20px;align-items:stretch;">{photo}{rows}</div>'
+
+
+def _closing_strip(text: str, accent: str, text_color: str) -> str:
+    """A full-width, high-contrast one-line distillation bar placed just
+    above the footer -- the repeating "so what" capstone every page in the
+    reference carousel ends on. Purely mechanical: the caller passes the
+    page's OWN already-approved final sentence, nothing invented here."""
+    if not text:
+        return ""
+    return (
+        f'<div style="background:#181022;border-radius:16px;padding:22px 26px;margin-top:18px;'
+        f'flex-shrink:0;"><div style="color:#fff;font-weight:700;font-size:24px;line-height:1.5;">{text}</div></div>'
+    )
+
+
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?다요])\s+")
+
+
+def _split_closing_sentence(body: str):
+    """Deterministic, mechanical split of an already-approved body string
+    into (lead_text, closing_sentence) -- the closing strip reuses the
+    page's own last sentence verbatim; nothing is reworded or invented.
+    Only splits when there are 2+ sentences, so a single-sentence page
+    (no genuine second thought to distill) gets no strip."""
+    parts = [p.strip() for p in _SENTENCE_SPLIT_RE.split((body or "").strip()) if p.strip()]
+    if len(parts) < 2:
+        return body, ""
+    return " ".join(parts[:-1]), parts[-1]
 
 
 def _comparison_cards(left: dict, right: dict, accent: str, accent2: str, flex: str = "1 1 auto") -> str:
@@ -653,13 +696,21 @@ def render_page_html(page: CarouselPage, total_pages: int, brand: BrandConfig, f
         else:
             vd = {**vd, "items": [f"{label} {value}{unit}" for label, value in pairs]}
 
+    # A distinct closing-strip sentence, mechanically split from the page's
+    # OWN already-approved body text (never reworded/invented) -- the
+    # repeating "so what" capstone every non-hook, non-CTA page ends on,
+    # matching the reference carousel's rhythm. The hook (page 1) and CTA
+    # already have their own strong closing treatment, so neither gets one.
+    lead_body, closing_sentence = (_split_closing_sentence(page.body) if not is_cta else (page.body, ""))
+    show_closing_strip = bool(closing_sentence) and page.page_number != 1
+
     html = [_chrome_open(brand, bg, text_color)]
     html.append(_masthead(brand, accent, text_color, page.page_number, total_pages))
     html.append('<div style="flex:1;display:flex;flex-direction:column;margin-top:26px;min-height:0;">')
     html.append(_pill(tag, accent))
     html.append(_highlighted_headline(page.headline, accent))
     if not is_cta:
-        html.append(_body_text(page.body, text_color))
+        html.append(_body_text(lead_body, text_color))
 
     if family == "editorial_photo":
         html.append(_photo_panel(page.image_data, tag, vd.get("highlight") or vd.get("big_text", ""), accent, flex="1 1 auto"))
@@ -668,16 +719,12 @@ def render_page_html(page: CarouselPage, total_pages: int, brand: BrandConfig, f
         html.append(_photo_info_overlay(page.image_data, tag, vd, accent, flex="1 1 auto"))
 
     elif family == "hybrid_photo_checklist":
-        # Photo carries context/emotion for the top ~55% of the remaining
-        # space; the short (<=3) structured list -- the real reason this
-        # page exists -- stays fully legible below it, sized to its own
-        # content rather than stretched. No caption text on the photo
-        # itself (the list already states the content; repeating it as an
-        # overlay caption would be redundant).
+        # A narrow SIDE photo strip beside the short (<=3) list -- a
+        # different photo silhouette from editorial_photo's full-bleed
+        # top/bottom treatment, so a carousel with more than one photo
+        # page doesn't repeat the same shape.
         items = vd.get("items") or []
-        html.append(_photo_panel(page.image_data, tag, "", accent, flex="1 1 55%", min_h="260px"))
-        html.append('<div style="height:22px;flex-shrink:0;"></div>')
-        html.append(_check_rows(items, accent, flex="0 1 auto"))
+        html.append(_photo_side_panel(page.image_data, items, accent, flex="1 1 auto"))
 
     elif family == "stat_hero":
         html.append(_stat_hero_block(vd.get("big_text") or vd.get("highlight", ""), vd.get("sub_text", ""), accent, accent2, flex="1 1 auto"))
@@ -718,6 +765,9 @@ def render_page_html(page: CarouselPage, total_pages: int, brand: BrandConfig, f
 
     elif family == "cta":
         html.append(_cta_full(page.body or page.headline, vd.get("button_text", "확인하기"), vd.get("region", ""), accent, accent2, flex="1 1 auto"))
+
+    if show_closing_strip:
+        html.append(_closing_strip(closing_sentence, accent, text_color))
 
     html.append("</div>")
     html.append(_footer(brand, accent, accent2, text_color))
