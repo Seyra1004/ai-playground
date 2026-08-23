@@ -260,3 +260,34 @@ def assign_images_to_pages(pages: list, accepted_images: list) -> list:
         changed.append(page.page_number)
         image_idx += 1
     return changed
+
+
+def fill_missing_pages_with_generated_assets(pages: list, out_dir: str, brand) -> list:
+    """Priority-4 fallback, tried only after Priority 1-3 (verified external
+    images via discover_and_acquire_images + assign_images_to_pages) leave a
+    page without an image. Generates a deterministic, ZERO-PAYG standalone
+    editorial illustration per remaining page (pipeline.
+    generated_illustrations -- an original PIL-drawn raster asset, never a
+    screenshot of this renderer's own CSS/chart components, never any
+    text/numbers). Every page ends up with exactly one image asset. Returns
+    the list of page_numbers filled this way."""
+    from pipeline.generated_illustrations import generate_editorial_illustration
+
+    filled = []
+    generated_entries = []
+    for page in pages:
+        vd = page.visual_data or {}
+        if vd.get("type") in ("real_image", "generated_editorial_asset"):
+            continue
+        asset = generate_editorial_illustration(page.role, page.page_number, out_dir, brand)
+        page.visual_data = {
+            "type": "generated_editorial_asset",
+            "image_path": asset["path"],
+            "caption": (page.headline or "")[:20],
+        }
+        generated_entries.append(asset)
+        filled.append(page.page_number)
+
+    if generated_entries:
+        _write_sources_json(out_dir, generated_entries)
+    return filled

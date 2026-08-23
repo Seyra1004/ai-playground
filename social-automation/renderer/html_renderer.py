@@ -18,6 +18,7 @@ _LAYOUT_VARIANT_BY_VISUAL_TYPE = {
     "evidence_card": "content_card",
     "process_flow": "content_card",
     "real_image": "content_card",
+    "generated_editorial_asset": "content_card",
 }
 
 
@@ -164,12 +165,16 @@ def _render_visual(vd: dict, accent: str, accent2: str, text_color: str) -> str:
             f'gap:0;padding:24px;">{blocks}</div>'
         )
 
-    if vtype == "real_image":
-        # An actual downloaded image file (not CSS/emoji/a generated
-        # diagram) -- source/rights are recorded separately in
-        # data/assets/<account>/asset_sources.json. Embedded as a base64
-        # data: URI so it renders correctly under Playwright's
-        # page.set_content() (no file:// base URL involved).
+    if vtype in ("real_image", "generated_editorial_asset"):
+        # An actual image FILE on disk -- either a downloaded real photo/
+        # screenshot ("real_image") or a standalone, deterministically
+        # generated editorial illustration ("generated_editorial_asset",
+        # pipeline.generated_illustrations -- an original PIL-drawn asset,
+        # never a screenshot of this renderer's own CSS/chart components).
+        # Both embed identically; source/rights are recorded separately in
+        # the sibling asset_sources.json. Embedded as a base64 data: URI so
+        # it renders correctly under Playwright's page.set_content() (no
+        # file:// base URL involved).
         import base64
         import os
 
