@@ -503,7 +503,10 @@ def _select_candidate(candidates: list, subject: str, seen_hashes: set) -> dict:
     return None
 
 
-def acquire_photo_for_page(role: str, headline: str, body: str, page_number: int, out_dir: str, seen_hashes: set) -> dict:
+def acquire_photo_for_page(
+    role: str, headline: str, body: str, page_number: int, out_dir: str, seen_hashes: set,
+    concepts: list = None, debug_log: list = None,
+) -> dict:
     """Tries each derived (subject, query) concept in order -- max 3, a
     small query ladder, never a broad search spree -- until one candidate
     passes every quality/semantic-relevance/license gate. Per concept,
@@ -519,16 +522,29 @@ def acquire_photo_for_page(role: str, headline: str, body: str, page_number: int
     width/height/bytes) or None if nothing acceptable was found across
     every source -- callers must treat that as NO_ACCEPTABLE_PHOTO, never
     substitute a weak result to hit coverage."""
-    concepts = derive_concepts(headline, body, role)
+    # concepts: pass-through so an upstream planner's already-computed
+    # (subject, query) ladder is used verbatim instead of re-deriving it
+    # here (avoids a second concept-generation call and keeps acquisition
+    # and the planner's logged decision the same thing, not two guesses).
+    if concepts is None:
+        concepts = derive_concepts(headline, body, role)
     if not concepts:
+        if debug_log is not None:
+            debug_log.append({"queries_tried": [], "candidates_found": 0, "reason": "no_distinctive_subject"})
         return None
 
     chosen, chosen_subject, chosen_query = None, None, None
     for subject, query in concepts:
         pool = search_pexels(query) + search_openverse(query) + search_commons(query)
-        chosen = _select_candidate(pool, subject, seen_hashes)
-        if chosen is not None:
-            chosen_subject, chosen_query = subject, query
+        selected = _select_candidate(pool, subject, seen_hashes)
+        if debug_log is not None:
+            debug_log.append({
+                "subject": subject, "query": query, "candidates_found": len(pool),
+                "candidates_rejected": len(pool) - (1 if selected is not None else 0),
+                "accepted": selected is not None,
+            })
+        if selected is not None:
+            chosen, chosen_subject, chosen_query = selected, subject, query
             break
     if chosen is None:
         return None

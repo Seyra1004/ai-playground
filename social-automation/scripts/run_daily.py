@@ -20,7 +20,9 @@ from core.payg_guard import payg_guard_active  # noqa: E402
 from core.scoring import evaluate_candidate  # noqa: E402
 from pipeline import daily_state, semantic_cache  # noqa: E402
 from pipeline.discovery import build_dry_run_bundle, load_research_bundle  # noqa: E402
+from pipeline.editorial_asset_planner import plan_content_assets  # noqa: E402
 from pipeline.image_acquisition import assign_images_to_pages, discover_and_acquire_images  # noqa: E402
+from pipeline.photo_acquisition import acquire_photo_for_page  # noqa: E402
 from pipeline.repair import MAX_REPAIR_ATTEMPTS, repair_canonical_content  # noqa: E402
 from pipeline.runner import run_pipeline  # noqa: E402
 from qa.content_qa import check_real_images, check_visual_quality  # noqa: E402
@@ -318,6 +320,7 @@ def run_daily(account_id: str, run_date: str, dry_run: bool, resume: bool) -> in
     real_image_fallback = False
     real_image_fallback_reason = None
     accepted_images = []
+    asset_plans = []
     if package.canonical_content is not None:
         for source in package.canonical_content.fact_sheet.sources:
             asset_dir = os.path.join(
@@ -337,6 +340,40 @@ def run_daily(account_id: str, run_date: str, dry_run: bool, resume: bool) -> in
         else:
             changed_pages = assign_images_to_pages(package.canonical_content.pages, accepted_images)
             print(f"REAL_IMAGE_PAGES_ASSIGNED={changed_pages}")
+
+        # --- editorial asset planning + stock-photo acquisition, upstream
+        # of the renderer. The plan is the single source of truth for what
+        # each page's dominant visual material should be; photo acquisition
+        # below consumes its (subject, query) ladder directly rather than
+        # re-deriving its own -- and any page the official on-source-page
+        # image pass above didn't cover is only searched here when the plan
+        # says a photo would genuinely add value (photo_value HIGH/MEDIUM
+        # with a distinctive subject), never as a blanket per-page search.
+        asset_plans = plan_content_assets(package.canonical_content.pages, package.canonical_content.fact_sheet)
+        photo_dir = os.path.join("data", "assets", account_id, f"{content_id}_photos")
+        seen_hashes = set()
+        for page, plan in zip(package.canonical_content.pages, asset_plans):
+            if page.image_data:
+                plan.asset_status = "OFFICIAL_IMAGE"
+                continue
+            if plan.photo_value not in ("HIGH", "MEDIUM") or not plan.concept_pairs:
+                plan.asset_status = "INFO_OBJECT_USED" if plan.information_object_type != "TYPOGRAPHY" else "TYPOGRAPHY_ONLY"
+                continue
+            debug_log = []
+            result = acquire_photo_for_page(
+                page.role, page.headline, page.body, page.page_number, photo_dir, seen_hashes,
+                concepts=plan.concept_pairs, debug_log=debug_log,
+            )
+            plan.fallback_chain = [{"debug": debug_log}] + plan.fallback_chain
+            if result:
+                page.image_data = {
+                    "type": "real_image", "image_path": result["path"], "attribution": result["publisher"],
+                }
+                plan.asset_status = "PHOTO_ACQUIRED"
+                print(f"P{page.page_number} PHOTO_ACQUIRED subject={plan.distinctive_subject!r}")
+            else:
+                plan.asset_status = "INFO_OBJECT_USED" if plan.information_object_type != "TYPOGRAPHY" else "TYPOGRAPHY_ONLY"
+                print(f"P{page.page_number} NO_PHOTO -> {plan.asset_status} (subject={plan.distinctive_subject!r})")
 
     # --- render + post-render QA (only if we have canonical content to show) ---
     png_paths = []
@@ -401,6 +438,7 @@ def run_daily(account_id: str, run_date: str, dry_run: bool, resume: bool) -> in
         _write_json(os.path.join(out_dir, "candidates.json"), breakdown_report)
         _write_json(os.path.join(out_dir, "fact_sheet.json"), _fact_sheet_to_dict(fs))
         _write_json(os.path.join(out_dir, "sources.json"), [dataclasses.asdict(s) for s in fs.sources])
+        _write_json(os.path.join(out_dir, "asset_plan.json"), [dataclasses.asdict(p) for p in asset_plans])
 
         sources_by_id = {s.source_id: s for s in fs.sources}
         _write_json(

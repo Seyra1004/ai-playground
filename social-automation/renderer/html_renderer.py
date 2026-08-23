@@ -920,11 +920,17 @@ def _compose_cover_page(page: CarouselPage, brand: BrandConfig, accent: str, acc
     """P1-shaped composer: pill+headline+body as a top zone (matching the
     reference baseline's proportions), and the key stat as a genuine
     visual-weight panel below -- the same role a lead photo plays in the
-    reference cover when no photo is available. Splitting stat and body
-    into two thin floating fragments (an earlier version of this
-    composer) just relocated the dead space to the middle; giving the
-    stat its own solid-color panel gives it real graphic mass instead."""
+    reference cover when no photo is available.
+
+    When no photo was acquired for this page, that panel MUST NOT be a
+    flat solid-color rectangle standing in for real content (an
+    editorial-asset-planner anti-pattern: "NO_PHOTO must never mean a
+    giant colored rectangle"). It reuses the same DOCUMENT-family visual
+    grammar as the P5 information-object card (paper card, perforated
+    accent rule, small uppercase label) so the fallback still reads as a
+    genuine information object, not decoration standing in for a photo."""
     stat = vd.get("big_text") or vd.get("highlight", "")
+    has_photo = bool(page.image_data)
     html = [_chrome_open(brand, bg, text_color)]
     html.append(_masthead(brand, accent, text_color, page.page_number, total_pages))
     html.append('<div style="flex:1;display:flex;flex-direction:column;margin-top:10px;min-height:0;">')
@@ -934,11 +940,18 @@ def _compose_cover_page(page: CarouselPage, brand: BrandConfig, accent: str, acc
     if page.body:
         html.append(f'<div style="font-size:24px;font-weight:600;line-height:1.5;color:{text_color};opacity:0.75;max-width:92%;">{page.body}</div>')
     html.append('</div>')
-    if stat:
+    if has_photo:
+        html.append('<div style="margin-top:26px;flex:1;min-height:0;display:flex;">'
+                     + _photo_panel(page.image_data, "", stat, accent, flex="1 1 auto") + '</div>')
+    elif stat:
         html.append(
-            f'<div style="flex:1;min-height:0;margin-top:26px;border-radius:28px;background:{accent};'
-            f'display:flex;align-items:center;justify-content:center;padding:24px;">'
-            f'<div style="font-size:126px;font-weight:900;line-height:0.95;letter-spacing:-3px;color:#fff;text-align:center;">{stat}</div>'
+            f'<div style="flex:1;min-height:0;margin-top:26px;position:relative;background:#fff;'
+            f'border:2px solid {accent}30;border-radius:20px;padding:38px 32px 30px 32px;'
+            f'display:flex;flex-direction:column;justify-content:center;box-shadow:0 4px 16px {accent}14;">'
+            f'<div style="position:absolute;top:-2px;left:28px;right:28px;height:3px;'
+            f'background:repeating-linear-gradient(90deg,{accent}80 0 10px,transparent 10px 19px);"></div>'
+            f'<div style="font-size:14px;font-weight:800;color:{accent};letter-spacing:2px;text-transform:uppercase;margin-bottom:12px;">핵심 수치</div>'
+            f'<div style="font-size:118px;font-weight:900;line-height:0.95;letter-spacing:-3px;color:{accent};">{stat}</div>'
             f'</div>'
         )
     html.append("</div>")
