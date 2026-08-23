@@ -63,8 +63,16 @@ def _nts_attachment_urls(html: str, source_url: str) -> list:
     return [found[0]] if found else []
 
 
+def _fss_attachment_urls(html: str, source_url: str) -> list:
+    from pipeline.live_discovery import _find_fss_pdf_download_url
+
+    found = _find_fss_pdf_download_url(html)
+    return [found[0]] if found else []
+
+
 _PUBLISHER_ATTACHMENT_FINDERS = {
     "국세청": _nts_attachment_urls,
+    "금융감독원": _fss_attachment_urls,
 }
 
 
