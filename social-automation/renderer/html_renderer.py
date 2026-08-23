@@ -250,23 +250,134 @@ def _photo_panel(image_data: dict, tag: str, caption: str, accent: str, flex: st
     )
 
 
-def _stat_hero_block(big_text: str, sub_text: str, accent: str, accent2: str, flex: str = "1 1 auto") -> str:
-    """A strong standalone number/short claim IS the page's whole story --
-    no list, no photo needed to carry it. A single centered line in a tall
-    flex:1 card left a large accidental empty gradient area (the same
-    defect the CTA card had); a large faded decorative ring behind the
-    number fills that space as deliberate texture instead, the same fix
-    pattern used for _cta_full -- content-agnostic, not tuned to any one
-    fixture's number/text length."""
-    sub_html = f'<div style="font-size:32px;font-weight:700;margin-top:18px;line-height:1.4;position:relative;">{sub_text}</div>' if sub_text else ""
+def _focal_number_block(big_text: str, sub_text: str, accent: str) -> str:
+    """VISUAL ENGINE V2 primitive: a strong standalone number/claim as an
+    editorial pull-stat -- left-aligned, sized to its own content (no
+    flex:1 stretch, no decorative ring/circle). Pairs with
+    _pull_quote_panel below it so the page carries TWO genuine content
+    blocks instead of one shape trying to fill empty space."""
+    sub_html = f'<div style="font-size:28px;font-weight:700;margin-top:12px;color:{accent};opacity:0.85;">{sub_text}</div>' if sub_text else ""
     return (
-        f'<div style="flex:{flex};position:relative;overflow:hidden;display:flex;flex-direction:column;'
-        f'align-items:center;justify-content:center;text-align:center;'
-        f'background:linear-gradient(135deg,{accent}1f,{accent2}1f);border-radius:26px;padding:40px;">'
-        f'<div style="position:absolute;width:560px;height:560px;border-radius:50%;'
-        f'border:44px solid {accent};opacity:0.07;"></div>'
-        f'<div style="font-size:104px;font-weight:900;color:{accent};line-height:1.05;letter-spacing:-2px;position:relative;">{big_text}</div>'
+        f'<div style="flex:0 1 auto;padding:4px 0 0 0;">'
+        f'<div style="font-size:112px;font-weight:900;line-height:0.98;letter-spacing:-3px;color:{accent};">{big_text}</div>'
         f"{sub_html}</div>"
+    )
+
+
+def _pull_quote_panel(text: str, accent: str, accent2: str) -> str:
+    """VISUAL ENGINE V2 primitive: a second, distinct editorial block (not
+    a stretched copy of the first) -- the page's own already-approved
+    closing sentence styled as a tinted pull-quote. Content-sized."""
+    if not text:
+        return ""
+    return (
+        f'<div style="flex:0 1 auto;margin-top:34px;background:linear-gradient(120deg,{accent}14,{accent2}0d);'
+        f'border-left:6px solid {accent};border-radius:6px 20px 20px 6px;padding:26px 28px;">'
+        f'<div style="font-size:27px;font-weight:800;line-height:1.5;color:{accent};">{text}</div></div>'
+    )
+
+
+_KOREAN_DATE_RE = re.compile(r"\d{1,2}월\s?\d{1,2}일")
+
+
+def _extract_accent_stat(body: str, items: list) -> tuple:
+    """Deterministic secondary-panel fact -- a real date already present in
+    the page's own body text if there is one, else the true item count.
+    Never invented; both are mechanically derived from already-approved
+    content, reusable for any future topic's list-shaped page."""
+    m = _KOREAN_DATE_RE.search(body or "")
+    if m:
+        return "시행일", m.group(0)
+    if items:
+        return "확인할 항목", f"{len(items)}가지"
+    return "", ""
+
+
+def _content_plus_accent(primary_html: str, label: str, value: str, accent: str, accent2: str) -> str:
+    """VISUAL ENGINE V2 primitive: a two-zone asymmetric composition --
+    the primary content (sized to its own real content, never stretched)
+    beside a compact colored panel carrying one genuine derived fact. This
+    is what replaces "one giant white box" for any list/checklist-shaped
+    page: real secondary visual weight instead of an empty stretched card."""
+    if not value:
+        return f'<div style="flex:0 1 auto;">{primary_html}</div>'
+    panel = (
+        f'<div style="flex:0 0 30%;background:linear-gradient(160deg,{accent},{accent2});border-radius:20px;'
+        f'padding:26px 18px;display:flex;flex-direction:column;justify-content:center;color:#fff;">'
+        f'<div style="font-size:17px;font-weight:700;opacity:0.85;margin-bottom:8px;">{label}</div>'
+        f'<div style="font-size:32px;font-weight:900;line-height:1.2;">{value}</div></div>'
+    )
+    return f'<div style="flex:0 1 auto;display:flex;gap:18px;align-items:stretch;">' f'<div style="flex:1;">{primary_html}</div>{panel}</div>'
+
+
+def _comparison_cards_v2(left: dict, right: dict, accent: str, accent2: str) -> str:
+    """VISUAL ENGINE V2 primitive: two content-sized (not flex:1-stretched)
+    comparison cards with a floating transition badge overlapping between
+    them -- visualizes the CHANGE itself, not just two static boxes."""
+    def card(d, color):
+        return (
+            f'<div style="flex:1;background:#fff;border:3px solid {color}55;border-top:8px solid {color};'
+            f'border-radius:18px;padding:34px 24px;text-align:center;">'
+            f'<div style="font-size:22px;font-weight:700;color:{color};opacity:0.85;margin-bottom:10px;">{d.get("title", "")}</div>'
+            f'<div style="font-size:27px;font-weight:800;line-height:1.4;">{d.get("desc", "")}</div></div>'
+        )
+    arrow = (
+        f'<div style="width:0;display:flex;align-items:center;justify-content:center;z-index:2;">'
+        f'<div style="width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,{accent},{accent2});'
+        f'color:#fff;font-size:24px;font-weight:900;display:flex;align-items:center;justify-content:center;'
+        f'margin-left:-26px;box-shadow:0 4px 10px {accent}44;flex-shrink:0;">→</div></div>'
+    )
+    return f'<div style="flex:0 1 auto;display:flex;align-items:stretch;">{card(left, accent)}{arrow}{card(right, accent2)}</div>'
+
+
+_ARROW_STEP_RE = re.compile(r"^[①②③④⑤⑥⑦⑧⑨]\s*")
+
+
+def _extract_step_flow(body: str) -> tuple:
+    """Deterministic parse of a body ALREADY written as a numbered
+    arrow sequence (①...→②...→...) into discrete steps + any trailing
+    sentence after the chain (e.g. a secondary share prompt). Only fires
+    when the text already uses this pattern -- returns ([], body)
+    otherwise, never fabricating steps for a page that doesn't have them."""
+    if "→" not in (body or ""):
+        return [], body
+    segments = [s.strip() for s in body.split("→")]
+    steps, trailing = [], ""
+    for i, seg in enumerate(segments):
+        seg = _ARROW_STEP_RE.sub("", seg)
+        if i == len(segments) - 1:
+            first, _, rest = seg.partition(".")
+            steps.append(first.strip())
+            trailing = rest.strip()
+        else:
+            steps.append(seg)
+    return steps, trailing
+
+
+def _cta_designed(steps: list, trailing: str, button_text: str, accent: str, accent2: str) -> str:
+    """VISUAL ENGINE V2 primitive: the action page as a visual step-flow +
+    button, not a paragraph of text inside a dark rectangle."""
+    colors = [accent, accent2]
+    chips = "".join(
+        (
+            f'<div style="display:flex;align-items:center;gap:16px;">'
+            f'<div style="width:38px;height:38px;border-radius:50%;background:{colors[i % 2]};color:#fff;'
+            f'display:flex;align-items:center;justify-content:center;font-weight:900;font-size:18px;flex-shrink:0;">{i + 1}</div>'
+            f'<div style="color:#fff;font-weight:700;font-size:24px;line-height:1.3;">{step}</div></div>'
+        )
+        + (f'<div style="margin-left:18px;color:{colors[i % 2]};font-size:20px;opacity:0.55;">↓</div>' if i < len(steps) - 1 else "")
+        for i, step in enumerate(steps)
+    )
+    trailing_html = f'<div style="color:#fff;opacity:0.7;font-weight:600;font-size:20px;margin-top:4px;">{trailing}</div>' if trailing else ""
+    return (
+        f'<div style="flex:0 1 auto;background:#181022;border-radius:28px;padding:40px 34px;'
+        f'display:flex;flex-direction:column;gap:22px;position:relative;overflow:hidden;">'
+        f'<div style="position:absolute;top:-30px;right:-50px;font-size:280px;font-weight:900;color:{accent};opacity:0.07;line-height:1;">→</div>'
+        f'<div style="display:flex;flex-direction:column;gap:8px;position:relative;">{chips}</div>'
+        f"{trailing_html}"
+        f'<div style="background:linear-gradient(90deg,{accent},{accent2});color:#fff;font-weight:800;'
+        f'font-size:27px;padding:22px 40px;border-radius:16px;text-align:center;position:relative;">{button_text} →</div>'
+        f"</div>"
     )
 
 
@@ -714,7 +825,9 @@ def render_page_html(page: CarouselPage, total_pages: int, brand: BrandConfig, f
     # matching the reference carousel's rhythm. The hook (page 1) and CTA
     # already have their own strong closing treatment, so neither gets one.
     lead_body, closing_sentence = (_split_closing_sentence(page.body) if not is_cta else (page.body, ""))
-    show_closing_strip = bool(closing_sentence) and page.page_number != 1
+    # stat_hero already uses closing_sentence as its own pull-quote panel
+    # above -- showing it again as a bottom strip would duplicate the text.
+    show_closing_strip = bool(closing_sentence) and page.page_number != 1 and family != "stat_hero"
 
     html = [_chrome_open(brand, bg, text_color)]
     html.append(_masthead(brand, accent, text_color, page.page_number, total_pages))
@@ -739,44 +852,48 @@ def render_page_html(page: CarouselPage, total_pages: int, brand: BrandConfig, f
         html.append(_photo_side_panel(page.image_data, items, accent, flex="1 1 auto"))
 
     elif family == "stat_hero":
-        html.append(_stat_hero_block(vd.get("big_text") or vd.get("highlight", ""), vd.get("sub_text", ""), accent, accent2, flex="1 1 auto"))
+        # Two genuine content blocks -- a focal number (content-sized, no
+        # decorative ring) plus the page's own closing sentence styled as
+        # a pull-quote -- instead of one shape trying to fill empty space.
+        html.append(_focal_number_block(vd.get("big_text") or vd.get("highlight", ""), vd.get("sub_text", ""), accent))
+        if closing_sentence:
+            html.append(_pull_quote_panel(closing_sentence, accent, accent2))
 
     elif family == "process":
         items = vd.get("steps") or vd.get("items") or []
-        html.append(_numbered_rows(items, accent, flex="1 1 auto"))
+        rows_html = _numbered_rows(items, accent, flex="0 1 auto")
+        label, value = _extract_accent_stat(page.body, items)
+        html.append(_content_plus_accent(rows_html, label, value, accent, accent2))
 
     elif family == "checklist":
         # A highlight_box/stat-hero-eligible claim rejected/tie-broken into
         # checklist has no "items" list of its own -- fall back to its own
-        # single short claim so the content is still shown, just at
-        # checklist scale instead of a giant numeral. A single fallback row
-        # forced to fill the full remaining canvas height (flex:1 1 auto)
-        # leaves a large accidental empty card -- let it size to its own
-        # content instead; a real multi-item checklist still fills the page.
+        # single short claim.
         items = vd.get("items") or ([vd["highlight"]] if vd.get("highlight") else ([vd["big_text"]] if vd.get("big_text") else []))
-        checklist_flex = "0 1 auto" if len(items) <= 1 else "1 1 auto"
-        html.append(_check_rows(items, accent, flex=checklist_flex))
+        rows_html = _check_rows(items, accent, flex="0 1 auto")
+        label, value = _extract_accent_stat(page.body, items)
+        html.append(_content_plus_accent(rows_html, label, value, accent, accent2))
 
     elif family == "numbered_infographic":
-        # A short (<=3) list centered in a flex:1 container (forced to fill
-        # the full remaining page height) leaves a large accidental empty
-        # band above and below the rows -- the same defect class already
-        # fixed for the checklist/card_grid fallbacks. A longer list (4+)
-        # still fills the page naturally.
         items = vd.get("items") or vd.get("steps") or []
-        infographic_flex = "0 1 auto" if len(items) <= 3 else "1 1 auto"
-        html.append(_infographic_numbered_rows(items, accent, accent2, flex=infographic_flex))
+        rows_html = _infographic_numbered_rows(items, accent, accent2, flex="0 1 auto")
+        label, value = _extract_accent_stat(page.body, items)
+        html.append(_content_plus_accent(rows_html, label, value, accent, accent2))
 
     elif family == "card_grid":
         items = vd.get("items") or vd.get("steps") or []
-        html.append(_card_grid_rows(items, accent, accent2, flex="1 1 auto"))
+        html.append(_card_grid_rows(items, accent, accent2, flex="0 1 auto"))
 
     elif family == "comparison":
         left, right = vd.get("left", {}), vd.get("right", {})
-        html.append(_comparison_cards(left, right, accent, accent2, flex="1 1 auto"))
+        html.append(_comparison_cards_v2(left, right, accent, accent2))
 
     elif family == "cta":
-        html.append(_cta_full(page.body or page.headline, vd.get("button_text", "확인하기"), vd.get("region", ""), accent, accent2, flex="1 1 auto"))
+        steps, trailing = _extract_step_flow(page.body) if page.body else ([], "")
+        if steps:
+            html.append(_cta_designed(steps, trailing, vd.get("button_text", "확인하기"), accent, accent2))
+        else:
+            html.append(_cta_full(page.body or page.headline, vd.get("button_text", "확인하기"), vd.get("region", ""), accent, accent2, flex="0 1 auto"))
 
     if show_closing_strip:
         html.append(_closing_strip(closing_sentence, accent, text_color))
