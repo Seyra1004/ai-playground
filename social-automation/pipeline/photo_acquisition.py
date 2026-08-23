@@ -97,14 +97,7 @@ _KEYWORD_CONCEPTS = [
     (("수해", "호우", "침수", "홍수", "태풍"), "flooded street", "flooded street damaged building"),
     (("소상공인", "중소기업", "자영업", "상공인"), "small shop owner", "small shop owner business"),
     (("가계", "가정", "세대", "가족"), "family household", "family household home"),
-    # Natural stock-photo-style scene phrasing, not professional-jargon
-    # phrases -- "office worker workplace" tested empirically to return
-    # near-zero real coverage on Commons/Openverse; "person using laptop
-    # office" style phrasing returns real, high-res, appropriately
-    # generic results for the same underlying concept.
-    (("근로자", "직장인", "노동자", "근무자", "사업장"), "office worker", "person using laptop office"),
     (("야근", "초과근무", "연장근무", "시간외", "야간근무"), "office worker", "person working late office desk"),
-    (("병원", "진료", "치료", "시술", "검사", "의사", "환자"), "doctor patient", "doctor patient consultation room"),
     (("환급", "환불", "돌려받"), "receipt payment", "receipt payment consumer"),
     (("카드", "결제"), "credit card payment", "credit card payment"),
     (("보험료", "보험금", "보험"), "insurance documents", "insurance documents paperwork"),
@@ -133,43 +126,39 @@ _KEYWORD_CONCEPTS = [
 # mask-mandate notice photo and a 1970s NARA archival Philadelphia parking-
 # lot photo -- country-specific institutional/archival imagery, not a
 # generic commuting scene.
-
-
-# Tier 2: a GENERIC, role-keyed, UNIVERSAL contextual fallback -- used
-# ONLY when the page's own text matched nothing in the content glossary
-# above. This is deliberately NOT a topic's specific vocabulary leaking
-# into another topic (the earlier, separately-fixed bug) -- it is the
-# SAME two broad scene categories for every topic, every day: a relatable
-# human moment for reader-facing roles, a documents/process moment for
-# structural roles. It only ever widens the SEARCH attempt; every
-# candidate it finds still has to clear the exact same quality/relevance/
-# license gates as a content-derived concept, so a page still correctly
-# gets NO_PHOTO if nothing genuinely acceptable turns up.
-_ROLE_FALLBACK_QUERIES = {
-    "hook": ("person", "person reading document at desk"),
-    "why_now": ("person", "person using smartphone concerned"),
-    "eligibility": ("person", "person reading document at desk"),
-    "warnings": ("person", "person using smartphone concerned"),
-    "cta": ("person", "person using smartphone app"),
-    "conditions": ("documents", "hands filling out paperwork desk"),
-    "procedure": ("documents", "hands filling out paperwork desk"),
-    "amount": ("documents", "person writing document office"),
-    "comparison": ("documents", "hands filling out paperwork desk"),
-    "examples": ("documents", "hands filling out paperwork desk"),
-    "exclusions": ("documents", "person writing document office"),
-}
+#
+# Two more were removed after a DISTINCTIVE-SUBJECT review (not a
+# safety/relevance-gate failure -- these passed every existing check):
+# "근로자/직장인/사업장" -> "office worker" and "병원/치료/시술" -> "doctor
+# patient consultation room" were both broad-CATEGORY matches, not
+# editorially-specific to any one page's actual subject -- a generic
+# "person at a laptop" or "stethoscope checkup" photo doesn't distinctly
+# represent "eligibility for a specific leave type" or "fertility
+# treatment" any more than it represents dozens of unrelated topics. A
+# genuinely specific alternative ("fertility clinic") was tested and
+# rejected too: Commons only has photos of real, NAMED clinics in random
+# countries (Chennai, Copenhagen, Tallinn, a UK "geograph.org.uk" street-
+# view site) -- using one would wrongly imply a specific real overseas
+# institution is associated with a Korean government policy. When a topic
+# genuinely has no distinctive, safe, on-subject photo available, NO_PHOTO
+# is correct, not a generic broad-category substitute.
+#
+# There is deliberately NO generic role-based fallback tier (removed after
+# this review) -- a "relatable human moment" or "documents on a desk"
+# stock photo is exactly the kind of broad-category substitute this
+# section exists to reject.
+_GEOGRAPH_SOURCE_RE = re.compile(r"geograph\.org\.uk", re.I)
 
 
 def derive_concepts(headline: str, body: str, role: str = "", max_concepts: int = 3) -> list:
-    """Up to 3 (subject, query) concept pairs for one page. Tier 1 is
-    derived ONLY from the page's own verified text via the content
-    glossary above (most-matched concepts first). If that finds nothing,
-    Tier 2 adds ONE generic, role-keyed contextual scene (see
-    _ROLE_FALLBACK_QUERIES) so a page is never searched zero times just
-    because its text happens to contain no glossary marker -- a real
-    photo opportunity (a relatable moment, a documents/desk scene) still
-    gets a genuine attempt, gated by the same relevance/quality checks as
-    everything else."""
+    """Up to 3 (subject, query) concept pairs for one page -- derived ONLY
+    from its own verified text via the glossary above, in a small query
+    ladder (most-matched concepts first). Returns [] when the text
+    matches nothing -- callers MUST treat that as an immediate NO_PHOTO.
+    No generic/role-based fallback: a broad-category "relatable person" or
+    "documents on a desk" substitute is not editorially specific to any
+    one page's actual distinctive subject, and NO_PHOTO is always
+    preferable to a photo that could represent almost any topic."""
     text = f"{headline} {body}"
     concepts = []
     for markers, subject, query in _KEYWORD_CONCEPTS:
@@ -179,10 +168,6 @@ def derive_concepts(headline: str, body: str, role: str = "", max_concepts: int 
                 concepts.append(pair)
         if len(concepts) >= max_concepts:
             break
-    if not concepts:
-        fallback = _ROLE_FALLBACK_QUERIES.get(role)
-        if fallback:
-            concepts.append(fallback)
     return concepts[:max_concepts]
 
 
@@ -303,6 +288,13 @@ def _passes_generic_gates(candidate: dict) -> bool:
     # description/landing URL is a second, independent signal worth
     # checking even when the title itself looks innocuous.
     if re.search(r"cartoon|illustration|clipart|vector-art|-art\b", candidate.get("descriptionurl", ""), re.I):
+        return False
+    # geograph.org.uk is a UK/Ireland amateur street-view documentation
+    # project -- confirmed (via a "fertility clinic" query) to return only
+    # exterior/building shots of specific, real, named institutions,
+    # never generic editorial photography. Any of its results implies a
+    # specific real building/location, wrong for general contextual use.
+    if _GEOGRAPH_SOURCE_RE.search(title) or _GEOGRAPH_SOURCE_RE.search(candidate.get("descriptionurl", "")):
         return False
     if _NAMED_PERSON_RE.match(stem):
         return False
