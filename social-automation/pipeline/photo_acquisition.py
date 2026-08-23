@@ -81,7 +81,6 @@ _KEYWORD_CONCEPTS = [
     (("근로자", "직장인", "노동자", "근무자", "사업장"), "office worker", "office worker workplace"),
     (("야근", "초과근무", "연장근무", "시간외", "야간근무"), "office worker overtime", "office worker working late overtime"),
     (("환급", "환불", "돌려받"), "receipt payment", "receipt payment consumer"),
-    (("대출", "상환"), "bank consultation", "loan consultation bank"),
     (("카드", "결제"), "credit card payment", "credit card payment"),
     (("보험료", "보험금", "보험"), "insurance documents", "insurance documents paperwork"),
     (("채무", "연체", "조정"), "financial documents", "financial documents desk"),
@@ -92,18 +91,19 @@ _KEYWORD_CONCEPTS = [
     (("대중교통", "버스", "지하철", "통근"), "commuter public transportation", "commuter public transportation station"),
     (("신청", "접수", "서류"), "paperwork application", "paperwork application form"),
     (("문의", "상담", "콜센터"), "phone call customer support", "phone call customer support"),
-    (("은행", "금융기관", "금융"), "bank consultation", "bank consultation"),
-    # NOTE: a generic "disaster relief emergency" entry was deliberately
-    # removed here -- tested and confirmed to surface foreign
-    # military/humanitarian-operation photos (wrong country, wrong
-    # institution) that pass a bare word-match gate while being contextually
-    # wrong. A genuine flood scene is already covered by the more specific
-    # "수해/호우/침수/홍수/태풍" entry above; a bare "긴급/재난/특별재난/피해"
-    # marker alone is too broad to safely anchor a photo search and now
-    # correctly falls through to NO_PHOTO instead.
-    (("복구", "지원"), "recovery assistance volunteers", "recovery assistance volunteers"),
     (("위기", "경보", "주의", "제외"), "warning caution sign", "warning caution sign"),
 ]
+# NOTE: three entries were deliberately removed after live testing, not
+# just left out: "disaster relief emergency" (긴급/재난/특별재난/피해),
+# "recovery assistance volunteers" (복구/지원), and "bank consultation"
+# (대출/상환, 은행/금융기관/금융). Each passed the word-match relevance
+# gate but Commons/Openverse's actual archive for those terms skews toward
+# foreign military/humanitarian-operation photography or bare bank/
+# institution BUILDING architecture shots -- both explicitly banned
+# ("unrelated countries/contexts", "generic buildings"). A genuine flood
+# scene is still covered by the more specific "수해/호우/침수/홍수/태풍"
+# entry above; pages that would have matched only these removed markers
+# now correctly fall through to NO_PHOTO instead of a wrong-context photo.
 
 
 def derive_concepts(headline: str, body: str, role: str = "", max_concepts: int = 3) -> list:
