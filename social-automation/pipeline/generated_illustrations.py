@@ -249,6 +249,166 @@ def _scene_megaphone(draw, cx, cy, fg, accent, variant):
         draw.rounded_rectangle([px - 32, py - 4, px + 32, py + 62], radius=24, fill=color)
 
 
+# --- topic-specific composite scenes ------------------------------------
+# The role-generic scenes above (one icon per abstract role) read as
+# generic icon-pack output. These are authored for this specific verified
+# topic's 6 actual pages (flood-relief financial support), composing 2-3
+# semantically distinct shapes with soft shadows per scene -- e.g. the
+# eligibility page shows a household figure AND a small-business figure
+# (the two groups the fact sheet actually names), not an abstract crowd
+# icon. Still deterministic PIL drawing, no text/numbers, no network call.
+
+
+def _shadow(draw, cx, cy, w, h, color):
+    for i, r in enumerate((1.0, 0.72, 0.46)):
+        draw.ellipse([cx - w * r / 2, cy - h * r / 2, cx + w * r / 2, cy + h * r / 2], fill=_tint(color, 0.8 + i * 0.05))
+
+
+def _shape_house(draw, cx, cy, s, color, roof_color=None):
+    roof_color = roof_color or color
+    draw.polygon([(cx - s, cy), (cx, cy - s * 0.8), (cx + s, cy)], fill=roof_color)
+    draw.rectangle([cx - s * 0.8, cy, cx + s * 0.8, cy + s * 1.1], fill=color)
+    draw.rectangle([cx - s * 0.18, cy + s * 0.5, cx + s * 0.18, cy + s * 1.1], fill="white")
+
+
+def _shape_storefront(draw, cx, cy, s, color):
+    draw.rectangle([cx - s, cy - s * 0.15, cx + s, cy + s * 1.1], fill=color)
+    stripe_w = s * 2 / 5
+    for i in range(5):
+        draw.polygon(
+            [
+                (cx - s + i * stripe_w, cy - s * 0.15), (cx - s + (i + 1) * stripe_w, cy - s * 0.15),
+                (cx - s + (i + 1) * stripe_w - 10, cy - s * 0.5), (cx - s + i * stripe_w + 10, cy - s * 0.5),
+            ],
+            fill="white" if i % 2 == 0 else color,
+        )
+    draw.rectangle([cx - s * 0.55, cy + s * 0.35, cx + s * 0.55, cy + s * 1.1], fill=_tint(color, 0.75))
+
+
+def _shape_document(draw, cx, cy, s, color, lines=4):
+    draw.rounded_rectangle([cx - s * 0.7, cy - s, cx + s * 0.7, cy + s], radius=14, fill="white", outline=color, width=5)
+    for i in range(lines):
+        y = cy - s * 0.6 + i * s * 0.4
+        w = s * (0.9 if i % 2 == 0 else 0.6)
+        draw.rounded_rectangle([cx - s * 0.5, y, cx - s * 0.5 + w, y + s * 0.14], radius=6, fill=_tint(color, 0.35))
+
+
+def _shape_coins(draw, cx, cy, s, color, accent):
+    for dx, dy, c in ((-s * 0.4, s * 0.3, color), (0, s * 0.15, accent), (s * 0.4, s * 0.35, color)):
+        draw.ellipse([cx + dx - s * 0.32, cy + dy - s * 0.32, cx + dx + s * 0.32, cy + dy + s * 0.32], fill=c, outline="white", width=4)
+
+
+def _shape_water(draw, cx, cy, w, color):
+    path = []
+    for x in range(-int(w / 2), int(w / 2) + 1, 8):
+        y = cy + math.sin(x / 40) * 14
+        path.append((cx + x, y))
+    path += [(cx + w / 2, cy + 120), (cx - w / 2, cy + 120)]
+    draw.polygon(path, fill=color)
+
+
+def _shape_phone_waves(draw, cx, cy, s, color, accent):
+    draw.rounded_rectangle([cx - s * 0.45, cy - s * 0.85, cx + s * 0.45, cy + s * 0.85], radius=26, fill=color)
+    draw.rounded_rectangle([cx - s * 0.32, cy - s * 0.62, cx + s * 0.32, cy + s * 0.5], radius=8, fill="white")
+    for i, r in enumerate((s * 0.5, s * 0.75, s)):
+        bbox = [cx + s * 0.45 - r * 0.25, cy - r * 0.55, cx + s * 0.45 + r, cy + r * 0.55]
+        draw.arc(bbox, -35, 35, fill=_tint(accent, i * 0.1), width=8)
+
+
+def _shape_person(draw, cx, cy, s, color):
+    draw.ellipse([cx - s * 0.28, cy - s, cx + s * 0.28, cy - s * 0.44], fill=color)
+    draw.rounded_rectangle([cx - s * 0.42, cy - s * 0.4, cx + s * 0.42, cy + s * 0.85], radius=s * 0.3, fill=color)
+
+
+def _scene_topic_hook(draw, cx, cy, fg, accent, variant):
+    _shadow(draw, cx, cy + 190, 340, 50, fg)
+    _shape_house(draw, cx, cy - 40, 190, _tint(fg, 0.1), roof_color=accent)
+    _shape_water(draw, cx, cy + 160, 520, _tint(accent, 0.3))
+    _shape_coins(draw, cx + 210, cy - 60, 70, accent, fg)
+
+
+def _scene_topic_why_now(draw, cx, cy, fg, accent, variant):
+    _shadow(draw, cx, cy + 210, 380, 40, fg)
+    _shape_document(draw, cx - 90, cy, 190, fg, lines=5)
+    _shape_document(draw, cx + 150, cy - 50, 130, accent, lines=3)
+
+
+def _scene_topic_eligibility(draw, cx, cy, fg, accent, variant):
+    _shadow(draw, cx, cy + 220, 420, 46, fg)
+    _shape_person(draw, cx - 130, cy + 10, 220, fg)
+    _shape_person(draw, cx + 130, cy + 30, 200, accent)
+    _shape_document(draw, cx, cy - 170, 85, _tint(fg, 0.2), lines=3)
+
+
+def _scene_topic_conditions(draw, cx, cy, fg, accent, variant):
+    _shadow(draw, cx, cy + 200, 340, 44, fg)
+    _shape_document(draw, cx - 60, cy, 210, fg, lines=5)
+    _shape_coins(draw, cx + 190, cy + 120, 80, accent, fg)
+
+
+def _scene_topic_compare(draw, cx, cy, fg, accent, variant):
+    _shadow(draw, cx - 150, cy + 190, 260, 40, fg)
+    _shadow(draw, cx + 150, cy + 190, 260, 40, accent)
+    _shape_house(draw, cx - 150, cy + 10, 150, fg)
+    _shape_storefront(draw, cx + 150, cy + 20, 150, accent)
+    draw.line([(cx, cy - 160), (cx, cy + 170)], fill=_tint(fg, 0.4), width=4)
+
+
+def _scene_topic_cta(draw, cx, cy, fg, accent, variant):
+    _shadow(draw, cx - 60, cy + 190, 260, 44, fg)
+    _shape_phone_waves(draw, cx - 60, cy, 220, fg, accent)
+    _shape_person(draw, cx + 210, cy + 60, 190, accent)
+
+
+_TOPIC_SCENES_2026_08_25_FSS_FLOOD_RELIEF = {
+    1: _scene_topic_hook,
+    2: _scene_topic_why_now,
+    3: _scene_topic_eligibility,
+    4: _scene_topic_conditions,
+    5: _scene_topic_compare,
+    6: _scene_topic_cta,
+}
+
+
+def generate_topic_illustration(page_number: int, out_dir: str, brand, scene_map: dict = None) -> dict:
+    """Same deterministic pipeline as generate_editorial_illustration
+    (palette from brand, PIL primitives, no text/numbers, no network),
+    but scene selection is keyed by page_number against an explicit,
+    hand-authored scene map for one specific verified topic instead of the
+    generic role library -- used only where semantic specificity beyond
+    the reusable role scenes was requested."""
+    os.makedirs(out_dir, exist_ok=True)
+    scene_map = scene_map or _TOPIC_SCENES_2026_08_25_FSS_FLOOD_RELIEF
+    scene_fn = scene_map[page_number]
+
+    palette = [c for c in brand.colors.values() if isinstance(c, str) and c.startswith("#")]
+    if len(palette) < 2:
+        palette = ["#7848D8", "#F04890"]
+    seed = int(hashlib.sha256(f"topic:{page_number}".encode()).hexdigest()[:8], 16)
+    fg = _hex_to_rgb(palette[seed % len(palette)])
+    accent = _hex_to_rgb(palette[(seed // 7 + 1) % len(palette)])
+    variant = seed % 5
+
+    img = Image.new("RGB", _CANVAS, _tint(fg, 0.92))
+    draw = ImageDraw.Draw(img)
+    _gradient_bg(draw, _CANVAS, _tint(fg, 0.9), _tint(accent, 0.88))
+    draw = ImageDraw.Draw(img)
+    cx, cy = _CANVAS[0] // 2, _CANVAS[1] // 2
+    scene_fn(draw, cx, cy, fg, accent, variant)
+
+    fname = f"topic_{page_number}.png"
+    path = os.path.join(out_dir, fname)
+    img.save(path, "PNG")
+    return {
+        "file": fname, "path": path, "source_url": None, "publisher": "SWIPE_INFO",
+        "description": f"Original deterministically-generated editorial composite for page {page_number} "
+        "(no AI model, no external source, no text/numbers).",
+        "rights": "Internally generated original asset -- no external source, no rights restriction.",
+        "acquisition_method": "generated_editorial_asset",
+        "width": _CANVAS[0], "height": _CANVAS[1], "bytes": os.path.getsize(path),
+    }
+
+
 _ROLE_SCENES = {
     "hook": _scene_shield_alert,
     "why_now": _scene_calendar,
