@@ -144,6 +144,46 @@ def _check_rows(items: list, accent: str, flex: str = "1 1 auto") -> str:
     )
 
 
+def _infographic_numbered_rows(items: list, accent: str, accent2: str, flex: str = "1 1 auto") -> str:
+    """A "structured program overview" treatment -- large outlined numerals
+    and a left accent rule -- deliberately distinct from _check_rows'
+    checkmark-list look so two checklist-typed pages in one carousel don't
+    read as the same composition."""
+    n = max(len(items), 1)
+    colors = [accent, accent2]
+    rows = "".join(
+        f'<div style="display:flex;align-items:center;gap:22px;padding:20px 0;'
+        f'{"border-bottom:2px solid " + accent + "14;" if i < n - 1 else ""}">'
+        f'<div style="font-size:44px;font-weight:900;color:{colors[i % 2]};opacity:0.35;width:64px;flex-shrink:0;">{i + 1:02d}</div>'
+        f'<div style="flex:1;height:100%;width:4px;background:{colors[i % 2]};border-radius:2px;align-self:stretch;flex-shrink:0;max-width:4px;"></div>'
+        f'<div style="font-size:29px;font-weight:700;line-height:1.4;">{item}</div></div>'
+        for i, item in enumerate(items)
+    )
+    return (
+        f'<div style="flex:{flex};background:#fff;border-radius:22px;padding:8px 34px;'
+        f'display:flex;flex-direction:column;justify-content:center;overflow:hidden;">{rows}</div>'
+    )
+
+
+def _cta_full(headline: str, button_text: str, region: str, accent: str, accent2: str, flex: str = "1 1 auto") -> str:
+    """A dark, bold, full-scale closing composition -- the CTA should be
+    the highest-visual-weight page in the carousel, not a small banner
+    tucked under other content."""
+    region_html = (
+        f'<div style="color:#fff;opacity:0.65;font-weight:700;font-size:22px;margin-bottom:16px;">📍 {region}</div>'
+        if region else ""
+    )
+    return (
+        f'<div style="flex:{flex};background:#181022;border-radius:28px;padding:52px 40px;'
+        f'display:flex;flex-direction:column;align-items:flex-start;justify-content:center;">'
+        f"{region_html}"
+        f'<div style="color:#fff;font-weight:800;font-size:42px;line-height:1.3;margin-bottom:34px;">{headline}</div>'
+        f'<div style="background:linear-gradient(90deg,{accent},{accent2});color:#fff;font-weight:800;'
+        f'font-size:30px;padding:24px 44px;border-radius:16px;">{button_text} →</div>'
+        f"</div>"
+    )
+
+
 def _image_src(image_data: dict) -> str:
     import base64
     import os
@@ -387,27 +427,38 @@ def _render_visual(vd: dict, accent: str, accent2: str, text_color: str, card_st
 # typical page_plan (hook, why_now, eligibility, conditions, examples/
 # comparison, cta) share a family, so consecutive pages never feel
 # templated. Falls back to PHOTO_CHECKLIST for any unmapped role.
+# PAGE MEANING -> EDITORIAL LAYOUT decision layer. Keyed on the fixed,
+# reusable role vocabulary every topic already produces (core/
+# page_selector.py) plus the page's own visual_data.type -- never a photo
+# by default. A photo is used ONLY for "hook" (the one role where a
+# context-setting scene photo genuinely helps and one was verified
+# reasonably on-theme); every other role gets an information-first
+# editorial composition so a merely-adequate photo never gets forced onto
+# a page where the actual content (a checklist, a comparison, a CTA) is
+# the stronger visual. Two same-typed "checklist" roles (eligibility vs.
+# conditions/amount) deliberately render as different families
+# (checklist vs. infographic_numbered) for visual variety.
 _LAYOUT_FAMILY_BY_ROLE = {
-    "hook": "hero",
-    "why_now": "steps_side",
-    "eligibility": "photo_checklist",
-    "amount": "photo_top_numbered",
-    "conditions": "photo_top_numbered",
-    "procedure": "steps_side",
-    "comparison": "photo_header_compare",
-    "examples": "photo_header_compare",
-    "exclusions": "photo_checklist",
-    "warnings": "photo_checklist",
-    "cta": "cta_close",
+    "hook": "editorial_photo",
+    "why_now": "process",
+    "procedure": "process",
+    "eligibility": "checklist",
+    "exclusions": "checklist",
+    "warnings": "checklist",
+    "amount": "infographic_numbered",
+    "conditions": "infographic_numbered",
+    "comparison": "comparison",
+    "examples": "comparison",
+    "cta": "cta",
 }
 
 _LAYOUT_VARIANT_BY_FAMILY = {
-    "hero": "hero",
-    "steps_side": "content_card",
-    "photo_checklist": "content_card",
-    "photo_top_numbered": "content_card",
-    "photo_header_compare": "content_card",
-    "cta_close": "cta",
+    "editorial_photo": "hero",
+    "process": "content_card",
+    "checklist": "content_card",
+    "infographic_numbered": "content_card",
+    "comparison": "content_card",
+    "cta": "cta",
 }
 
 
@@ -421,11 +472,14 @@ def _pill_label_for_role(role: str) -> str:
 
 
 def render_page_html(page: CarouselPage, total_pages: int, brand: BrandConfig) -> str:
-    """Render one carousel page as an editorial layout selected by the
-    page's semantic role (hero / steps+photo / photo+checklist / photo+
-    numbered / photo+comparison / CTA close) -- never a single repeated
-    boxed-card template. Uses only page.headline/body/visual_data/
-    image_data already produced upstream; no new content is authored here.
+    """Render one carousel page via the PAGE MEANING -> EDITORIAL LAYOUT
+    decision layer (_LAYOUT_FAMILY_BY_ROLE): editorial_photo / process /
+    checklist / infographic_numbered / comparison / cta. A photo is used
+    ONLY for editorial_photo (hook) -- every other family is information-
+    first, so a merely-adequate photo is never forced onto a page whose
+    real content (a checklist/comparison/CTA) is the stronger visual.
+    Uses only page.headline/body/visual_data/image_data already produced
+    upstream; no new content is authored here.
     """
     accent = brand.colors.get("violet", "#7848D8")
     accent2 = brand.colors.get("magenta", "#F04890")
@@ -434,68 +488,39 @@ def render_page_html(page: CarouselPage, total_pages: int, brand: BrandConfig) -
     bg = bg_cycle[(page.page_number - 1) % len(bg_cycle)]
 
     vd = page.visual_data or {}
-    family = _LAYOUT_FAMILY_BY_ROLE.get(page.role, "photo_checklist")
+    family = _LAYOUT_FAMILY_BY_ROLE.get(page.role, "checklist")
     tag = _pill_label_for_role(page.role)
+    is_cta = family == "cta"
 
-    html = [_chrome_open(brand, bg, text_color)]
+    html = [_chrome_open(brand, bg if not is_cta else bg, text_color)]
     html.append(_masthead(brand, accent, text_color, page.page_number, total_pages))
     html.append('<div style="flex:1;display:flex;flex-direction:column;margin-top:26px;min-height:0;">')
     html.append(_pill(tag, accent))
     html.append(_highlighted_headline(page.headline, accent))
-    html.append(_body_text(page.body, text_color))
+    if not is_cta:
+        html.append(_body_text(page.body, text_color))
 
-    if family == "hero":
+    if family == "editorial_photo":
         html.append(_photo_panel(page.image_data, tag, vd.get("highlight") or vd.get("big_text", ""), accent, flex="1 1 auto"))
 
-    elif family == "steps_side":
+    elif family == "process":
         items = vd.get("steps") or vd.get("items") or []
-        html.append(
-            '<div style="flex:1;display:flex;gap:20px;min-height:0;">'
-            + _numbered_rows(items, accent, flex="1.15 1 0")
-            + _photo_panel(page.image_data, "CHECK POINT", vd.get("highlight", ""), accent2, flex="0.85 1 0")
-            + "</div>"
-        )
+        html.append(_numbered_rows(items, accent, flex="1 1 auto"))
 
-    elif family == "photo_top_numbered":
+    elif family == "checklist":
+        items = vd.get("items") or []
+        html.append(_check_rows(items, accent, flex="1 1 auto"))
+
+    elif family == "infographic_numbered":
         items = vd.get("items") or vd.get("steps") or []
-        html.append(
-            '<div style="flex:1;display:flex;flex-direction:column;gap:18px;min-height:0;">'
-            + _photo_panel(page.image_data, tag, "", accent, flex="0 0 34%", min_h="180px")
-            + _numbered_rows(items, accent2, flex="1 1 0")
-            + "</div>"
-        )
+        html.append(_infographic_numbered_rows(items, accent, accent2, flex="1 1 auto"))
 
-    elif family == "photo_header_compare":
+    elif family == "comparison":
         left, right = vd.get("left", {}), vd.get("right", {})
-        html.append(
-            '<div style="flex:1;display:flex;flex-direction:column;gap:18px;min-height:0;">'
-            + _photo_panel(page.image_data, tag, "", accent, flex="0 0 40%", min_h="200px")
-            + _comparison_cards(left, right, accent, accent2, flex="1 1 0")
-            + "</div>"
-        )
+        html.append(_comparison_cards(left, right, accent, accent2, flex="1 1 auto"))
 
-    elif family == "cta_close":
-        items = vd.get("items") or []
-        html.append(
-            '<div style="flex:1;display:flex;flex-direction:column;gap:18px;min-height:0;">'
-            + (
-                '<div style="flex:1;display:flex;gap:20px;min-height:0;">'
-                + _photo_panel(page.image_data, tag, "", accent, flex="1 1 0")
-                + (_check_rows(items, accent, flex="1 1 0") if items else "")
-                + "</div>"
-            )
-            + _cta_banner(vd.get("button_text", "확인하기"), vd.get("region", ""), accent, accent2)
-            + "</div>"
-        )
-
-    else:  # photo_checklist (default)
-        items = vd.get("items") or []
-        html.append(
-            '<div style="flex:1;display:flex;gap:20px;min-height:0;">'
-            + _photo_panel(page.image_data, tag, "", accent, flex="1 1 0")
-            + _check_rows(items, accent, flex="1 1 0")
-            + "</div>"
-        )
+    elif family == "cta":
+        html.append(_cta_full(page.body or page.headline, vd.get("button_text", "확인하기"), vd.get("region", ""), accent, accent2, flex="1 1 auto"))
 
     html.append("</div>")
     html.append(_footer(brand, accent, accent2, text_color))
