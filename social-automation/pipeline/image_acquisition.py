@@ -37,7 +37,16 @@ MAX_IMAGES = 4
 
 _FILE_LINK_RE = re.compile(r'href="([^"]+\.(?:pdf|jpg|jpeg|png|webp))"', re.I)
 _IMG_TAG_RE = re.compile(r'<img[^>]+src="([^"]+)"', re.I)
-_DECORATIVE_NAME_RE = re.compile(r"(logo|icon|btn|button|banner|bullet|spacer|arrow|bg_|background|pixel|track)", re.I)
+# "sub_visual"/"WAMark" (a site-wide accessibility certification watermark)
+# confirmed to slip through as real content on a real government page --
+# both are generic site-template/chrome assets (a page-header banner, a
+# certification badge), not article content, even though they clear the
+# byte/pixel-size floors.
+_DECORATIVE_NAME_RE = re.compile(
+    r"(logo|icon|btn|button|banner|bullet|spacer|arrow|bg_|background|pixel|track|"
+    r"sub_visual|visual\d|watermark|wamark|template|placeholder)",
+    re.I,
+)
 
 # Rights gate: only source types with a clear public-reuse basis are ever
 # considered. Search order (C) "other clearly reusable/public official
