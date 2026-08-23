@@ -141,6 +141,27 @@ def _extract_mohw(html: str) -> list:
     return items
 
 
+def _extract_mois(html: str) -> list:
+    """행정안전부 보도자료 (정책/안전/생활) -- verified 2026-08-23."""
+    row_re = re.compile(r"<tr>(.*?)</tr>", re.S)
+    link_re = re.compile(r'commonSelectBoardArticle\.do[^"]*nttId=(\d+)"[^>]*>([^<]+)</a>')
+    date_re = re.compile(r">(\d{4}\.\d{2}\.\d{2})\.<")
+
+    items = []
+    for row in row_re.findall(html):
+        m_link, m_date = link_re.search(row), date_re.search(row)
+        if m_link and m_date:
+            items.append(
+                {
+                    "id": m_link.group(1),
+                    "title": m_link.group(2).strip(),
+                    "published_date": m_date.group(1).replace(".", "-"),
+                    "url": f"https://www.mois.go.kr/frt/bbs/type010/commonSelectBoardArticle.do?bbsId=BBSMSTR_000000000008&nttId={m_link.group(1)}",
+                }
+            )
+    return items
+
+
 _BODY_TAG_RE = re.compile(r"<[^>]+>")
 _BODY_ENTITY_RE = re.compile(r"&[a-zA-Z#0-9]+;")
 
@@ -389,6 +410,20 @@ def _extract_body_mohw(html: str) -> str:
     return text
 
 
+def _extract_body_mois(html: str) -> str:
+    """행정안전부 -- body lives directly in <div id="desc_pc" class="desc">
+    ...</div> (verified 2026-08-23) as real inline HTML, no PDF needed.
+    The content itself contains nested <div>s (one per paragraph), so
+    bounding by "first </div>" would truncate almost immediately -- instead
+    bound by the next sibling section's own id (the mobile-duplicate
+    "desc_mo" block that always immediately follows)."""
+    idx = html.find('id="desc_pc"')
+    if idx == -1:
+        return ""
+    end = html.find('id="desc_mo"', idx)
+    return _clean_chunk(html[idx:end] if end != -1 else html[idx : idx + 6000], max_chars=2000)
+
+
 OFFICIAL_SOURCES = [
     {
         "board_id": "nhis-together",
@@ -434,6 +469,15 @@ OFFICIAL_SOURCES = [
         "category": "welfare_benefits",
         "extractor": _extract_mohw,
         "body_extractor": _extract_body_mohw,
+    },
+    {
+        "board_id": "mois-press",
+        "institution": "행정안전부",
+        "list_url": "https://www.mois.go.kr/frt/bbs/type010/commonSelectBoardList.do?bbsId=BBSMSTR_000000000008",
+        "source_type": SourceType.GOVERNMENT,
+        "category": "daily_life_policy",
+        "extractor": _extract_mois,
+        "body_extractor": _extract_body_mois,
     },
 ]
 
