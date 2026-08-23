@@ -14,11 +14,18 @@ Sources (both keyless, free, no PAYG):
      acceptable for a concept.
 
 Search concepts are derived deterministically from each page's own
-verified headline/body text (a small, reusable Korean-keyword ->
-English-concept glossary -- the same style of deterministic marker
+verified headline/body text via a small, reusable Korean-keyword ->
+English-(subject, query) glossary (same style of deterministic marker
 dictionary already used in pipeline/live_discovery.py and pipeline/
-daily_state.py) with a role-keyed fallback when no glossary term is
-present. Never the full headline verbatim, never hardcoded to one date.
+daily_state.py) -- topic-adaptive, never the full headline verbatim,
+never hardcoded to one date/story.
+
+There is deliberately NO role-keyed generic fallback. A page whose real
+text matches none of the glossary's markers returns zero concepts, and
+the caller must treat that as an immediate NO_PHOTO -- vocabulary from a
+completely different topic (e.g. a leftover "family small business
+owner" guess on a labor-law page) must never leak in just because a page
+exists. NO_PHOTO is always preferable to a semantically wrong photo.
 
 Never fabricates documentary context: an accepted photo illustrates the
 GENERAL concept a page conveys, not a claim that it depicts the actual
@@ -57,53 +64,59 @@ _OLD_YEAR_RE = re.compile(r"\b(1[0-8]\d{2}|19[0-4]\d)\b")
 _BOOK_SCAN_RE = re.compile(r"(plate|page \d+|illustration from|frontispiece)", re.I)
 _NAMED_PERSON_RE = re.compile(r"^[A-Z][a-zA-Z'\-]+(\s[A-Z][a-zA-Z'\-]+){1,2}$")
 
-# Deterministic Korean-keyword -> English-photo-concept glossary. Reusable
-# across ANY future topic (a small marker dictionary, same pattern as
-# core/scoring.py's/live_discovery.py's existing keyword signals) -- never
-# rewritten per date/story. Order matters: earlier entries win when a page
-# matches several.
+# Deterministic Korean-keyword -> (SUBJECT, QUERY) glossary. Each entry is
+# a durable, reusable real-world concept (a person/object/action a camera
+# could actually photograph) -- never a one-off compound scene tied to a
+# single story. SUBJECT is the mandatory relevance anchor (the noun a
+# candidate's title must actually contain, see _is_relevant); QUERY is the
+# full search phrase sent to Openverse/Commons. Small and bounded on
+# purpose -- covers the recurring SWIPE_INFO domains (work, money/benefits,
+# consumer/scam protection, tech, transport, tax, housing, insurance,
+# disaster) without becoming a topic-specific dictionary. Order matters:
+# earlier entries win when a page's text matches several.
 _KEYWORD_CONCEPTS = [
-    (("수해", "호우", "침수", "홍수", "태풍"), "flood damaged building street"),
-    (("소상공인", "중소기업", "자영업", "상공인"), "small shop owner business"),
-    (("가계", "가정", "세대", "가족"), "family household home"),
-    (("대출", "상환"), "loan consultation bank"),
-    (("카드", "결제"), "credit card payment"),
-    (("보험료", "보험금", "보험"), "insurance paperwork"),
-    (("채무", "연체", "조정"), "financial documents desk"),
-    (("신청", "접수", "서류"), "paperwork application form"),
-    (("문의", "상담", "콜센터"), "phone call customer support"),
-    (("은행", "금융기관", "금융"), "bank consultation"),
-    (("긴급", "재난", "특별재난", "피해"), "disaster relief emergency"),
-    (("복구", "지원"), "recovery assistance volunteers"),
-    (("위기", "경보", "주의", "제외"), "warning caution sign"),
+    (("수해", "호우", "침수", "홍수", "태풍"), "flooded street", "flooded street damaged building"),
+    (("소상공인", "중소기업", "자영업", "상공인"), "small shop owner", "small shop owner business"),
+    (("가계", "가정", "세대", "가족"), "family household", "family household home"),
+    (("근로자", "직장인", "노동자", "근무자", "사업장"), "office worker", "office worker workplace"),
+    (("야근", "초과근무", "연장근무", "시간외", "야간근무"), "office worker overtime", "office worker working late overtime"),
+    (("환급", "환불", "돌려받"), "receipt payment", "receipt payment consumer"),
+    (("대출", "상환"), "bank consultation", "loan consultation bank"),
+    (("카드", "결제"), "credit card payment", "credit card payment"),
+    (("보험료", "보험금", "보험"), "insurance documents", "insurance documents paperwork"),
+    (("채무", "연체", "조정"), "financial documents", "financial documents desk"),
+    (("세금", "국세", "지방세", "납세"), "tax documents", "tax documents paperwork"),
+    (("전세", "월세", "임대차", "부동산"), "housing documents", "housing rental documents keys"),
+    (("스마트폰", "휴대폰", "앱"), "smartphone user", "person using smartphone app"),
+    (("보이스피싱", "스미싱", "사기"), "suspicious phone message", "person looking at suspicious phone message"),
+    (("대중교통", "버스", "지하철", "통근"), "commuter public transportation", "commuter public transportation station"),
+    (("신청", "접수", "서류"), "paperwork application", "paperwork application form"),
+    (("문의", "상담", "콜센터"), "phone call customer support", "phone call customer support"),
+    (("은행", "금융기관", "금융"), "bank consultation", "bank consultation"),
+    (("긴급", "재난", "특별재난", "피해"), "disaster relief emergency", "disaster relief emergency"),
+    (("복구", "지원"), "recovery assistance volunteers", "recovery assistance volunteers"),
+    (("위기", "경보", "주의", "제외"), "warning caution sign", "warning caution sign"),
 ]
 
-_ROLE_FALLBACK_CONCEPT = {
-    "hook": "family financial stress", "why_now": "official notice documents",
-    "eligibility": "family small business owner", "amount": "financial documents desk",
-    "conditions": "financial documents desk", "procedure": "consultation office",
-    "comparison": "family small business", "examples": "family small business",
-    "exclusions": "warning caution sign", "warnings": "warning caution sign",
-    "cta": "phone call customer support",
-}
 
-
-def derive_concepts(headline: str, body: str, role: str, max_concepts: int = 4) -> list:
-    """2-4 short, concrete, photographable concept phrases for one page --
-    derived from its own verified text via the glossary above, never the
-    raw headline. Falls back to a role-keyed generic concept when no
-    glossary term is present (still never a fixed per-date literal)."""
+def derive_concepts(headline: str, body: str, role: str = "", max_concepts: int = 3) -> list:
+    """Up to 3 (subject, query) concept pairs for one page -- derived ONLY
+    from its own verified text via the glossary above, in a small query
+    ladder (most-matched concepts first). Returns [] when the text matches
+    nothing -- callers MUST treat that as an immediate NO_PHOTO. There is
+    intentionally no role-based or otherwise generic fallback: injecting a
+    role's "usual" concept when the actual page text doesn't support one is
+    exactly how a previous topic's vocabulary (e.g. "small business owner"
+    on an unrelated labor-law page) leaks into a new topic."""
     text = f"{headline} {body}"
     concepts = []
-    for markers, concept in _KEYWORD_CONCEPTS:
-        if any(m in text for m in markers) and concept not in concepts:
-            concepts.append(concept)
+    for markers, subject, query in _KEYWORD_CONCEPTS:
+        if any(m in text for m in markers):
+            pair = (subject, query)
+            if pair not in concepts:
+                concepts.append(pair)
         if len(concepts) >= max_concepts:
             break
-    if len(concepts) < 2:
-        fallback = _ROLE_FALLBACK_CONCEPT.get(role, "consultation office")
-        if fallback not in concepts:
-            concepts.append(fallback)
     return concepts[:max_concepts]
 
 
@@ -184,14 +197,20 @@ def _concept_words(concept: str) -> set:
     return {w for w in concept.lower().split() if len(w) >= 4}
 
 
-def _is_relevant(candidate: dict, concept: str) -> bool:
-    """The one check that stops an irrelevant-but-highly-ranked result
-    (a route map for "phone call", a flag for "loan consultation") from
-    being accepted just because the API returned it: the title must
-    actually contain one of the concept's own meaningful words."""
+def _is_relevant(candidate: dict, subject: str) -> bool:
+    """The semantic relevance gate: a candidate's title must actually
+    contain one of the page's SUBJECT's own meaningful words -- not just
+    any word from the (longer, looser) full search query. This is what
+    makes an off-topic-but-plausible-sounding result (e.g. a Ghanaian
+    "Agricultural business owner" photo surfacing for a "small shop
+    owner"-style query) fail automatically: "agricultural"/"ghana" share
+    no word with the subject "small shop owner", so it's rejected even
+    though the broader query happened to return it. License/resolution
+    alone were never enough; this check is mandatory before has_photo can
+    ever be set True."""
     title = candidate.get("title", "").lower()
-    words = _concept_words(concept)
-    return any(w in title for w in words) if words else True
+    words = _concept_words(subject)
+    return any(w in title for w in words) if words else False
 
 
 def _passes_generic_gates(candidate: dict) -> bool:
@@ -213,11 +232,11 @@ def _passes_generic_gates(candidate: dict) -> bool:
     return True
 
 
-def _select_candidate(candidates: list, concept: str, seen_hashes: set) -> dict:
+def _select_candidate(candidates: list, subject: str, seen_hashes: set) -> dict:
     for c in candidates:
         if not _passes_generic_gates(c):
             continue
-        if not _is_relevant(c, concept):
+        if not _is_relevant(c, subject):
             continue
         try:
             data = _fetch_bytes(c["url"])
@@ -233,19 +252,27 @@ def _select_candidate(candidates: list, concept: str, seen_hashes: set) -> dict:
 
 
 def acquire_photo_for_page(role: str, headline: str, body: str, page_number: int, out_dir: str, seen_hashes: set) -> dict:
-    """Tries each derived concept (Openverse pool first, then Commons) in
-    order until one candidate passes every quality/relevance/license gate.
-    Returns an asset dict (file/path/source_url/publisher/description/
-    rights/acquisition_method/width/height/bytes) or None if NOTHING
-    acceptable was found across all concepts -- callers must treat that as
-    NO_ACCEPTABLE_PHOTO, never substitute a weak result to hit coverage."""
+    """Tries each derived (subject, query) concept (Openverse pool first,
+    then Commons) in order -- max 3, a small query ladder, never a broad
+    search spree -- until one candidate passes every quality/semantic-
+    relevance/license gate. If the page's own text yields NO concept at
+    all, this makes ZERO network calls and returns None immediately: a
+    page whose subject can't be confidently derived from its own verified
+    text must never search the web with borrowed vocabulary. Returns an
+    asset dict (file/path/source_url/publisher/description/rights/
+    acquisition_method/width/height/bytes) or None if nothing acceptable
+    was found -- callers must treat that as NO_ACCEPTABLE_PHOTO, never
+    substitute a weak result to hit coverage."""
     concepts = derive_concepts(headline, body, role)
-    chosen, chosen_concept = None, None
-    for concept in concepts:
-        pool = search_openverse(concept) + search_commons(concept)
-        chosen = _select_candidate(pool, concept, seen_hashes)
+    if not concepts:
+        return None
+
+    chosen, chosen_subject, chosen_query = None, None, None
+    for subject, query in concepts:
+        pool = search_openverse(query) + search_commons(query)
+        chosen = _select_candidate(pool, subject, seen_hashes)
         if chosen is not None:
-            chosen_concept = concept
+            chosen_subject, chosen_query = subject, query
             break
     if chosen is None:
         return None
@@ -264,7 +291,7 @@ def acquire_photo_for_page(role: str, headline: str, body: str, page_number: int
         "path": path,
         "source_url": chosen.get("descriptionurl") or chosen.get("url"),
         "publisher": "Openverse" if chosen.get("source") == "openverse" else "Wikimedia Commons",
-        "description": f"Editorial photo for '{role}' page, concept: {chosen_concept!r}. {chosen['title']}",
+        "description": f"Editorial photo for '{role}' page, subject: {chosen_subject!r}, query: {chosen_query!r}. {chosen['title']}",
         "rights": f"{chosen.get('license') or chosen.get('usage_terms') or 'reusable license'} -- {attribution}",
         "acquisition_method": f"{chosen.get('source')}_search",
         "width": chosen.get("width", 0),
