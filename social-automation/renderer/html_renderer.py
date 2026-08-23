@@ -445,7 +445,7 @@ def render_page_html(page: CarouselPage, total_pages: int, brand: BrandConfig) -
     html.append(_body_text(page.body, text_color))
 
     if family == "hero":
-        html.append(_photo_panel(page.image_data, vd.get("highlight") or vd.get("big_text", ""), page.headline, accent, flex="1 1 auto"))
+        html.append(_photo_panel(page.image_data, tag, vd.get("highlight") or vd.get("big_text", ""), accent, flex="1 1 auto"))
 
     elif family == "steps_side":
         items = vd.get("steps") or vd.get("items") or []
@@ -460,7 +460,7 @@ def render_page_html(page: CarouselPage, total_pages: int, brand: BrandConfig) -
         items = vd.get("items") or vd.get("steps") or []
         html.append(
             '<div style="flex:1;display:flex;flex-direction:column;gap:18px;min-height:0;">'
-            + _photo_panel(page.image_data, tag, page.headline, accent, flex="0 0 34%", min_h="180px")
+            + _photo_panel(page.image_data, tag, "", accent, flex="0 0 34%", min_h="180px")
             + _numbered_rows(items, accent2, flex="1 1 0")
             + "</div>"
         )
@@ -469,7 +469,7 @@ def render_page_html(page: CarouselPage, total_pages: int, brand: BrandConfig) -
         left, right = vd.get("left", {}), vd.get("right", {})
         html.append(
             '<div style="flex:1;display:flex;flex-direction:column;gap:18px;min-height:0;">'
-            + _photo_panel(page.image_data, tag, page.headline, accent, flex="0 0 40%", min_h="200px")
+            + _photo_panel(page.image_data, tag, "", accent, flex="0 0 40%", min_h="200px")
             + _comparison_cards(left, right, accent, accent2, flex="1 1 0")
             + "</div>"
         )
@@ -480,7 +480,7 @@ def render_page_html(page: CarouselPage, total_pages: int, brand: BrandConfig) -
             '<div style="flex:1;display:flex;flex-direction:column;gap:18px;min-height:0;">'
             + (
                 '<div style="flex:1;display:flex;gap:20px;min-height:0;">'
-                + _photo_panel(page.image_data, tag, page.headline, accent, flex="1 1 0")
+                + _photo_panel(page.image_data, tag, "", accent, flex="1 1 0")
                 + (_check_rows(items, accent, flex="1 1 0") if items else "")
                 + "</div>"
             )
@@ -492,7 +492,7 @@ def render_page_html(page: CarouselPage, total_pages: int, brand: BrandConfig) -
         items = vd.get("items") or []
         html.append(
             '<div style="flex:1;display:flex;gap:20px;min-height:0;">'
-            + _photo_panel(page.image_data, tag, page.headline, accent, flex="1 1 0")
+            + _photo_panel(page.image_data, tag, "", accent, flex="1 1 0")
             + _check_rows(items, accent, flex="1 1 0")
             + "</div>"
         )
