@@ -19,6 +19,15 @@ DEFAULT_MODEL = "claude-sonnet-5"
 DEFAULT_TIMEOUT_SECONDS = 180
 DEFAULT_CLI_PATH = "/home/ubuntu/.local/bin/claude"
 
+# The only visual_data["type"] values the renderer/visual-QA actually
+# support (renderer/html_renderer.py::_render_visual) -- "real_image" is
+# deliberately excluded since that's assigned later by image_acquisition.py,
+# never authored by the semantic layer.
+_VISUAL_TYPES = [
+    "stat_hero", "highlight_box", "checklist", "exclusion_list", "steps",
+    "comparison", "process_flow", "evidence_card", "bar_chart", "cta_panel",
+]
+
 SCHEMA = {
     "type": "object",
     "required": ["pages", "instagram_caption", "threads_text"],
@@ -27,13 +36,19 @@ SCHEMA = {
             "type": "array",
             "items": {
                 "type": "object",
-                "required": ["page_number", "role", "headline", "body", "visual_ref"],
+                "required": ["page_number", "role", "headline", "body", "visual_ref", "visual_data"],
                 "properties": {
                     "page_number": {"type": "integer"},
                     "role": {"type": "string"},
                     "headline": {"type": "string"},
                     "body": {"type": "string"},
                     "visual_ref": {"type": "string"},
+                    "visual_data": {
+                        "type": "object",
+                        "required": ["type"],
+                        "properties": {"type": {"type": "string", "enum": _VISUAL_TYPES}},
+                        "additionalProperties": True,
+                    },
                 },
             },
         },
@@ -51,7 +66,22 @@ SYSTEM_PROMPT = (
     "mobile-readable, no exaggeration/clickbait. Threads copy must NOT be a copy of the Instagram "
     "caption -- different structure/opening, same underlying facts. Output ONLY the requested JSON "
     "matching the schema: one page object per role in page_plan, in the exact same order, each "
-    "with a headline, a body, and a short visual_ref label."
+    "with a headline, a body, and a short visual_ref label.\n\n"
+    "Every page also REQUIRES a visual_data object -- pick whichever of these types genuinely fits "
+    "that page's content (do not force a mismatched one), and its visual_ref must describe the same "
+    "visual: "
+    '{"type":"stat_hero","big_text":str,"sub_text":str} single huge stat/amount; '
+    '{"type":"highlight_box","icon":emoji,"highlight":str} one-line emphasis; '
+    '{"type":"checklist","items":[str,...]} eligibility/requirement list; '
+    '{"type":"exclusion_list","items":[str,...]} exclusions/warnings list; '
+    '{"type":"steps","items":[str,...]} ordered procedure; '
+    '{"type":"comparison","left":{"icon":emoji,"title":str,"desc":str},"right":{...}} two-option compare; '
+    '{"type":"process_flow","steps":[str,...]} vertical stage flow; '
+    '{"type":"evidence_card","publisher":str,"source_label":str,"published_at":str,"url":str} official-source citation, '
+    "values must come from fact_sheet's own source fields; "
+    '{"type":"bar_chart","items":[[label,value],...],"unit":str} numeric comparison; '
+    '{"type":"cta_panel","button_text":str,"region":str (optional)} final call-to-action. '
+    "Every items/big_text/highlight/etc. value must be derived only from fact_sheet -- never invented."
 )
 
 
