@@ -236,6 +236,43 @@ def _photo_panel(image_data: dict, tag: str, caption: str, accent: str, flex: st
     )
 
 
+def _stat_hero_block(big_text: str, sub_text: str, accent: str, accent2: str, flex: str = "1 1 auto") -> str:
+    """A strong standalone number/short claim IS the page's whole story --
+    no list, no photo needed to carry it."""
+    sub_html = f'<div style="font-size:32px;font-weight:700;margin-top:18px;line-height:1.4;">{sub_text}</div>' if sub_text else ""
+    return (
+        f'<div style="flex:{flex};display:flex;flex-direction:column;align-items:center;justify-content:center;'
+        f'text-align:center;background:linear-gradient(135deg,{accent}1f,{accent2}1f);border-radius:26px;padding:40px;">'
+        f'<div style="font-size:104px;font-weight:900;color:{accent};line-height:1.05;letter-spacing:-2px;">{big_text}</div>'
+        f"{sub_html}</div>"
+    )
+
+
+def _card_grid_rows(items: list, accent: str, accent2: str, flex: str = "1 1 auto") -> str:
+    """A denser alternative to _infographic_numbered_rows for several
+    benefits/programs -- two-column cards instead of stacked rows, used
+    when a stacked list would repeat the immediately preceding page's
+    composition."""
+    colors = [accent, accent2]
+    cards = "".join(
+        f'<div style="flex:1 1 42%;background:#fff;border-radius:16px;padding:22px 20px;'
+        f'box-shadow:0 1px 3px {colors[i % 2]}22;border-top:6px solid {colors[i % 2]};">'
+        f'<div style="font-size:22px;font-weight:900;color:{colors[i % 2]};opacity:0.55;margin-bottom:6px;">{i + 1:02d}</div>'
+        f'<div style="font-size:24px;font-weight:700;line-height:1.35;">{item}</div></div>'
+        for i, item in enumerate(items)
+    )
+    return f'<div style="flex:{flex};display:flex;flex-wrap:wrap;gap:16px;align-content:center;overflow:hidden;">{cards}</div>'
+
+
+def _photo_info_overlay(image_data: dict, tag: str, vd: dict, accent: str, flex: str = "1 1 auto") -> str:
+    """A relevant photo with no strong list/comparison structure of its
+    own -- the photo carries the page, with whatever short claim the
+    content actually has (never the full headline repeated) as caption."""
+    items = vd.get("items") or []
+    caption = vd.get("highlight") or vd.get("big_text") or (items[0] if items else "")
+    return _photo_panel(image_data, tag, caption, accent, flex=flex)
+
+
 def _comparison_cards(left: dict, right: dict, accent: str, accent2: str, flex: str = "1 1 auto") -> str:
     def card(d, color):
         return (
@@ -432,43 +469,85 @@ def _render_visual(vd: dict, accent: str, accent2: str, text_color: str, card_st
     return f'<div style="{card_style}border:2px dashed {accent};border-radius:16px;"></div>'
 
 
-# Role -> editorial layout family. Deliberately no two adjacent roles in a
-# typical page_plan (hook, why_now, eligibility, conditions, examples/
-# comparison, cta) share a family, so consecutive pages never feel
-# templated. Falls back to PHOTO_CHECKLIST for any unmapped role.
-# PAGE MEANING -> EDITORIAL LAYOUT decision layer. Keyed on the fixed,
-# reusable role vocabulary every topic already produces (core/
-# page_selector.py) plus the page's own visual_data.type -- never a photo
-# by default. A photo is used ONLY for "hook" (the one role where a
-# context-setting scene photo genuinely helps and one was verified
-# reasonably on-theme); every other role gets an information-first
-# editorial composition so a merely-adequate photo never gets forced onto
-# a page where the actual content (a checklist, a comparison, a CTA) is
-# the stronger visual. Two same-typed "checklist" roles (eligibility vs.
-# conditions/amount) deliberately render as different families
-# (checklist vs. infographic_numbered) for visual variety.
-_LAYOUT_FAMILY_BY_ROLE = {
-    "hook": "editorial_photo",
-    "why_now": "process",
-    "procedure": "process",
-    "eligibility": "checklist",
-    "exclusions": "checklist",
-    "warnings": "checklist",
-    "amount": "infographic_numbered",
-    "conditions": "infographic_numbered",
-    "comparison": "comparison",
-    "examples": "comparison",
-    "cta": "cta",
+# PAGE MEANING -> EDITORIAL LAYOUT decision layer.
+#
+# A page's `role` (hook/why_now/eligibility/.../cta, from core/
+# page_selector.py) fixes its PURPOSE in the carousel's content flow --
+# P1 hook, P2 why-now, P3-5 core value, P6 action/share -- never its
+# composition. Two roles that carry the same kind of information (e.g.
+# eligibility's 2-item checklist vs. conditions' 5-item checklist) must be
+# free to render as different families, and a role that happens to get a
+# genuinely strong photo one day should be free to use it -- so layout is
+# chosen here from the page's own verified visual_data structure, whether
+# a real (non-generic) photo was actually acquired, and its position in
+# the fixed content flow -- never from a role->layout lookup table.
+_LIST_TIE_BREAK = {
+    "checklist": "numbered_infographic",
+    "numbered_infographic": "checklist",
+    "process": "numbered_infographic",
+    "card_grid": "numbered_infographic",
 }
 
-_LAYOUT_VARIANT_BY_FAMILY = {
-    "editorial_photo": "hero",
-    "process": "content_card",
-    "checklist": "content_card",
-    "infographic_numbered": "content_card",
-    "comparison": "content_card",
-    "cta": "cta",
-}
+
+def _select_layout_family(page: CarouselPage, total_pages: int, prev_family: str = None) -> str:
+    """Deterministically picks ONE editorial layout family for this page.
+
+    Order of decision:
+    1. P6 (last page) / an explicit cta_panel -> the highest-visual-weight
+       action/share close, regardless of any other structure present.
+    2. P1 (hook) -> maximum stopping power: a genuinely relevant photo
+       first, else a strong standalone number/claim, else a short list.
+    3. Otherwise the page's own visual_data SHAPE decides: comparison
+       structure -> comparison; 3-6 sequential steps -> process (denser ->
+       numbered_infographic); an independent-facts list -> checklist when
+       short (<=3, scans as checkmarks) or numbered_infographic/card_grid
+       when longer (several benefits/programs carry more information);
+       a standalone number/claim -> stat_hero (or photo_info_overlay if a
+       real photo also exists); a real photo with no stronger structure of
+       its own -> photo_info_overlay; otherwise a safe text-first default.
+    4. Only when two family choices are genuinely equally valid readings
+       of the same list-shaped data (never for a real structural
+       difference like comparison/photo/cta) does the tie break toward
+       whichever avoids repeating the immediately preceding page.
+    """
+    vd = page.visual_data or {}
+    vtype = vd.get("type")
+    has_photo = bool((page.image_data or {}).get("image_path"))
+    items = vd.get("items") or []
+    steps = vd.get("steps") or []
+
+    if page.page_number == total_pages or vtype == "cta_panel":
+        return "cta"
+
+    if page.page_number == 1:
+        if has_photo:
+            return "editorial_photo"
+        if vd.get("big_text") or vd.get("highlight"):
+            return "stat_hero"
+        return "checklist" if items else "stat_hero"
+
+    if vtype == "comparison" and vd.get("left") and vd.get("right"):
+        family = "comparison"
+    elif vtype == "process_flow" and steps:
+        family = "process" if 3 <= len(steps) <= 6 else "numbered_infographic"
+    elif vtype == "checklist" and items:
+        if len(items) <= 3:
+            family = "checklist"
+        elif has_photo:
+            family = "card_grid"
+        else:
+            family = "numbered_infographic"
+    elif vd.get("big_text") or (vtype == "highlight_box" and vd.get("highlight")):
+        family = "photo_info_overlay" if has_photo else "stat_hero"
+    elif has_photo:
+        family = "photo_info_overlay"
+    else:
+        family = "checklist" if items else "stat_hero"
+
+    if family == prev_family:
+        family = _LIST_TIE_BREAK.get(family, family)
+
+    return family
 
 
 def _pill_label_for_role(role: str) -> str:
@@ -480,15 +559,11 @@ def _pill_label_for_role(role: str) -> str:
     }.get(role, "핵심 정보")
 
 
-def render_page_html(page: CarouselPage, total_pages: int, brand: BrandConfig) -> str:
-    """Render one carousel page via the PAGE MEANING -> EDITORIAL LAYOUT
-    decision layer (_LAYOUT_FAMILY_BY_ROLE): editorial_photo / process /
-    checklist / infographic_numbered / comparison / cta. A photo is used
-    ONLY for editorial_photo (hook) -- every other family is information-
-    first, so a merely-adequate photo is never forced onto a page whose
-    real content (a checklist/comparison/CTA) is the stronger visual.
-    Uses only page.headline/body/visual_data/image_data already produced
-    upstream; no new content is authored here.
+def render_page_html(page: CarouselPage, total_pages: int, brand: BrandConfig, family: str) -> str:
+    """Render one carousel page in the given editorial layout `family`
+    (chosen upstream by _select_layout_family from the page's own meaning,
+    not its role). Uses only page.headline/body/visual_data/image_data
+    already produced upstream; no new content is authored here.
     """
     accent = brand.colors.get("violet", "#7848D8")
     accent2 = brand.colors.get("magenta", "#F04890")
@@ -497,11 +572,10 @@ def render_page_html(page: CarouselPage, total_pages: int, brand: BrandConfig) -
     bg = bg_cycle[(page.page_number - 1) % len(bg_cycle)]
 
     vd = page.visual_data or {}
-    family = _LAYOUT_FAMILY_BY_ROLE.get(page.role, "checklist")
     tag = _pill_label_for_role(page.role)
     is_cta = family == "cta"
 
-    html = [_chrome_open(brand, bg if not is_cta else bg, text_color)]
+    html = [_chrome_open(brand, bg, text_color)]
     html.append(_masthead(brand, accent, text_color, page.page_number, total_pages))
     html.append('<div style="flex:1;display:flex;flex-direction:column;margin-top:26px;min-height:0;">')
     html.append(_pill(tag, accent))
@@ -512,6 +586,12 @@ def render_page_html(page: CarouselPage, total_pages: int, brand: BrandConfig) -
     if family == "editorial_photo":
         html.append(_photo_panel(page.image_data, tag, vd.get("highlight") or vd.get("big_text", ""), accent, flex="1 1 auto"))
 
+    elif family == "photo_info_overlay":
+        html.append(_photo_info_overlay(page.image_data, tag, vd, accent, flex="1 1 auto"))
+
+    elif family == "stat_hero":
+        html.append(_stat_hero_block(vd.get("big_text") or vd.get("highlight", ""), vd.get("sub_text", ""), accent, accent2, flex="1 1 auto"))
+
     elif family == "process":
         items = vd.get("steps") or vd.get("items") or []
         html.append(_numbered_rows(items, accent, flex="1 1 auto"))
@@ -520,9 +600,13 @@ def render_page_html(page: CarouselPage, total_pages: int, brand: BrandConfig) -
         items = vd.get("items") or []
         html.append(_check_rows(items, accent, flex="1 1 auto"))
 
-    elif family == "infographic_numbered":
+    elif family == "numbered_infographic":
         items = vd.get("items") or vd.get("steps") or []
         html.append(_infographic_numbered_rows(items, accent, accent2, flex="1 1 auto"))
+
+    elif family == "card_grid":
+        items = vd.get("items") or vd.get("steps") or []
+        html.append(_card_grid_rows(items, accent, accent2, flex="1 1 auto"))
 
     elif family == "comparison":
         left, right = vd.get("left", {}), vd.get("right", {})
@@ -542,16 +626,19 @@ def build_renderer_input(canonical: CanonicalContent, brand: BrandConfig) -> lis
         raise ValueError("cannot build renderer input: canonical content has no generated pages")
 
     total = len(canonical.pages)
-    return [
-        {
-            "page_number": page.page_number,
-            "role": page.role,
-            "layout_variant": _LAYOUT_VARIANT_BY_FAMILY.get(
-                _LAYOUT_FAMILY_BY_ROLE.get(page.role, "photo_checklist"), "content_card"
-            ),
-            "width": brand.canvas_width,
-            "height": brand.canvas_height,
-            "html": render_page_html(page, total, brand),
-        }
-        for page in canonical.pages
-    ]
+    result = []
+    prev_family = None
+    for page in canonical.pages:
+        family = _select_layout_family(page, total, prev_family)
+        prev_family = family
+        result.append(
+            {
+                "page_number": page.page_number,
+                "role": page.role,
+                "layout_variant": family,
+                "width": brand.canvas_width,
+                "height": brand.canvas_height,
+                "html": render_page_html(page, total, brand, family),
+            }
+        )
+    return result
