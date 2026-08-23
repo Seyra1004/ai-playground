@@ -39,32 +39,29 @@ _NON_REUSABLE_RE = re.compile(r"(non-?free|fair use|all rights reserved|copyrigh
 # Generic, topic-agnostic search concepts -- keyed by the FIXED role/
 # category vocabulary every topic already uses (core/page_selector.py's
 # roles, live_discovery.py's categories), never by a specific headline.
-_ROLE_CONCEPT = {
-    "hook": "hardship problem worried",
-    "why_now": "official notice announcement paperwork",
-    "eligibility": "people meeting consultation",
-    "amount": "documents paperwork finance",
-    "conditions": "documents paperwork finance",
-    "procedure": "office consultation process",
-    "comparison": "two people contrast",
-    "examples": "two people contrast",
-    "exclusions": "warning caution sign",
-    "warnings": "warning caution sign",
-    "cta": "customer service phone call help",
+# Commons search wants concrete, photographable nouns -- abstract/emotional
+# phrases ("financial hardship", "worried") match almost nothing in an
+# encyclopedia media repository, unlike a stock-photo search engine. Kept
+# short (role phrase + one category noun) since compounding 3+ concrete
+# nouns can over-narrow the search to zero results.
+_ROLE_PHRASE = {
+    "hook": "", "why_now": "notice board", "eligibility": "meeting people",
+    "amount": "paperwork", "conditions": "paperwork", "procedure": "consultation",
+    "comparison": "two people", "examples": "two people",
+    "exclusions": "warning sign", "warnings": "warning sign",
+    "cta": "customer service",
 }
 
-_CATEGORY_CONCEPT = {
-    "finance_savings": "financial consultation money bank",
-    "welfare_benefits": "social welfare support community",
-    "employment_labor": "workplace employment office",
-    "daily_life_policy": "community assistance government office",
-    "health_insurance": "hospital medical consultation",
+_CATEGORY_NOUN = {
+    "finance_savings": "bank", "welfare_benefits": "community center",
+    "employment_labor": "office", "daily_life_policy": "government building",
+    "health_insurance": "hospital",
 }
 
 
 def build_search_query(role: str, category: str) -> str:
-    role_part = _ROLE_CONCEPT.get(role, "office consultation")
-    cat_part = _CATEGORY_CONCEPT.get(category, "")
+    role_part = _ROLE_PHRASE.get(role, "consultation")
+    cat_part = _CATEGORY_NOUN.get(category, "office")
     return f"{role_part} {cat_part}".strip()
 
 
