@@ -124,7 +124,11 @@ def _extract_mohw(html: str) -> list:
     for row in row_re.findall(html):
         m_link, m_date = link_re.search(row), date_re.search(row)
         if m_link and m_date:
-            title = re.sub(r"<[^>]+>", "", m_link.group(3)).strip()
+            # Strip the screen-reader-only "새글"(new post) badge text along
+            # with its wrapping tags -- it's a decorative a11y label, not
+            # part of the actual headline.
+            inner = re.sub(r'<span class="sr_only">.*?</span>', "", m_link.group(3), flags=re.S)
+            title = re.sub(r"<[^>]+>", "", inner).strip()
             href = m_link.group(1).replace("&amp;", "&")
             items.append(
                 {
