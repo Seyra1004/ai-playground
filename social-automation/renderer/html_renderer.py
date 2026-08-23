@@ -922,11 +922,19 @@ def _compose_cover_page(page: CarouselPage, brand: BrandConfig, accent: str, acc
     as deliberate cover design, not "headline on top, card below." Used
     for any hook-role page whose visual_data is a single dominant claim."""
     stat = vd.get("big_text") or vd.get("highlight", "")
+    # Bottom-anchoring the WHOLE block left a bare void under the masthead
+    # on short-copy topics -- a "cover" that was half empty canvas.
+    # Splitting into a top zone (pill+headline) and a bottom zone (giant
+    # stat+body), spread with space-between, uses the full page height as
+    # one deliberate composition instead of one cluster at the bottom.
     html = [_chrome_open(brand, bg, text_color)]
     html.append(_masthead(brand, accent, text_color, page.page_number, total_pages))
-    html.append('<div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;margin-top:10px;">')
+    html.append('<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;margin-top:10px;">')
+    html.append('<div>')
     html.append(_pill(tag, accent))
-    html.append(f'<div style="font-size:42px;font-weight:800;line-height:1.28;color:{text_color};margin-bottom:8px;">{page.headline}</div>')
+    html.append(f'<div style="font-size:44px;font-weight:800;line-height:1.28;color:{text_color};">{page.headline}</div>')
+    html.append('</div>')
+    html.append('<div>')
     if stat:
         html.append(
             f'<div style="font-size:148px;font-weight:900;line-height:0.9;letter-spacing:-4px;'
@@ -934,6 +942,7 @@ def _compose_cover_page(page: CarouselPage, brand: BrandConfig, accent: str, acc
         )
     if page.body:
         html.append(f'<div style="font-size:24px;font-weight:600;line-height:1.5;color:{text_color};opacity:0.75;max-width:90%;">{page.body}</div>')
+    html.append('</div>')
     html.append("</div>")
     html.append(_footer(brand, accent, accent2, text_color))
     html.append("</div>")
@@ -946,31 +955,35 @@ def _compose_who_when_why_page(page: CarouselPage, brand: BrandConfig, accent: s
     genuinely different rhythm from a checklist, reusable for any page
     whose real information is "who qualifies, what's changing when, why
     that matters"."""
+    # The three zones used to sit clustered right under the headline with
+    # only WHY pushed to the bottom via flex:1 -- everything in between
+    # read as one large blank gap. Distributing headline/WHO/WHEN/WHY as
+    # separate space-between children uses the full canvas height as
+    # increasing-weight rhythm instead of top-cluster + bottom-orphan.
     html = [_chrome_open(brand, bg, text_color)]
     html.append(_masthead(brand, accent, text_color, page.page_number, total_pages))
-    html.append('<div style="flex:1;display:flex;flex-direction:column;margin-top:24px;min-height:0;">')
+    html.append('<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;margin-top:24px;min-height:0;">')
+    html.append('<div>')
     html.append(_pill(tag, accent))
     html.append(_highlighted_headline(page.headline, accent))
+    html.append('</div>')
     who, why = vd.get("who", ""), vd.get("why", "")
     when_before, when_after = vd.get("when_before", ""), vd.get("when_after", "")
     if who:
         html.append(
-            f'<div style="margin-top:16px;"><div style="font-size:15px;font-weight:800;color:{accent};opacity:0.7;">누가</div>'
-            f'<div style="font-size:27px;font-weight:700;line-height:1.4;margin-top:4px;">{who}</div></div>'
+            f'<div><div style="font-size:15px;font-weight:800;color:{accent};opacity:0.7;">누가</div>'
+            f'<div style="font-size:29px;font-weight:700;line-height:1.4;margin-top:4px;">{who}</div></div>'
         )
     if when_after:
         html.append(
-            f'<div style="margin-top:24px;display:flex;align-items:baseline;gap:14px;">'
+            f'<div style="display:flex;align-items:baseline;gap:14px;">'
             f'<div style="font-size:15px;font-weight:800;color:{accent2};opacity:0.7;width:52px;flex-shrink:0;">언제</div>'
             f'<div style="font-size:26px;font-weight:800;opacity:0.4;">{when_before}</div>'
             f'<div style="font-size:22px;font-weight:900;color:{accent2};">→</div>'
             f'<div style="font-size:36px;font-weight:900;color:{accent2};">{when_after}</div></div>'
         )
     if why:
-        html.append(
-            f'<div style="flex:1;display:flex;align-items:flex-end;margin-top:28px;">'
-            f'<div style="font-size:30px;font-weight:800;line-height:1.4;">{why}</div></div>'
-        )
+        html.append(f'<div style="font-size:34px;font-weight:800;line-height:1.4;">{why}</div>')
     html.append("</div>")
     html.append(_footer(brand, accent, accent2, text_color))
     html.append("</div>")
@@ -1026,17 +1039,20 @@ def _compose_relationship_page(page: CarouselPage, brand: BrandConfig, accent: s
             parts.append(f'<div style="display:flex;align-items:center;font-size:34px;font-weight:900;color:{accent};opacity:0.4;padding:0 4px;">+</div>')
     # Sparse group content (e.g. 2+2 items) forced the columns alone into
     # flex:1 while headline/body stayed pinned at top -- that split the
-    # empty space into two awkward gaps instead of one coherent
-    # composition. Centering the WHOLE block (pill/headline/body/columns)
-    # as one unit within the available height reads as a deliberate
-    # centered layout instead.
+    # empty space into two awkward gaps. Centering the whole block as one
+    # unit only moved the gap to top+bottom evenly, still mostly-empty
+    # canvas. Grouping pill/headline/body as one top zone and the columns
+    # as a second zone, spread with space-between, uses the full height
+    # as two deliberate anchors instead of one small island floating in it.
     html = [_chrome_open(brand, bg, text_color)]
     html.append(_masthead(brand, accent, text_color, page.page_number, total_pages))
-    html.append('<div style="flex:1;display:flex;flex-direction:column;justify-content:center;margin-top:24px;min-height:0;">')
+    html.append('<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;margin-top:24px;min-height:0;">')
+    html.append('<div>')
     html.append(_pill(tag, accent))
     html.append(_highlighted_headline(page.headline, accent))
     html.append(_body_text(page.body, text_color))
-    html.append(f'<div style="flex:0 1 auto;display:flex;align-items:stretch;margin-top:20px;">{"".join(parts)}</div>')
+    html.append('</div>')
+    html.append(f'<div style="display:flex;align-items:stretch;">{"".join(parts)}</div>')
     html.append("</div>")
     html.append(_footer(brand, accent, accent2, text_color))
     html.append("</div>")
@@ -1082,12 +1098,19 @@ def _compose_magazine_page(page: CarouselPage, brand: BrandConfig, accent: str, 
                 for it in s["items"]
             )
             blocks.append(f'<div style="margin-top:18px;"><div style="font-size:14px;font-weight:800;color:{color};margin-bottom:10px;">{s["label"]}</div><div>{tags}</div></div>')
+    # A single justify-content:center around all sections clustered the
+    # whole stack in the middle of a 1350px canvas, leaving near-equal
+    # blank bands above and below. Grouping pill/headline as a fixed top
+    # zone and letting the section blocks themselves fill+distribute
+    # across the rest of the height turns that into deliberate rhythm.
     html = [_chrome_open(brand, bg, text_color)]
     html.append(_masthead(brand, accent, text_color, page.page_number, total_pages))
-    html.append('<div style="flex:1;display:flex;flex-direction:column;margin-top:24px;min-height:0;">')
+    html.append('<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;margin-top:24px;min-height:0;">')
+    html.append('<div>')
     html.append(_pill(tag, accent))
     html.append(_highlighted_headline(page.headline, accent))
-    html.append(f'<div style="flex:1;display:flex;flex-direction:column;justify-content:center;">{"".join(blocks)}</div>')
+    html.append('</div>')
+    html.append(f'<div style="flex:1;display:flex;flex-direction:column;justify-content:space-evenly;min-height:0;">{"".join(blocks)}</div>')
     html.append("</div>")
     html.append(_footer(brand, accent, accent2, text_color))
     html.append("</div>")
@@ -1113,12 +1136,17 @@ def _compose_process_flow_page(page: CarouselPage, brand: BrandConfig, accent: s
             f'<div style="font-size:{scale}px;font-weight:800;line-height:1.3;">{step}</div></div>'
         )
     trailing_html = f'<div style="font-size:19px;font-weight:600;opacity:0.65;margin-bottom:14px;">{trailing}</div>' if trailing else ""
+    # Same fix as the other composers: pill+headline as a fixed top zone,
+    # then space-between so the step rows and the closing CTA anchor at
+    # the bottom instead of both floating centered in a blank middle.
     html = [_chrome_open(brand, bg, text_color)]
     html.append(_masthead(brand, accent, text_color, page.page_number, total_pages))
-    html.append('<div style="flex:1;display:flex;flex-direction:column;margin-top:24px;min-height:0;">')
+    html.append('<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;margin-top:24px;min-height:0;">')
+    html.append('<div>')
     html.append(_pill("가장 안전한 다음 단계", accent))
     html.append(_highlighted_headline(page.headline, accent))
-    html.append(f'<div style="flex:1;display:flex;flex-direction:column;justify-content:center;">{"".join(rows)}</div>')
+    html.append('</div>')
+    html.append(f'<div style="flex:1;display:flex;flex-direction:column;justify-content:space-evenly;min-height:0;">{"".join(rows)}</div>')
     html.append(
         f'<div style="flex-shrink:0;">{trailing_html}'
         f'<div style="background:linear-gradient(90deg,{accent},{accent2});color:#fff;font-weight:800;font-size:26px;'
@@ -1143,7 +1171,11 @@ def render_page_html(page: CarouselPage, total_pages: int, brand: BrandConfig, f
     accent = brand.colors.get("navy", "#16233F")
     accent2 = brand.colors.get("orange", "#E8600A")
     text_color = brand.colors.get("text_primary", "#1B2233")
-    bg_cycle = list(brand.backgrounds.values()) or ["#FFFFFF"]
+    # light_lavender is a heritage accent tone -- excluded from the
+    # full-page background rotation so it can never wash an entire page
+    # purple again (product rule: do not let purple/lavender dominate).
+    _bg_rotation = [v for k, v in brand.backgrounds.items() if k != "light_lavender"]
+    bg_cycle = _bg_rotation or list(brand.backgrounds.values()) or ["#FFFFFF"]
     bg = bg_cycle[(page.page_number - 1) % len(bg_cycle)]
 
     vd = page.visual_data or {}
