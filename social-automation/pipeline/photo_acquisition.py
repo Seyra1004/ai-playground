@@ -20,12 +20,18 @@ dictionary already used in pipeline/live_discovery.py and pipeline/
 daily_state.py) -- topic-adaptive, never the full headline verbatim,
 never hardcoded to one date/story.
 
-There is deliberately NO role-keyed generic fallback. A page whose real
-text matches none of the glossary's markers returns zero concepts, and
-the caller must treat that as an immediate NO_PHOTO -- vocabulary from a
-completely different topic (e.g. a leftover "family small business
-owner" guess on a labor-law page) must never leak in just because a page
-exists. NO_PHOTO is always preferable to a semantically wrong photo.
+When the page's own text matches nothing in that content glossary, a
+SECOND, deliberately generic and role-keyed (not topic-keyed) tier
+supplies one broad contextual scene -- a relatable human moment or a
+documents/desk moment, the same two categories for every topic every
+day -- so a real photo opportunity still gets a genuine attempt instead
+of the page being searched zero times. This is NOT the old bug (a
+previous topic's specific leftover vocabulary, e.g. "family small
+business owner", leaking onto an unrelated page): the fallback text is
+always the same two universal categories, never anything derived from a
+different topic's content. Every candidate, from either tier, still has
+to clear the exact same quality/relevance/license gates below -- NO_PHOTO
+remains the outcome whenever nothing genuinely acceptable turns up.
 
 Never fabricates documentary context: an accepted photo illustrates the
 GENERAL concept a page conveys, not a claim that it depicts the actual
@@ -50,7 +56,12 @@ POOL_PER_SOURCE = 8
 
 _REJECT_NAME_RE = re.compile(
     r"(logo|icon|diagram|screenshot|\bmap\b|route|schematic|floor.?plan|chart|flag|seal|emblem|"
-    r"coat_of_arms|symbol|banner|portrait|headshot|mugshot)",
+    r"coat_of_arms|symbol|banner|portrait|headshot|mugshot|"
+    # A contextual/lifestyle photo must never imply the photographed
+    # person is an actual public official or specific real event's
+    # subject -- reject named-office/political-figure imagery outright,
+    # regardless of how well it otherwise matches a generic query.
+    r"white house|oval office|\bpresident\b|\bminister\b|\bsenator\b|\bgovernor\b|\bprime minister\b)",
     re.I,
 )
 _REUSABLE_LICENSE_RE = re.compile(r"(cc[\s-]?by|cc0|public.?domain|pdm)", re.I)
@@ -78,8 +89,14 @@ _KEYWORD_CONCEPTS = [
     (("수해", "호우", "침수", "홍수", "태풍"), "flooded street", "flooded street damaged building"),
     (("소상공인", "중소기업", "자영업", "상공인"), "small shop owner", "small shop owner business"),
     (("가계", "가정", "세대", "가족"), "family household", "family household home"),
-    (("근로자", "직장인", "노동자", "근무자", "사업장"), "office worker", "office worker workplace"),
-    (("야근", "초과근무", "연장근무", "시간외", "야간근무"), "office worker overtime", "office worker working late overtime"),
+    # Natural stock-photo-style scene phrasing, not professional-jargon
+    # phrases -- "office worker workplace" tested empirically to return
+    # near-zero real coverage on Commons/Openverse; "person using laptop
+    # office" style phrasing returns real, high-res, appropriately
+    # generic results for the same underlying concept.
+    (("근로자", "직장인", "노동자", "근무자", "사업장"), "office worker", "person using laptop office"),
+    (("야근", "초과근무", "연장근무", "시간외", "야간근무"), "office worker", "person working late office desk"),
+    (("병원", "진료", "치료", "시술", "검사", "의사", "환자"), "consultation", "doctor patient consultation room"),
     (("환급", "환불", "돌려받"), "receipt payment", "receipt payment consumer"),
     (("카드", "결제"), "credit card payment", "credit card payment"),
     (("보험료", "보험금", "보험"), "insurance documents", "insurance documents paperwork"),
@@ -110,15 +127,41 @@ _KEYWORD_CONCEPTS = [
 # generic commuting scene.
 
 
+# Tier 2: a GENERIC, role-keyed, UNIVERSAL contextual fallback -- used
+# ONLY when the page's own text matched nothing in the content glossary
+# above. This is deliberately NOT a topic's specific vocabulary leaking
+# into another topic (the earlier, separately-fixed bug) -- it is the
+# SAME two broad scene categories for every topic, every day: a relatable
+# human moment for reader-facing roles, a documents/process moment for
+# structural roles. It only ever widens the SEARCH attempt; every
+# candidate it finds still has to clear the exact same quality/relevance/
+# license gates as a content-derived concept, so a page still correctly
+# gets NO_PHOTO if nothing genuinely acceptable turns up.
+_ROLE_FALLBACK_QUERIES = {
+    "hook": ("person", "person reading document at desk"),
+    "why_now": ("person", "person using smartphone concerned"),
+    "eligibility": ("person", "person reading document at desk"),
+    "warnings": ("person", "person using smartphone concerned"),
+    "cta": ("person", "person using smartphone app"),
+    "conditions": ("documents", "hands filling out paperwork desk"),
+    "procedure": ("documents", "hands filling out paperwork desk"),
+    "amount": ("documents", "person writing document office"),
+    "comparison": ("documents", "hands filling out paperwork desk"),
+    "examples": ("documents", "hands filling out paperwork desk"),
+    "exclusions": ("documents", "person writing document office"),
+}
+
+
 def derive_concepts(headline: str, body: str, role: str = "", max_concepts: int = 3) -> list:
-    """Up to 3 (subject, query) concept pairs for one page -- derived ONLY
-    from its own verified text via the glossary above, in a small query
-    ladder (most-matched concepts first). Returns [] when the text matches
-    nothing -- callers MUST treat that as an immediate NO_PHOTO. There is
-    intentionally no role-based or otherwise generic fallback: injecting a
-    role's "usual" concept when the actual page text doesn't support one is
-    exactly how a previous topic's vocabulary (e.g. "small business owner"
-    on an unrelated labor-law page) leaks into a new topic."""
+    """Up to 3 (subject, query) concept pairs for one page. Tier 1 is
+    derived ONLY from the page's own verified text via the content
+    glossary above (most-matched concepts first). If that finds nothing,
+    Tier 2 adds ONE generic, role-keyed contextual scene (see
+    _ROLE_FALLBACK_QUERIES) so a page is never searched zero times just
+    because its text happens to contain no glossary marker -- a real
+    photo opportunity (a relatable moment, a documents/desk scene) still
+    gets a genuine attempt, gated by the same relevance/quality checks as
+    everything else."""
     text = f"{headline} {body}"
     concepts = []
     for markers, subject, query in _KEYWORD_CONCEPTS:
@@ -128,6 +171,10 @@ def derive_concepts(headline: str, body: str, role: str = "", max_concepts: int 
                 concepts.append(pair)
         if len(concepts) >= max_concepts:
             break
+    if not concepts:
+        fallback = _ROLE_FALLBACK_QUERIES.get(role)
+        if fallback:
+            concepts.append(fallback)
     return concepts[:max_concepts]
 
 
