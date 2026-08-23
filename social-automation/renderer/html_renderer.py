@@ -699,8 +699,14 @@ def render_page_html(page: CarouselPage, total_pages: int, brand: BrandConfig, f
         html.append(_check_rows(items, accent, flex=checklist_flex))
 
     elif family == "numbered_infographic":
+        # A short (<=3) list centered in a flex:1 container (forced to fill
+        # the full remaining page height) leaves a large accidental empty
+        # band above and below the rows -- the same defect class already
+        # fixed for the checklist/card_grid fallbacks. A longer list (4+)
+        # still fills the page naturally.
         items = vd.get("items") or vd.get("steps") or []
-        html.append(_infographic_numbered_rows(items, accent, accent2, flex="1 1 auto"))
+        infographic_flex = "0 1 auto" if len(items) <= 3 else "1 1 auto"
+        html.append(_infographic_numbered_rows(items, accent, accent2, flex=infographic_flex))
 
     elif family == "card_grid":
         items = vd.get("items") or vd.get("steps") or []
