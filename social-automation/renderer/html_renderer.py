@@ -57,12 +57,13 @@ def _page_number_bar(page: CarouselPage, total_pages: int, accent: str, accent2:
 _CARD_BASIS = "flex:1 1 auto;min-height:420px;max-height:700px;"
 
 
-def _render_visual(vd: dict, accent: str, accent2: str, text_color: str) -> str:
+def _render_visual(vd: dict, accent: str, accent2: str, text_color: str, card_style: str = None) -> str:
+    card_style = card_style or _CARD_BASIS
     vtype = vd.get("type")
 
     if vtype == "stat_hero":
         return (
-            f'<div style="{_CARD_BASIS}display:flex;flex-direction:column;justify-content:center;align-items:center;'
+            f'<div style="{card_style}display:flex;flex-direction:column;justify-content:center;align-items:center;'
             f'text-align:center;background:linear-gradient(135deg, {accent}22, {accent2}22);border-radius:24px;">'
             f'<div style="font-size:96px;font-weight:900;color:{accent};line-height:1.1;">{vd.get("big_text", "")}</div>'
             f'<div style="font-size:32px;font-weight:600;margin-top:16px;">{vd.get("sub_text", "")}</div>'
@@ -71,7 +72,7 @@ def _render_visual(vd: dict, accent: str, accent2: str, text_color: str) -> str:
 
     if vtype == "highlight_box":
         return (
-            f'<div style="{_CARD_BASIS}display:flex;flex-direction:column;justify-content:center;align-items:center;'
+            f'<div style="{card_style}display:flex;flex-direction:column;justify-content:center;align-items:center;'
             f'text-align:center;background:{accent}18;border:3px solid {accent};border-radius:24px;">'
             f'<div style="font-size:72px;">{vd.get("icon", "")}</div>'
             f'<div style="font-size:40px;font-weight:800;color:{accent};margin-top:12px;">{vd.get("highlight", "")}</div>'
@@ -85,7 +86,7 @@ def _render_visual(vd: dict, accent: str, accent2: str, text_color: str) -> str:
             for item in vd.get("items", [])
         )
         return (
-            f'<div style="{_CARD_BASIS}display:flex;flex-direction:column;justify-content:center;'
+            f'<div style="{card_style}display:flex;flex-direction:column;justify-content:center;'
             f'background:{accent}0d;border:3px solid {accent};border-radius:24px;padding:32px;">{items}</div>'
         )
 
@@ -96,7 +97,7 @@ def _render_visual(vd: dict, accent: str, accent2: str, text_color: str) -> str:
             for item in vd.get("items", [])
         )
         return (
-            f'<div style="{_CARD_BASIS}display:flex;flex-direction:column;justify-content:center;'
+            f'<div style="{card_style}display:flex;flex-direction:column;justify-content:center;'
             f'background:{accent2}0d;border:3px solid {accent2};border-radius:24px;padding:32px;">{items}</div>'
         )
 
@@ -110,7 +111,7 @@ def _render_visual(vd: dict, accent: str, accent2: str, text_color: str) -> str:
             for i, item in enumerate(vd.get("items", []))
         )
         return (
-            f'<div style="{_CARD_BASIS}display:flex;flex-direction:column;justify-content:center;'
+            f'<div style="{card_style}display:flex;flex-direction:column;justify-content:center;'
             f'background:{accent}0d;border:3px solid {accent};border-radius:24px;padding:32px;">{items}</div>'
         )
 
@@ -128,7 +129,7 @@ def _render_visual(vd: dict, accent: str, accent2: str, text_color: str) -> str:
             f'<div style="font-size:26px;font-weight:600;margin-top:16px;">{d.get("desc", "")}</div></div>'
         )
         return (
-            f'<div style="{_CARD_BASIS}display:flex;gap:24px;align-items:stretch;">'
+            f'<div style="{card_style}display:flex;gap:24px;align-items:stretch;">'
             f"{col(left, accent)}{col(right, accent2)}</div>"
         )
 
@@ -142,7 +143,7 @@ def _render_visual(vd: dict, accent: str, accent2: str, text_color: str) -> str:
         url = vd.get("url", "")
         domain = _re.sub(r"^https?://(www\.)?", "", url).split("/")[0] if url else ""
         return (
-            f'<div style="{_CARD_BASIS}display:flex;flex-direction:column;justify-content:center;'
+            f'<div style="{card_style}display:flex;flex-direction:column;justify-content:center;'
             f'background:{accent}0d;border:3px solid {accent};border-radius:24px;padding:32px;">'
             f'<div style="font-size:52px;">\U0001F4C4</div>'
             f'<div style="font-size:30px;font-weight:800;color:{accent};margin-top:12px;">{vd.get("publisher", "")}</div>'
@@ -161,40 +162,8 @@ def _render_visual(vd: dict, accent: str, accent2: str, text_color: str) -> str:
             for step in steps
         )
         return (
-            f'<div style="{_CARD_BASIS}display:flex;flex-direction:column;justify-content:center;'
+            f'<div style="{card_style}display:flex;flex-direction:column;justify-content:center;'
             f'gap:0;padding:24px;">{blocks}</div>'
-        )
-
-    if vtype in ("real_image", "generated_editorial_asset"):
-        # An actual image FILE on disk -- either a downloaded real photo/
-        # screenshot ("real_image") or a standalone, deterministically
-        # generated editorial illustration ("generated_editorial_asset",
-        # pipeline.generated_illustrations -- an original PIL-drawn asset,
-        # never a screenshot of this renderer's own CSS/chart components).
-        # Both embed identically; source/rights are recorded separately in
-        # the sibling asset_sources.json. Embedded as a base64 data: URI so
-        # it renders correctly under Playwright's page.set_content() (no
-        # file:// base URL involved).
-        import base64
-        import os
-
-        image_path = vd.get("image_path", "")
-        caption = vd.get("caption", "")
-        img_tag = ""
-        if image_path and os.path.isfile(image_path):
-            ext = os.path.splitext(image_path)[1].lower().lstrip(".")
-            mime = "image/jpeg" if ext in ("jpg", "jpeg") else f"image/{ext}" if ext else "image/jpeg"
-            with open(image_path, "rb") as f:
-                b64 = base64.b64encode(f.read()).decode("ascii")
-            img_tag = f'<img src="data:{mime};base64,{b64}" style="width:100%;height:100%;object-fit:cover;display:block;">'
-        caption_html = (
-            f'<div style="padding:14px 20px;font-size:22px;font-weight:700;background:{accent}0d;">{caption}</div>'
-            if caption else ""
-        )
-        return (
-            f'<div style="{_CARD_BASIS}display:flex;flex-direction:column;overflow:hidden;'
-            f'border:3px solid {accent};border-radius:24px;background:#fff;">'
-            f'<div style="flex:1;overflow:hidden;min-height:0;">{img_tag}</div>{caption_html}</div>'
         )
 
     if vtype == "bar_chart":
@@ -212,7 +181,7 @@ def _render_visual(vd: dict, accent: str, accent2: str, text_color: str) -> str:
             for label, val in items
         )
         return (
-            f'<div style="{_CARD_BASIS}display:flex;flex-direction:column;justify-content:center;'
+            f'<div style="{card_style}display:flex;flex-direction:column;justify-content:center;'
             f'background:{accent}0d;border:3px solid {accent};border-radius:24px;padding:32px;">{bars}</div>'
         )
 
@@ -226,7 +195,7 @@ def _render_visual(vd: dict, accent: str, accent2: str, text_color: str) -> str:
         # just adds more blank white space around the button rather than
         # reading as an intentional roomy card.
         return (
-            f'<div style="{_CARD_BASIS}display:flex;flex-direction:column;justify-content:center;align-items:center;'
+            f'<div style="{card_style}display:flex;flex-direction:column;justify-content:center;align-items:center;'
             f'background:{accent}0d;border:3px solid {accent};border-radius:24px;">'
             f"{region_html}"
             f'<div style="background:linear-gradient(90deg, {accent}, {accent2});color:white;font-size:38px;'
@@ -234,16 +203,63 @@ def _render_visual(vd: dict, accent: str, accent2: str, text_color: str) -> str:
             f"</div>"
         )
 
-    return f'<div style="{_CARD_BASIS}border:2px dashed {accent};border-radius:16px;"></div>'
+    return f'<div style="{card_style}border:2px dashed {accent};border-radius:16px;"></div>'
+
+
+def _render_image_panel(image_data: dict, accent: str, card_style: str) -> str:
+    """An image FILE on disk -- either a downloaded real photo/screenshot
+    ("real_image") or a standalone, deterministically generated editorial
+    illustration ("generated_editorial_asset", pipeline.
+    generated_illustrations -- an original PIL-drawn asset, never a
+    screenshot of this renderer's own CSS/chart components). Composed
+    ALONGSIDE the page's informative visual (see render_page_html), never
+    in place of it. Attribution (source publisher) shown only when present
+    -- never the headline repeated as a caption. Embedded as a base64
+    data: URI so it renders correctly under Playwright's page.set_content()
+    (no file:// base URL involved)."""
+    import base64
+    import os
+
+    image_path = image_data.get("image_path", "")
+    attribution = image_data.get("attribution", "")
+    img_tag = ""
+    if image_path and os.path.isfile(image_path):
+        ext = os.path.splitext(image_path)[1].lower().lstrip(".")
+        mime = "image/jpeg" if ext in ("jpg", "jpeg") else f"image/{ext}" if ext else "image/jpeg"
+        with open(image_path, "rb") as f:
+            b64 = base64.b64encode(f.read()).decode("ascii")
+        img_tag = f'<img src="data:{mime};base64,{b64}" style="width:100%;height:100%;object-fit:cover;display:block;">'
+    if not img_tag:
+        return ""
+    attribution_html = (
+        f'<div style="padding:6px 16px;font-size:16px;font-weight:600;opacity:0.55;">{attribution}</div>'
+        if attribution else ""
+    )
+    return (
+        f'<div style="{card_style}display:flex;flex-direction:column;overflow:hidden;'
+        f'border:3px solid {accent};border-radius:20px;background:#fff;">'
+        f'<div style="flex:1;overflow:hidden;min-height:0;">{img_tag}</div>{attribution_html}</div>'
+    )
+
+
+# hook/why_now lead with a bigger image (first-impression pages); every
+# other role stays information-primary -- the image supports, it doesn't
+# dominate a page whose job is to convey eligibility/steps/comparison/etc.
+def _composition_ratio(role: str):
+    if role in ("hook", "why_now"):
+        return (45, 55)
+    return (65, 35)
 
 
 def render_page_html(page: CarouselPage, total_pages: int, brand: BrandConfig) -> str:
     """Render one carousel page to a self-contained HTML/CSS fragment.
 
     Korean typography/layout is handled here in code; no AI image model is
-    involved in placing or rendering text (product rule 12). The visual for
-    each page is derived from page.visual_data, keeping 2-4 reusable layout
-    variants instead of one repeated template (product rule 5).
+    involved in placing or rendering text (product rule 12). Each page
+    composes its informative visual (page.visual_data -- checklist/
+    comparison/etc., 2-4 reusable layout variants per product rule 5) with
+    its image layer (page.image_data), role-aware sized, rather than one
+    replacing the other.
     """
     bg = next(iter(brand.backgrounds.values()))
     accent = brand.colors.get("violet", "#7848D8")
@@ -253,7 +269,23 @@ def render_page_html(page: CarouselPage, total_pages: int, brand: BrandConfig) -
     html = [_chrome_open(brand, bg, text_color)]
     html.append(_brand_label(brand, accent))
     html.append(f'<h1 style="font-size:44px;font-weight:800;line-height:1.3;margin:20px 0 24px 0;">{page.headline}</h1>')
-    html.append(_render_visual(page.visual_data or {"type": None}, accent, accent2, text_color))
+
+    vd = page.visual_data or {"type": None}
+    if page.image_data:
+        info_ratio, img_ratio = _composition_ratio(page.role)
+        parts = []
+        if vd.get("type"):
+            parts.append(_render_visual(vd, accent, accent2, text_color, card_style=f"flex:{info_ratio} 1 0;min-height:0;"))
+        img_frag = _render_image_panel(page.image_data, accent, card_style=f"flex:{img_ratio} 1 0;min-height:0;")
+        if img_frag:
+            parts.append(img_frag)
+        html.append(
+            '<div style="flex:1 1 auto;min-height:460px;max-height:760px;display:flex;flex-direction:column;gap:18px;">'
+            + "".join(parts) + "</div>"
+        )
+    else:
+        html.append(_render_visual(vd, accent, accent2, text_color))
+
     if page.body:
         html.append(
             f'<p style="font-size:26px;font-weight:500;line-height:1.5;margin-top:20px;opacity:0.85;">{page.body}</p>'

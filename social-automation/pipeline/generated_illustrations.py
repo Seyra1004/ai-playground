@@ -54,6 +54,16 @@ def _rrect(draw, box, radius, fill=None, outline=None, width=1):
 # the same role on a different topic, don't render pixel-identical.
 
 
+def _bg_accents(draw, cx, cy, fg, accent, variant):
+    """Soft off-center background shapes drawn behind every scene so it
+    reads as a small composed illustration -- not one icon floating alone
+    in empty space (the "generic icon-pack" look this replaces)."""
+    offsets = [(-260, -190, 42), (255, 195, 34), (-225, 210, 24), (235, -185, 28)]
+    for i, (dx, dy, r) in enumerate(offsets):
+        color = accent if i % 2 else fg
+        draw.ellipse([cx + dx - r, cy + dy - r, cx + dx + r, cy + dy + r], fill=_tint(color, 0.8 - (variant % 3) * 0.05))
+
+
 def _scene_shield_alert(draw, cx, cy, fg, accent, variant):
     s = 170 + variant * 8
     pts = [
@@ -119,7 +129,14 @@ def _scene_flow(draw, cx, cy, fg, accent, variant):
     colors = [fg, accent, fg]
     for i in range(3):
         y = y0 + i * (box_h + gap)
-        _rrect(draw, [cx - box_w / 2, y, cx + box_w / 2, y + box_h], 20, fill=_tint(colors[i % len(colors)], 0.2), outline=colors[i % len(colors)], width=5)
+        color = colors[i % len(colors)]
+        _rrect(draw, [cx - box_w / 2, y, cx + box_w / 2, y + box_h], 20, fill=_tint(color, 0.2), outline=color, width=5)
+        # a small marker inside each box so it reads as a filled step, not
+        # an empty placeholder rectangle
+        mx, my = cx - box_w / 2 + 44, y + box_h / 2
+        draw.ellipse([mx - 16, my - 16, mx + 16, my + 16], fill=color)
+        for lx0, ly0, lx1, ly1 in [(mx - 7, my, mx - 2, my + 7), (mx - 2, my + 7, mx + 9, my - 7)]:
+            draw.line([(lx0, ly0), (lx1, ly1)], fill="white", width=4)
         if i < 2:
             ay = y + box_h + gap / 2
             draw.line([(cx, ay - gap / 2 + 6), (cx, ay + gap / 2 - 10)], fill=fg, width=6)
@@ -140,13 +157,20 @@ def _scene_steps(draw, cx, cy, fg, accent, variant):
 
 
 def _scene_balance(draw, cx, cy, fg, accent, variant):
-    draw.line([(cx, cy - 110), (cx, cy + 40)], fill=fg, width=8)
-    draw.line([(cx - 160, cy - 60), (cx + 160, cy - 60)], fill=fg, width=8)
-    for i, dx in enumerate((-160, 160)):
+    # A clear before/after "X vs check" pair -- not an abstract balance
+    # scale -- so a comparison-role page reads unambiguously at a glance.
+    r = 96
+    for i, dx in enumerate((-150, 150)):
         color = fg if i == 0 else accent
-        pan_y = cy - 60 + (18 if i == variant % 2 else -6)
-        draw.arc([cx + dx - 70, pan_y, cx + dx + 70, pan_y + 60], 0, 180, fill=color, width=8)
-    draw.rounded_rectangle([cx - 90, cy + 30, cx + 90, cy + 70], radius=16, fill=_tint(fg, 0.3))
+        lx = cx + dx
+        draw.ellipse([lx - r, cy - r, lx + r, cy + r], outline=color, width=8, fill=_tint(color, 0.85))
+        if i == 0:
+            draw.line([(lx - 34, cy - 34), (lx + 34, cy + 34)], fill=color, width=14)
+            draw.line([(lx - 34, cy + 34), (lx + 34, cy - 34)], fill=color, width=14)
+        else:
+            draw.line([(lx - 34, cy + 4), (lx - 8, cy + 32)], fill=color, width=14)
+            draw.line([(lx - 8, cy + 32), (lx + 40, cy - 30)], fill=color, width=14)
+    draw.polygon([(cx - 26, cy), (cx + 26, cy), (cx, cy - 22)], fill=_tint(fg, 0.4 - (variant % 3) * 0.05))
 
 
 def _scene_warning(draw, cx, cy, fg, accent, variant):
@@ -212,7 +236,9 @@ def generate_editorial_illustration(role: str, page_number: int, out_dir: str, b
     draw = ImageDraw.Draw(img)
     _gradient_bg(draw, _CANVAS, _tint(fg, 0.9), _tint(accent, 0.88))
     draw = ImageDraw.Draw(img)  # redraw handle after gradient paints over the base
-    scene_fn(draw, _CANVAS[0] // 2, _CANVAS[1] // 2, fg, accent, variant)
+    cx, cy = _CANVAS[0] // 2, _CANVAS[1] // 2
+    _bg_accents(draw, cx, cy, fg, accent, variant)
+    scene_fn(draw, cx, cy, fg, accent, variant)
 
     fname = f"generated_{role}_{page_number}.png"
     path = os.path.join(out_dir, fname)

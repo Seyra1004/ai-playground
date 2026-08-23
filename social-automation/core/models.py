@@ -165,6 +165,9 @@ class CarouselPage:
     body: str
     visual_ref: str
     visual_data: dict = field(default_factory=dict)
+    # Separate from visual_data: an image layer composed ALONGSIDE the
+    # informative visual (checklist/comparison/etc.), never replacing it.
+    image_data: dict = field(default_factory=dict)
 
 
 @dataclass

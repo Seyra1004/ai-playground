@@ -232,23 +232,16 @@ def discover_and_acquire_images(source: Source, out_dir: str, max_images: int = 
     return accepted
 
 
-def _caption_from_headline(headline: str) -> str:
-    """The page's own real headline, used verbatim as the image caption --
-    a fixed char cutoff risked slicing off the final syllable mid-word
-    (e.g. "...막습니" instead of "...막습니다"), which reads as clipped/
-    broken text. Headlines are already short by editorial design, so no
-    truncation is needed; the caption bar wraps rather than clips if a
-    headline is unusually long."""
-    return headline or ""
-
-
 def assign_images_to_pages(pages: list, accepted_images: list) -> list:
     """Deterministic role-priority placement -- never a hardcoded page
     number, never a Claude call. Only touches as many pages as there are
     accepted images, in _IMAGE_ELIGIBLE_ROLE_PRIORITY order, and only roles
-    actually present in this topic's page plan. Caption is a prefix of the
-    page's own real headline, so it's relevant by construction. Returns the
-    list of page_numbers that were changed."""
+    actually present in this topic's page plan. Sets page.image_data -- a
+    layer composed ALONGSIDE the page's existing informative visual_data,
+    never overwriting/removing it (renderer/html_renderer.py composes the
+    two). Attribution is the source publisher, not the headline, so it adds
+    real information rather than duplicating text already on the page.
+    Returns the list of page_numbers that were changed."""
     if not accepted_images:
         return []
 
@@ -262,10 +255,10 @@ def assign_images_to_pages(pages: list, accepted_images: list) -> list:
         if page is None:
             continue
         img = accepted_images[image_idx]
-        page.visual_data = {
+        page.image_data = {
             "type": "real_image",
             "image_path": img["path"],
-            "caption": _caption_from_headline(page.headline),
+            "attribution": img.get("publisher", ""),
         }
         changed.append(page.page_number)
         image_idx += 1
@@ -279,21 +272,22 @@ def fill_missing_pages_with_generated_assets(pages: list, out_dir: str, brand) -
     editorial illustration per remaining page (pipeline.
     generated_illustrations -- an original PIL-drawn raster asset, never a
     screenshot of this renderer's own CSS/chart components, never any
-    text/numbers). Every page ends up with exactly one image asset. Returns
-    the list of page_numbers filled this way."""
+    text/numbers). Sets page.image_data ALONGSIDE the page's existing
+    informative visual_data (never overwrites/removes it). Every page ends
+    up with exactly one image asset. Returns the list of page_numbers
+    filled this way."""
     from pipeline.generated_illustrations import generate_editorial_illustration
 
     filled = []
     generated_entries = []
     for page in pages:
-        vd = page.visual_data or {}
-        if vd.get("type") in ("real_image", "generated_editorial_asset"):
+        if page.image_data and page.image_data.get("type") in ("real_image", "generated_editorial_asset"):
             continue
         asset = generate_editorial_illustration(page.role, page.page_number, out_dir, brand)
-        page.visual_data = {
+        page.image_data = {
             "type": "generated_editorial_asset",
             "image_path": asset["path"],
-            "caption": _caption_from_headline(page.headline),
+            "attribution": "",
         }
         generated_entries.append(asset)
         filled.append(page.page_number)
