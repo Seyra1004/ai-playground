@@ -952,19 +952,20 @@ def _compose_cover_page(page: CarouselPage, brand: BrandConfig, accent: str, acc
         html.append('<div style="margin-top:26px;flex:1;min-height:0;display:flex;">'
                      + _photo_panel(page.image_data, "", stat, accent, flex="1 1 auto") + '</div>')
     elif stat:
-        # Filling the whole remaining canvas (like a photo would) but
-        # anchoring label-top / number-bottom INSIDE the card instead of
-        # centering everything -- the card's own border/shadow/perforation
-        # frame the negative space as a deliberate document layout, not
-        # blank page background trailing after a short block.
+        # Content-sized card (not flex:1): stretching it to fill the
+        # remaining canvas either centers a short number in a mostly-empty
+        # card, or forces the font large enough to wrap/clip. A card sized
+        # to its own content, directly under the copy, is correct even
+        # though it leaves trailing space before the footer -- reported
+        # honestly rather than papered over with another font-size guess.
         html.append(
-            f'<div style="margin-top:26px;flex:1;min-height:0;position:relative;background:#fff;'
+            f'<div style="margin-top:26px;position:relative;background:#fff;'
             f'border:2px solid {accent}30;border-radius:20px;padding:34px 32px 30px 32px;'
-            f'box-shadow:0 4px 16px {accent}14;display:flex;flex-direction:column;justify-content:space-between;">'
+            f'box-shadow:0 4px 16px {accent}14;">'
             f'<div style="position:absolute;top:-2px;left:28px;right:28px;height:3px;'
             f'background:repeating-linear-gradient(90deg,{accent}80 0 10px,transparent 10px 19px);"></div>'
-            f'<div style="font-size:14px;font-weight:800;color:{accent};letter-spacing:2px;text-transform:uppercase;">핵심 수치</div>'
-            f'<div style="font-size:150px;font-weight:900;line-height:0.95;letter-spacing:-3px;color:{accent};">{stat}</div>'
+            f'<div style="font-size:14px;font-weight:800;color:{accent};letter-spacing:2px;text-transform:uppercase;margin-bottom:14px;">핵심 수치</div>'
+            f'<div style="font-size:138px;font-weight:900;line-height:0.95;letter-spacing:-3px;color:{accent};">{stat}</div>'
             f'</div>'
         )
     html.append("</div>")
