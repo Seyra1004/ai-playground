@@ -581,7 +581,13 @@ def _select_layout_family(page: CarouselPage, total_pages: int, prev_family: str
         # pair's raw Python repr as literal page text.
         family = "comparison" if len(items) == 2 else "numbered_infographic"
     elif vtype == "checklist" and items:
-        if len(items) <= 3:
+        if len(items) <= 3 and has_photo:
+            # A short list is compact enough to genuinely share the page
+            # with a photo -- picking plain "checklist" here would silently
+            # discard an already-vetted, semantically-specific photo just
+            # because the role happens to carry a short structured list.
+            family = "hybrid_photo_checklist"
+        elif len(items) <= 3:
             family = "checklist"
         elif has_photo:
             family = "card_grid"
@@ -660,6 +666,18 @@ def render_page_html(page: CarouselPage, total_pages: int, brand: BrandConfig, f
 
     elif family == "photo_info_overlay":
         html.append(_photo_info_overlay(page.image_data, tag, vd, accent, flex="1 1 auto"))
+
+    elif family == "hybrid_photo_checklist":
+        # Photo carries context/emotion for the top ~55% of the remaining
+        # space; the short (<=3) structured list -- the real reason this
+        # page exists -- stays fully legible below it, sized to its own
+        # content rather than stretched. No caption text on the photo
+        # itself (the list already states the content; repeating it as an
+        # overlay caption would be redundant).
+        items = vd.get("items") or []
+        html.append(_photo_panel(page.image_data, tag, "", accent, flex="1 1 55%", min_h="260px"))
+        html.append('<div style="height:22px;flex-shrink:0;"></div>')
+        html.append(_check_rows(items, accent, flex="0 1 auto"))
 
     elif family == "stat_hero":
         html.append(_stat_hero_block(vd.get("big_text") or vd.get("highlight", ""), vd.get("sub_text", ""), accent, accent2, flex="1 1 auto"))
