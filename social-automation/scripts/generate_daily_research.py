@@ -62,9 +62,17 @@ def main() -> int:
 
     candidates, sources_by_id, excerpts = discover_live_candidates(today)
     fresh_count = cache_excerpts(conn, excerpts, today)
-    conn.close()
 
     candidates = daily_state.dedupe_candidates(candidates)
+
+    # Permanent duplicate guard -- applied here too (not just in
+    # scripts/run_daily.py) so a rejected duplicate's fact sheet is never
+    # the ONLY one written into the bundle; the ranked-verification loop
+    # below naturally falls through to the next eligible candidate via the
+    # existing evaluate_candidate() gate.
+    all_time_fps = daily_state.recent_topic_fingerprints(conn, ACCOUNT_ID, today, daily_state.PERMANENT_WINDOW_DAYS)
+    daily_state.reject_previously_used_candidates(conn, ACCOUNT_ID, candidates, all_time_fps)
+    conn.close()
 
     ranked = sorted(
         candidates,
