@@ -141,6 +141,60 @@ def topic_similarity(a: str, b: str) -> float:
     return len(sa & sb) / len(sa | sb)
 
 
+# Keyword-Jaccard alone misses a same-event follow-up whose headline is
+# worded very differently from the original (e.g. a wrap-up article about
+# "the 8/20 meeting" vs the original announcement of it) -- a shared
+# distinctive number/date anchor (a specific date, a "2차/3rd session"
+# ordinal, a specific amount) from the SAME source board is strong
+# corroborating evidence they're the same specific event, even at only
+# moderate keyword overlap. Two candidates from different boards, or with
+# no shared distinctive number, still need the stricter fallback below.
+_NUMERIC_TOKEN_RE = re.compile(r"\d[\d,.]*\s*(?:차|월|일|년|주년|개월|명|만원|억원|원|%)?")
+
+
+def _numeric_tokens(topic: str) -> set:
+    return {t.strip() for t in _NUMERIC_TOKEN_RE.findall(topic) if len(t.strip()) >= 2}
+
+
+def _board_id_of(candidate_id: str) -> str:
+    """The source-board portion of a candidate_id (e.g. "nts-press" from
+    "nts-press-1354268") -- a deterministic stand-in for publisher/source
+    identity without needing a schema change to store it separately."""
+    return candidate_id.rsplit("-", 1)[0] if candidate_id else ""
+
+
+# A near-verbatim reworded headline (no shared board/number needed) is
+# still the same story at high enough raw keyword overlap.
+HIGH_TEXT_SIMILARITY_THRESHOLD = 0.65
+
+
+# Same board + a shared distinctive number/date anchor (a specific date,
+# "2차/3rd session", a specific amount) is strong enough evidence on its
+# own that a lower keyword-overlap bar still means the same specific
+# event -- a heavily reworded follow-up article can otherwise fall well
+# under TOPIC_SIMILARITY_THRESHOLD.
+SAME_BOARD_WITH_NUMBER_THRESHOLD = 0.35
+
+
+def is_same_story(a_candidate_id: str, a_topic: str, b_candidate_id: str, b_topic: str) -> bool:
+    """Canonical-story identity check combining several deterministic
+    signals (no LLM): same source board lowers the keyword-overlap bar
+    (further still when they also share a distinctive number/date anchor,
+    e.g. both mention "2차" or "8.20" -- almost certainly the same specific
+    event); otherwise falls back to a stricter keyword-overlap-only
+    threshold for a near-identical headline from any source. A candidate
+    with a genuinely different number/date for the same kind of event
+    (e.g. "3차" replacing "2차") or only a broad category in common is
+    treated as a different/new story, not a duplicate."""
+    jac = topic_similarity(a_topic, b_topic)
+    if _board_id_of(a_candidate_id) == _board_id_of(b_candidate_id):
+        shared_numbers = _numeric_tokens(a_topic) & _numeric_tokens(b_topic)
+        threshold = SAME_BOARD_WITH_NUMBER_THRESHOLD if shared_numbers else TOPIC_SIMILARITY_THRESHOLD
+        if jac >= threshold:
+            return True
+    return jac >= HIGH_TEXT_SIMILARITY_THRESHOLD
+
+
 def historical_topics(conn: sqlite3.Connection, account_id: str) -> list:
     """Every topic ever finally selected for this account, permanently --
     (candidate_id, topic) pairs from the `topics` table (already defined in
@@ -157,15 +211,15 @@ def reject_previously_used_candidates(
     """Mutates candidates in place: permanently rejects (a) the exact same
     source/candidate_id ever selected before, (b) an exact/near-exact title
     fingerprint match at any time (not just a recent window), and (c) a
-    near-duplicate follow-up about the same underlying story (keyword-
-    similarity gate) -- by pushing duplication_penalty_signal above core.
-    scoring's existing DUPLICATION_REJECT_THRESHOLD, so the existing scoring
-    gate (not a second copy of that rejection logic) does the actual
-    reject. A candidate that fails this always falls through to the next
-    ranked candidate in scripts/run_daily.py's existing selection loop."""
+    near-duplicate follow-up about the same underlying story (see
+    is_same_story's combined signals) -- by pushing duplication_penalty_signal
+    above core.scoring's existing DUPLICATION_REJECT_THRESHOLD, so the
+    existing scoring gate (not a second copy of that rejection logic) does
+    the actual reject. A candidate that fails this always falls through to
+    the next ranked candidate in scripts/run_daily.py's existing selection
+    loop."""
     history = historical_topics(conn, account_id)
     seen_ids = {cid for cid, _ in history if cid}
-    seen_topics = [t for _, t in history if t]
 
     for c in candidates:
         if c.candidate_id in seen_ids:
@@ -174,7 +228,7 @@ def reject_previously_used_candidates(
         if compute_topic_fingerprint(c.topic) in all_time_fingerprints:
             c.duplication_penalty_signal = max(c.duplication_penalty_signal, 0.95)
             continue
-        if any(topic_similarity(c.topic, t) >= TOPIC_SIMILARITY_THRESHOLD for t in seen_topics):
+        if any(is_same_story(c.candidate_id, c.topic, hid, htopic) for hid, htopic in history if htopic):
             c.duplication_penalty_signal = max(c.duplication_penalty_signal, 0.9)
 
 
