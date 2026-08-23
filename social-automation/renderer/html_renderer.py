@@ -502,7 +502,31 @@ _LIST_TIE_BREAK = {
     "numbered_infographic": "checklist",
     "process": "numbered_infographic",
     "card_grid": "numbered_infographic",
+    # A short claim that legitimately earns stat_hero on two adjacent pages
+    # would repeat P1's full visual weight right on P2 -- checklist renders
+    # the exact same text (still fully preserved, just at body scale
+    # instead of a giant numeral), so nothing about the actual content is
+    # lost or restructured; it's a safe universal fallback, not a forced
+    # redesign.
+    "stat_hero": "checklist",
 }
+
+_STAT_HERO_MAX_CHARS = 16
+
+
+def _is_stat_hero_worthy(text: str) -> bool:
+    """A giant centered numeral/claim treatment only works for a genuinely
+    compact quantitative or punchy claim (a short number, percentage,
+    amount, date, short metric, or very short textual claim) -- not a full
+    sentence, multi-clause warning, or long explanation, which would need
+    3+ giant-font lines and reads as oversized/broken rather than
+    editorial. A short length ceiling plus a check for a comma-joined
+    multi-clause statement is enough to tell the two apart without any
+    topic-specific wording."""
+    text = (text or "").strip()
+    if not text or len(text) > _STAT_HERO_MAX_CHARS:
+        return False
+    return "," not in text and "，" not in text
 
 
 def _select_layout_family(page: CarouselPage, total_pages: int, prev_family: str = None) -> str:
@@ -538,9 +562,12 @@ def _select_layout_family(page: CarouselPage, total_pages: int, prev_family: str
     if page.page_number == 1:
         if has_photo:
             return "editorial_photo"
-        if vd.get("big_text") or vd.get("highlight"):
+        short_claim = vd.get("big_text") or vd.get("highlight")
+        if short_claim and _is_stat_hero_worthy(short_claim):
             return "stat_hero"
-        return "checklist" if items else "stat_hero"
+        if items:
+            return "checklist"
+        return "checklist" if vd.get("highlight") else "stat_hero"
 
     if vtype == "comparison" and vd.get("left") and vd.get("right"):
         family = "comparison"
@@ -560,8 +587,16 @@ def _select_layout_family(page: CarouselPage, total_pages: int, prev_family: str
             family = "card_grid"
         else:
             family = "numbered_infographic"
-    elif vd.get("big_text") or (vtype == "highlight_box" and vd.get("highlight")):
+    elif (vd.get("big_text") and _is_stat_hero_worthy(vd.get("big_text"))) or (
+        vtype == "highlight_box" and vd.get("highlight") and _is_stat_hero_worthy(vd.get("highlight"))
+    ):
         family = "photo_info_overlay" if has_photo else "stat_hero"
+    elif vtype == "highlight_box" and vd.get("highlight"):
+        # A highlight_box whose text is too long for a giant-numeral
+        # treatment still needs to render its content somewhere -- a
+        # single-item checklist is the existing family that already
+        # handles arbitrary-length text at a legible body scale.
+        family = "photo_info_overlay" if has_photo else "checklist"
     elif has_photo:
         family = "photo_info_overlay"
     else:
@@ -634,7 +669,11 @@ def render_page_html(page: CarouselPage, total_pages: int, brand: BrandConfig, f
         html.append(_numbered_rows(items, accent, flex="1 1 auto"))
 
     elif family == "checklist":
-        items = vd.get("items") or []
+        # A highlight_box/stat-hero-eligible claim rejected/tie-broken into
+        # checklist has no "items" list of its own -- fall back to its own
+        # single short claim so the content is still shown, just at
+        # checklist scale instead of a giant numeral.
+        items = vd.get("items") or ([vd["highlight"]] if vd.get("highlight") else ([vd["big_text"]] if vd.get("big_text") else []))
         html.append(_check_rows(items, accent, flex="1 1 auto"))
 
     elif family == "numbered_infographic":
