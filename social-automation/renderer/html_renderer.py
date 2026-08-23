@@ -47,6 +47,168 @@ def _page_number_bar(page: CarouselPage, total_pages: int, accent: str, accent2:
     )
 
 
+# --- editorial design-system components (masthead/footer/pill/highlight/
+# numbered rows/photo panels/summary banner) -- reused across the layout
+# families below instead of one repeated boxed-card template per page. ---
+
+
+def _masthead(brand: BrandConfig, accent: str, text_color: str, page_number: int, total_pages: int) -> str:
+    return (
+        f'<div style="display:flex;align-items:center;justify-content:space-between;'
+        f'padding-bottom:18px;border-bottom:2px solid {text_color}14;">'
+        f'<div style="display:flex;align-items:center;gap:10px;">'
+        f'<div style="width:14px;height:14px;border-radius:50%;background:{accent};"></div>'
+        f'<div style="color:{text_color};font-weight:800;font-size:26px;letter-spacing:0.5px;">{brand.name}</div>'
+        f"</div>"
+        f'<div style="font-weight:700;font-size:22px;opacity:0.55;">{page_number:02d} / {total_pages:02d}</div>'
+        f"</div>"
+    )
+
+
+def _footer(brand: BrandConfig, accent: str, accent2: str, text_color: str) -> str:
+    short_name = brand.name.split("_")[0]
+    return (
+        f'<div style="position:absolute;left:84px;right:84px;bottom:34px;display:flex;align-items:center;gap:12px;">'
+        f'<div style="width:10px;height:10px;border-radius:50%;background:{accent};flex-shrink:0;"></div>'
+        f'<div style="font-weight:800;font-size:20px;color:{text_color};opacity:0.7;flex-shrink:0;">{short_name}</div>'
+        f'<div style="flex:1;height:3px;background:linear-gradient(90deg,{accent},{accent2});opacity:0.5;border-radius:2px;"></div>'
+        f"</div>"
+    )
+
+
+def _pill(text: str, accent: str) -> str:
+    if not text:
+        return ""
+    return (
+        f'<div style="display:inline-block;background:{accent}1c;color:{accent};font-weight:700;'
+        f'font-size:22px;padding:8px 20px;border-radius:999px;margin-bottom:18px;">{text}</div>'
+    )
+
+
+def _highlighted_headline(text: str, accent: str) -> str:
+    """Bold headline with the final short phrase drawn over a soft
+    highlighter-style background band -- a deterministic stand-in for
+    hand-picking "the" keyword: takes the last space-delimited word(s) up
+    to ~8 chars so the emphasis always lands on a whole word, never a
+    truncated fragment."""
+    text = text or ""
+    parts = text.rsplit(" ", 1)
+    if len(parts) == 2 and 1 <= len(parts[1]) <= 10:
+        head, tail = parts[0] + " ", parts[1]
+    else:
+        head, tail = "", text
+    return (
+        f'<h1 style="font-size:46px;font-weight:800;line-height:1.32;margin:0 0 20px 0;">'
+        f"{head}<span style=\"background:linear-gradient(180deg,transparent 58%,{accent}3d 58%);\">{tail}</span></h1>"
+    )
+
+
+def _body_text(text: str, text_color: str) -> str:
+    if not text:
+        return ""
+    return f'<p style="font-size:27px;font-weight:500;line-height:1.55;margin:0 0 26px 0;color:{text_color};opacity:0.72;">{text}</p>'
+
+
+def _summary_banner(text: str, bg_color: str) -> str:
+    if not text:
+        return ""
+    return (
+        f'<div style="background:{bg_color};color:#fff;border-radius:20px;padding:26px 32px;'
+        f'font-size:26px;font-weight:700;line-height:1.5;margin-top:22px;">{text}</div>'
+    )
+
+
+def _numbered_rows(items: list, accent: str, flex: str = "1 1 auto") -> str:
+    rows = "".join(
+        f'<div style="background:#fff;border-radius:18px;padding:22px 26px;margin-bottom:16px;'
+        f'box-shadow:0 1px 3px {accent}1a;display:flex;align-items:center;gap:20px;">'
+        f'<div style="width:44px;height:44px;border-radius:12px;background:{accent};color:#fff;'
+        f'font-weight:800;font-size:22px;flex-shrink:0;display:flex;align-items:center;justify-content:center;">{i + 1}</div>'
+        f'<div style="font-size:28px;font-weight:700;line-height:1.35;">{item}</div></div>'
+        for i, item in enumerate(items)
+    )
+    return f'<div style="flex:{flex};display:flex;flex-direction:column;justify-content:center;overflow:hidden;">{rows}</div>'
+
+
+def _check_rows(items: list, accent: str, flex: str = "1 1 auto") -> str:
+    rows = "".join(
+        f'<div style="display:flex;align-items:flex-start;gap:16px;margin:16px 0;">'
+        f'<div style="width:32px;height:32px;border-radius:50%;background:{accent};color:#fff;flex-shrink:0;'
+        f'display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:800;">✓</div>'
+        f'<div style="font-size:28px;font-weight:700;line-height:1.4;">{item}</div></div>'
+        for item in items
+    )
+    return (
+        f'<div style="flex:{flex};background:#fff;border-radius:20px;padding:30px 30px 6px 30px;'
+        f'display:flex;flex-direction:column;justify-content:center;overflow:hidden;">{rows}</div>'
+    )
+
+
+def _image_src(image_data: dict) -> str:
+    import base64
+    import os
+
+    image_path = (image_data or {}).get("image_path", "")
+    if not image_path or not os.path.isfile(image_path):
+        return ""
+    ext = os.path.splitext(image_path)[1].lower().lstrip(".")
+    mime = "image/jpeg" if ext in ("jpg", "jpeg") else f"image/{ext}" if ext else "image/jpeg"
+    with open(image_path, "rb") as f:
+        b64 = base64.b64encode(f.read()).decode("ascii")
+    return f"data:{mime};base64,{b64}"
+
+
+def _photo_panel(image_data: dict, tag: str, caption: str, accent: str, flex: str = "1 1 auto", min_h: str = "0") -> str:
+    """A bleeding photo/illustration panel with a dark gradient scrim and an
+    overlaid pill tag + bold caption -- the image and the copy share the
+    same surface instead of a picture floating in its own separate boxed
+    card next to text."""
+    src = _image_src(image_data)
+    fit = "contain" if (image_data or {}).get("type") == "generated_editorial_asset" else "cover"
+    img_tag = f'<img src="{src}" style="width:100%;height:100%;object-fit:{fit};display:block;">' if src else f'<div style="width:100%;height:100%;background:{accent}12;"></div>'
+    overlay = ""
+    if tag or caption:
+        overlay = (
+            '<div style="position:absolute;left:0;right:0;bottom:0;padding:28px 26px 22px 26px;'
+            'background:linear-gradient(180deg,transparent,rgba(0,0,0,0.62) 55%,rgba(0,0,0,0.78));">'
+            + (f'<div style="display:inline-block;background:{accent};color:#fff;font-weight:800;'
+               f'font-size:18px;letter-spacing:0.5px;padding:5px 14px;border-radius:8px;margin-bottom:10px;'
+               f'text-transform:uppercase;">{tag}</div><br/>' if tag else "")
+            + (f'<div style="color:#fff;font-weight:800;font-size:27px;line-height:1.35;">{caption}</div>' if caption else "")
+            + "</div>"
+        )
+    return (
+        f'<div style="flex:{flex};min-height:{min_h};position:relative;border-radius:22px;overflow:hidden;'
+        f'background:#000;">{img_tag}{overlay}</div>'
+    )
+
+
+def _comparison_cards(left: dict, right: dict, accent: str, accent2: str, flex: str = "1 1 auto") -> str:
+    def card(d, color):
+        return (
+            f'<div style="flex:1;background:#fff;border:3px solid {color}55;border-top:8px solid {color};'
+            f'border-radius:18px;padding:28px 22px;text-align:center;display:flex;flex-direction:column;'
+            f'justify-content:center;">'
+            f'<div style="display:inline-block;background:{color}18;color:{color};font-weight:800;font-size:18px;'
+            f'padding:5px 14px;border-radius:8px;margin:0 auto 12px auto;">{d.get("icon", "")}</div>'
+            f'<div style="font-size:30px;font-weight:800;color:{color};margin-bottom:10px;">{d.get("title", "")}</div>'
+            f'<div style="font-size:23px;font-weight:600;line-height:1.4;">{d.get("desc", "")}</div></div>'
+        )
+    return f'<div style="flex:{flex};display:flex;gap:20px;">{card(left, accent)}{card(right, accent2)}</div>'
+
+
+def _cta_banner(button_text: str, region: str, accent: str, accent2: str) -> str:
+    region_html = f'<div style="color:#fff;opacity:0.7;font-weight:700;font-size:20px;margin-bottom:8px;">📍 {region}</div>' if region else ""
+    return (
+        f'<div style="background:{"#20182c"};border-radius:22px;padding:30px 32px;display:flex;'
+        f'align-items:center;justify-content:space-between;gap:20px;margin-top:22px;">'
+        f'<div>{region_html}<div style="color:#fff;font-weight:800;font-size:28px;line-height:1.35;">지금 바로 확인하고<br/>도움을 받아보세요</div></div>'
+        f'<div style="flex-shrink:0;background:linear-gradient(90deg,{accent},{accent2});color:#fff;'
+        f'font-weight:800;font-size:26px;padding:20px 30px;border-radius:14px;white-space:nowrap;">{button_text} →</div>'
+        f"</div>"
+    )
+
+
 # A hard fixed basis (previously flex:0 1 480px) left large dead white space
 # below short-content cards, since nothing absorbed the canvas's remaining
 # height. flex:1 1 auto lets the card grow to fill actual leftover space
@@ -217,98 +379,122 @@ def _render_visual(vd: dict, accent: str, accent2: str, text_color: str, card_st
     return f'<div style="{card_style}border:2px dashed {accent};border-radius:16px;"></div>'
 
 
-def _render_image_panel(image_data: dict, accent: str, card_style: str) -> str:
-    """An image FILE on disk -- either a downloaded real photo/screenshot
-    ("real_image") or a standalone, deterministically generated editorial
-    illustration ("generated_editorial_asset", pipeline.
-    generated_illustrations -- an original PIL-drawn asset, never a
-    screenshot of this renderer's own CSS/chart components). Composed
-    ALONGSIDE the page's informative visual (see render_page_html), never
-    in place of it. Attribution (source publisher) shown only when present
-    -- never the headline repeated as a caption. Embedded as a base64
-    data: URI so it renders correctly under Playwright's page.set_content()
-    (no file:// base URL involved)."""
-    import base64
-    import os
+# Role -> editorial layout family. Deliberately no two adjacent roles in a
+# typical page_plan (hook, why_now, eligibility, conditions, examples/
+# comparison, cta) share a family, so consecutive pages never feel
+# templated. Falls back to PHOTO_CHECKLIST for any unmapped role.
+_LAYOUT_FAMILY_BY_ROLE = {
+    "hook": "hero",
+    "why_now": "steps_side",
+    "eligibility": "photo_checklist",
+    "amount": "photo_top_numbered",
+    "conditions": "photo_top_numbered",
+    "procedure": "steps_side",
+    "comparison": "photo_header_compare",
+    "examples": "photo_header_compare",
+    "exclusions": "photo_checklist",
+    "warnings": "photo_checklist",
+    "cta": "cta_close",
+}
 
-    image_path = image_data.get("image_path", "")
-    attribution = image_data.get("attribution", "")
-    img_tag = ""
-    if image_path and os.path.isfile(image_path):
-        ext = os.path.splitext(image_path)[1].lower().lstrip(".")
-        mime = "image/jpeg" if ext in ("jpg", "jpeg") else f"image/{ext}" if ext else "image/jpeg"
-        with open(image_path, "rb") as f:
-            b64 = base64.b64encode(f.read()).decode("ascii")
-        # Generated illustrations are deliberately composed scenes (a tall
-        # flow/steps stack, etc.) -- cropping them with object-fit:cover in
-        # a short composed panel cuts off content (seen: top/bottom flow
-        # boxes sliced off). "contain" never crops a generated asset; real
-        # photos/screenshots stay "cover" since a slight crop is normal/
-        # expected for those.
-        fit = "contain" if image_data.get("type") == "generated_editorial_asset" else "cover"
-        img_tag = f'<img src="data:{mime};base64,{b64}" style="width:100%;height:100%;object-fit:{fit};display:block;">'
-    if not img_tag:
-        return ""
-    attribution_html = (
-        f'<div style="padding:6px 16px;font-size:16px;font-weight:600;opacity:0.55;">{attribution}</div>'
-        if attribution else ""
-    )
-    return (
-        f'<div style="{card_style}display:flex;flex-direction:column;overflow:hidden;'
-        f'border:3px solid {accent};border-radius:20px;background:#fff;">'
-        f'<div style="flex:1;overflow:hidden;min-height:0;">{img_tag}</div>{attribution_html}</div>'
-    )
+_LAYOUT_VARIANT_BY_FAMILY = {
+    "hero": "hero",
+    "steps_side": "content_card",
+    "photo_checklist": "content_card",
+    "photo_top_numbered": "content_card",
+    "photo_header_compare": "content_card",
+    "cta_close": "cta",
+}
 
 
-# hook/why_now lead with a bigger image (first-impression pages); every
-# other role stays information-primary -- the image supports, it doesn't
-# dominate a page whose job is to convey eligibility/steps/comparison/etc.
-def _composition_ratio(role: str):
-    if role in ("hook", "why_now"):
-        return (45, 55)
-    return (65, 35)
+def _pill_label_for_role(role: str) -> str:
+    return {
+        "hook": "지금 확인하세요", "why_now": "왜 지금 확인해야 할까요", "eligibility": "대상 확인",
+        "amount": "핵심 조치", "conditions": "핵심 조치", "procedure": "이렇게 진행돼요",
+        "comparison": "무엇이 다를까", "examples": "무엇이 다를까", "exclusions": "주의하세요",
+        "warnings": "주의하세요", "cta": "가장 안전한 다음 단계",
+    }.get(role, "핵심 정보")
 
 
 def render_page_html(page: CarouselPage, total_pages: int, brand: BrandConfig) -> str:
-    """Render one carousel page to a self-contained HTML/CSS fragment.
-
-    Korean typography/layout is handled here in code; no AI image model is
-    involved in placing or rendering text (product rule 12). Each page
-    composes its informative visual (page.visual_data -- checklist/
-    comparison/etc., 2-4 reusable layout variants per product rule 5) with
-    its image layer (page.image_data), role-aware sized, rather than one
-    replacing the other.
+    """Render one carousel page as an editorial layout selected by the
+    page's semantic role (hero / steps+photo / photo+checklist / photo+
+    numbered / photo+comparison / CTA close) -- never a single repeated
+    boxed-card template. Uses only page.headline/body/visual_data/
+    image_data already produced upstream; no new content is authored here.
     """
-    bg = next(iter(brand.backgrounds.values()))
     accent = brand.colors.get("violet", "#7848D8")
     accent2 = brand.colors.get("magenta", "#F04890")
     text_color = brand.colors.get("text_primary", "#241B31")
+    bg_cycle = list(brand.backgrounds.values()) or ["#FFFFFF"]
+    bg = bg_cycle[(page.page_number - 1) % len(bg_cycle)]
+
+    vd = page.visual_data or {}
+    family = _LAYOUT_FAMILY_BY_ROLE.get(page.role, "photo_checklist")
+    tag = _pill_label_for_role(page.role)
 
     html = [_chrome_open(brand, bg, text_color)]
-    html.append(_brand_label(brand, accent))
-    html.append(f'<h1 style="font-size:44px;font-weight:800;line-height:1.3;margin:20px 0 24px 0;">{page.headline}</h1>')
+    html.append(_masthead(brand, accent, text_color, page.page_number, total_pages))
+    html.append('<div style="flex:1;display:flex;flex-direction:column;margin-top:26px;min-height:0;">')
+    html.append(_pill(tag, accent))
+    html.append(_highlighted_headline(page.headline, accent))
+    html.append(_body_text(page.body, text_color))
 
-    vd = page.visual_data or {"type": None}
-    if page.image_data:
-        info_ratio, img_ratio = _composition_ratio(page.role)
-        parts = []
-        if vd.get("type"):
-            parts.append(_render_visual(vd, accent, accent2, text_color, card_style=f"flex:{info_ratio} 1 0;min-height:0;"))
-        img_frag = _render_image_panel(page.image_data, accent, card_style=f"flex:{img_ratio} 1 0;min-height:0;")
-        if img_frag:
-            parts.append(img_frag)
-        html.append(
-            '<div style="flex:1 1 auto;min-height:460px;max-height:760px;display:flex;flex-direction:column;gap:18px;">'
-            + "".join(parts) + "</div>"
-        )
-    else:
-        html.append(_render_visual(vd, accent, accent2, text_color))
+    if family == "hero":
+        html.append(_photo_panel(page.image_data, vd.get("highlight") or vd.get("big_text", ""), page.headline, accent, flex="1 1 auto"))
 
-    if page.body:
+    elif family == "steps_side":
+        items = vd.get("steps") or vd.get("items") or []
         html.append(
-            f'<p style="font-size:26px;font-weight:500;line-height:1.5;margin-top:20px;opacity:0.85;">{page.body}</p>'
+            '<div style="flex:1;display:flex;gap:20px;min-height:0;">'
+            + _numbered_rows(items, accent, flex="1.15 1 0")
+            + _photo_panel(page.image_data, "CHECK POINT", vd.get("highlight", ""), accent2, flex="0.85 1 0")
+            + "</div>"
         )
-    html.append(_page_number_bar(page, total_pages, accent, accent2))
+
+    elif family == "photo_top_numbered":
+        items = vd.get("items") or vd.get("steps") or []
+        html.append(
+            '<div style="flex:1;display:flex;flex-direction:column;gap:18px;min-height:0;">'
+            + _photo_panel(page.image_data, tag, page.headline, accent, flex="0 0 34%", min_h="180px")
+            + _numbered_rows(items, accent2, flex="1 1 0")
+            + "</div>"
+        )
+
+    elif family == "photo_header_compare":
+        left, right = vd.get("left", {}), vd.get("right", {})
+        html.append(
+            '<div style="flex:1;display:flex;flex-direction:column;gap:18px;min-height:0;">'
+            + _photo_panel(page.image_data, tag, page.headline, accent, flex="0 0 40%", min_h="200px")
+            + _comparison_cards(left, right, accent, accent2, flex="1 1 0")
+            + "</div>"
+        )
+
+    elif family == "cta_close":
+        items = vd.get("items") or []
+        html.append(
+            '<div style="flex:1;display:flex;flex-direction:column;gap:18px;min-height:0;">'
+            + (
+                '<div style="flex:1;display:flex;gap:20px;min-height:0;">'
+                + _photo_panel(page.image_data, tag, page.headline, accent, flex="1 1 0")
+                + (_check_rows(items, accent, flex="1 1 0") if items else "")
+                + "</div>"
+            )
+            + _cta_banner(vd.get("button_text", "확인하기"), vd.get("region", ""), accent, accent2)
+            + "</div>"
+        )
+
+    else:  # photo_checklist (default)
+        items = vd.get("items") or []
+        html.append(
+            '<div style="flex:1;display:flex;gap:20px;min-height:0;">'
+            + _photo_panel(page.image_data, tag, page.headline, accent, flex="1 1 0")
+            + _check_rows(items, accent, flex="1 1 0")
+            + "</div>"
+        )
+
+    html.append("</div>")
+    html.append(_footer(brand, accent, accent2, text_color))
     html.append("</div>")
     return "".join(html)
 
@@ -322,7 +508,9 @@ def build_renderer_input(canonical: CanonicalContent, brand: BrandConfig) -> lis
         {
             "page_number": page.page_number,
             "role": page.role,
-            "layout_variant": _LAYOUT_VARIANT_BY_VISUAL_TYPE.get((page.visual_data or {}).get("type"), "content_card"),
+            "layout_variant": _LAYOUT_VARIANT_BY_FAMILY.get(
+                _LAYOUT_FAMILY_BY_ROLE.get(page.role, "photo_checklist"), "content_card"
+            ),
             "width": brand.canvas_width,
             "height": brand.canvas_height,
             "html": render_page_html(page, total, brand),
