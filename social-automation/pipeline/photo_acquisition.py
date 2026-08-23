@@ -61,7 +61,15 @@ _REJECT_NAME_RE = re.compile(
     # person is an actual public official or specific real event's
     # subject -- reject named-office/political-figure imagery outright,
     # regardless of how well it otherwise matches a generic query.
-    r"white house|oval office|\bpresident\b|\bminister\b|\bsenator\b|\bgovernor\b|\bprime minister\b)",
+    r"white house|oval office|\bpresident\b|\bminister\b|\bsenator\b|\bgovernor\b|\bprime minister\b|"
+    # Wellcome Collection's historical print/engraving archive (accession
+    # IDs like "Wellcome V0011051") is predominantly 18th-19th century
+    # satirical/medical illustrations and engravings, not photography --
+    # confirmed by three false positives on a "doctor patient" query
+    # ("A gouty patient in his room full of unproductive doctors",
+    # "Doctor Spurzheim his consulting room"). Reject the whole source
+    # rather than trying to keyword-filter individual old illustrations.
+    r"wellcome\s*v\d{5,}|\bengraving\b|\bcaricature\b|\blithograph\b|\betching\b)",
     re.I,
 )
 _REUSABLE_LICENSE_RE = re.compile(r"(cc[\s-]?by|cc0|public.?domain|pdm)", re.I)
