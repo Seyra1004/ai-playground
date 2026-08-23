@@ -120,6 +120,18 @@ def _summary_banner(text: str, bg_color: str) -> str:
     )
 
 
+def _fill_justify(flex: str) -> str:
+    """A short list forced to fill a tall flex:1 container with
+    justify-content:center clumps all the extra space into one dead gap
+    above+below the whole block -- generic across any item count/body
+    length combo, not just the single-item case already handled by
+    sizing to content. Distributing that space BETWEEN/AROUND the rows
+    instead makes any row count read as intentionally spaced, not
+    accidentally empty. Content-sized calls (flex starting "0") have no
+    extra space to distribute, so they keep a plain center."""
+    return "space-evenly" if flex.strip().startswith("1") else "center"
+
+
 def _numbered_rows(items: list, accent: str, flex: str = "1 1 auto") -> str:
     rows = "".join(
         f'<div style="background:#fff;border-radius:18px;padding:22px 26px;margin-bottom:16px;'
@@ -129,7 +141,7 @@ def _numbered_rows(items: list, accent: str, flex: str = "1 1 auto") -> str:
         f'<div style="font-size:28px;font-weight:700;line-height:1.35;">{item}</div></div>'
         for i, item in enumerate(items)
     )
-    return f'<div style="flex:{flex};display:flex;flex-direction:column;justify-content:center;overflow:hidden;">{rows}</div>'
+    return f'<div style="flex:{flex};display:flex;flex-direction:column;justify-content:{_fill_justify(flex)};overflow:hidden;">{rows}</div>'
 
 
 def _check_rows(items: list, accent: str, flex: str = "1 1 auto") -> str:
@@ -142,7 +154,7 @@ def _check_rows(items: list, accent: str, flex: str = "1 1 auto") -> str:
     )
     return (
         f'<div style="flex:{flex};background:#fff;border-radius:20px;padding:30px 30px 6px 30px;'
-        f'display:flex;flex-direction:column;justify-content:center;overflow:hidden;">{rows}</div>'
+        f'display:flex;flex-direction:column;justify-content:{_fill_justify(flex)};overflow:hidden;">{rows}</div>'
     )
 
 
@@ -163,7 +175,7 @@ def _infographic_numbered_rows(items: list, accent: str, accent2: str, flex: str
     )
     return (
         f'<div style="flex:{flex};background:#fff;border-radius:22px;padding:8px 34px;'
-        f'display:flex;flex-direction:column;justify-content:center;overflow:hidden;">{rows}</div>'
+        f'display:flex;flex-direction:column;justify-content:{_fill_justify(flex)};overflow:hidden;">{rows}</div>'
     )
 
 
