@@ -902,6 +902,217 @@ def _pill_label_for_role(role: str) -> str:
     }.get(role, "핵심 정보")
 
 
+# ============================================================
+# VISUAL ENGINE V4 -- MACRO COMPOSITION
+# ============================================================
+# The old flow forced every page through the same vertical stack:
+# masthead -> pill -> headline -> body -> one component -> closing strip.
+# That grammar is what made unrelated topics converge on the same
+# silhouette regardless of content. These composers instead take direct
+# control of PAGE GEOMETRY -- where the headline sits, what scale things
+# render at, how zones relate spatially -- keyed to the page's own DATA
+# SHAPE (metrics/groups/sections/who-when-why/steps), never to one
+# fertility-specific rule. Only the masthead and footer (brand chrome)
+# stay structurally fixed; everything between them is free to differ.
+
+
+def _compose_cover_page(page: CarouselPage, brand: BrandConfig, accent: str, accent2: str, text_color: str, bg: str, total_pages: int, vd: dict, tag: str) -> str:
+    """P1-shaped composer: the headline and the key stat are ONE
+    integrated typographic block, bottom-anchored so negative space reads
+    as deliberate cover design, not "headline on top, card below." Used
+    for any hook-role page whose visual_data is a single dominant claim."""
+    stat = vd.get("big_text") or vd.get("highlight", "")
+    html = [_chrome_open(brand, bg, text_color)]
+    html.append(_masthead(brand, accent, text_color, page.page_number, total_pages))
+    html.append('<div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;margin-top:10px;">')
+    html.append(_pill(tag, accent))
+    html.append(f'<div style="font-size:42px;font-weight:800;line-height:1.28;color:{text_color};margin-bottom:8px;">{page.headline}</div>')
+    if stat:
+        html.append(
+            f'<div style="font-size:148px;font-weight:900;line-height:0.9;letter-spacing:-4px;'
+            f'color:{accent};margin:6px 0 20px 0;">{stat}</div>'
+        )
+    if page.body:
+        html.append(f'<div style="font-size:24px;font-weight:600;line-height:1.5;color:{text_color};opacity:0.75;max-width:90%;">{page.body}</div>')
+    html.append("</div>")
+    html.append(_footer(brand, accent, accent2, text_color))
+    html.append("</div>")
+    return "".join(html)
+
+
+def _compose_who_when_why_page(page: CarouselPage, brand: BrandConfig, accent: str, accent2: str, text_color: str, bg: str, total_pages: int, vd: dict, tag: str) -> str:
+    """WHO/WHEN/WHY composer: three explicitly labeled zones with
+    increasing visual weight toward the bottom-anchored WHY payoff --
+    genuinely different rhythm from a checklist, reusable for any page
+    whose real information is "who qualifies, what's changing when, why
+    that matters"."""
+    html = [_chrome_open(brand, bg, text_color)]
+    html.append(_masthead(brand, accent, text_color, page.page_number, total_pages))
+    html.append('<div style="flex:1;display:flex;flex-direction:column;margin-top:24px;min-height:0;">')
+    html.append(_pill(tag, accent))
+    html.append(_highlighted_headline(page.headline, accent))
+    who, why = vd.get("who", ""), vd.get("why", "")
+    when_before, when_after = vd.get("when_before", ""), vd.get("when_after", "")
+    if who:
+        html.append(
+            f'<div style="margin-top:16px;"><div style="font-size:15px;font-weight:800;color:{accent};opacity:0.7;">누가</div>'
+            f'<div style="font-size:27px;font-weight:700;line-height:1.4;margin-top:4px;">{who}</div></div>'
+        )
+    if when_after:
+        html.append(
+            f'<div style="margin-top:24px;display:flex;align-items:baseline;gap:14px;">'
+            f'<div style="font-size:15px;font-weight:800;color:{accent2};opacity:0.7;width:52px;flex-shrink:0;">언제</div>'
+            f'<div style="font-size:26px;font-weight:800;opacity:0.4;">{when_before}</div>'
+            f'<div style="font-size:22px;font-weight:900;color:{accent2};">→</div>'
+            f'<div style="font-size:36px;font-weight:900;color:{accent2};">{when_after}</div></div>'
+        )
+    if why:
+        html.append(
+            f'<div style="flex:1;display:flex;align-items:flex-end;margin-top:28px;">'
+            f'<div style="font-size:30px;font-weight:800;line-height:1.4;">{why}</div></div>'
+        )
+    html.append("</div>")
+    html.append(_footer(brand, accent, accent2, text_color))
+    html.append("</div>")
+    return "".join(html)
+
+
+def _compose_change_axis_page(page: CarouselPage, brand: BrandConfig, accent: str, accent2: str, text_color: str, bg: str, total_pages: int, vd: dict, tag: str) -> str:
+    """Change-axis composer: a left/right split with a vertical divider --
+    faded small "before" values on the left, bold large "after" values on
+    the right. The BEFORE->AFTER axis is the page's literal geometry, not
+    a value printed inside a generic card."""
+    metrics = vd.get("metrics", [])
+    rows = "".join(
+        (
+            f'<div style="display:flex;align-items:center;flex:1;">'
+            f'<div style="flex:1;text-align:right;padding-right:24px;">'
+            f'<div style="font-size:15px;font-weight:700;opacity:0.55;margin-bottom:4px;">{m["label"]}</div>'
+            f'<div style="font-size:38px;font-weight:800;opacity:0.35;">{m["before"]}</div></div>'
+            f'<div style="width:4px;align-self:stretch;background:linear-gradient(180deg,{accent},{accent2});border-radius:2px;flex-shrink:0;"></div>'
+            f'<div style="flex:1;padding-left:24px;">'
+            f'<div style="font-size:15px;font-weight:700;color:{accent2};opacity:0.85;margin-bottom:4px;">바뀐 후</div>'
+            f'<div style="font-size:54px;font-weight:900;color:{accent2};">{m["after"]}</div></div></div>'
+        )
+        for m in metrics
+    )
+    html = [_chrome_open(brand, bg, text_color)]
+    html.append(_masthead(brand, accent, text_color, page.page_number, total_pages))
+    html.append('<div style="flex:1;display:flex;flex-direction:column;margin-top:24px;min-height:0;">')
+    html.append(_pill(tag, accent))
+    html.append(f'<div style="font-size:32px;font-weight:800;line-height:1.3;margin-bottom:22px;">{page.headline}</div>')
+    html.append(f'<div style="flex:1;display:flex;flex-direction:column;gap:12px;">{rows}</div>')
+    html.append("</div>")
+    html.append(_footer(brand, accent, accent2, text_color))
+    html.append("</div>")
+    return "".join(html)
+
+
+def _compose_relationship_page(page: CarouselPage, brand: BrandConfig, accent: str, accent2: str, text_color: str, bg: str, total_pages: int, vd: dict, tag: str) -> str:
+    """Relationship composer: two (or more) content columns with an
+    explicit "+" connector between them -- the RELATIONSHIP between
+    groups is the visual structure, not two same-shaped cards."""
+    groups = vd.get("groups", [])
+    colors = [accent, accent2]
+    parts = []
+    for i, g in enumerate(groups):
+        items_html = "".join(f'<div style="font-size:25px;font-weight:700;line-height:1.5;margin:9px 0;">{it}</div>' for it in g["items"])
+        parts.append(
+            f'<div style="flex:1;display:flex;flex-direction:column;justify-content:center;">'
+            f'<div style="font-size:17px;font-weight:800;color:{colors[i % 2]};margin-bottom:14px;">{g["label"]}</div>'
+            f"{items_html}</div>"
+        )
+        if i < len(groups) - 1:
+            parts.append(f'<div style="display:flex;align-items:center;font-size:34px;font-weight:900;color:{accent};opacity:0.4;padding:0 4px;">+</div>')
+    html = [_chrome_open(brand, bg, text_color)]
+    html.append(_masthead(brand, accent, text_color, page.page_number, total_pages))
+    html.append('<div style="flex:1;display:flex;flex-direction:column;margin-top:24px;min-height:0;">')
+    html.append(_pill(tag, accent))
+    html.append(_highlighted_headline(page.headline, accent))
+    html.append(_body_text(page.body, text_color))
+    html.append(f'<div style="flex:1;display:flex;align-items:stretch;">{"".join(parts)}</div>')
+    html.append("</div>")
+    html.append(_footer(brand, accent, accent2, text_color))
+    html.append("</div>")
+    return "".join(html)
+
+
+def _compose_magazine_page(page: CarouselPage, brand: BrandConfig, accent: str, accent2: str, text_color: str, bg: str, total_pages: int, vd: dict, tag: str) -> str:
+    """Magazine composer: each information system gets a DIFFERENT visual
+    treatment (bold statement / bordered strip / tag cluster) at a
+    different scale, so genuinely different KINDS of information read as
+    different at a glance, not as uniform sub-headers in one box."""
+    sections = vd.get("sections", [])
+    treatments = ["big_statement", "compact_strip", "tag_cluster"]
+    blocks = []
+    for i, s in enumerate(sections):
+        treatment = treatments[i] if i < len(treatments) else "tag_cluster"
+        color = [accent, accent2, accent][i % 3]
+        if treatment == "big_statement":
+            items_html = "".join(f'<div style="font-size:29px;font-weight:800;line-height:1.4;margin:6px 0;">{it}</div>' for it in s["items"])
+            blocks.append(f'<div style="margin:16px 0;"><div style="font-size:16px;font-weight:800;color:{color};margin-bottom:8px;">{s["label"]}</div>{items_html}</div>')
+        elif treatment == "compact_strip":
+            items_html = " · ".join(s["items"])
+            blocks.append(
+                f'<div style="margin:16px 0;padding:16px 18px;border-left:4px solid {color};background:{color}0d;">'
+                f'<span style="font-size:14px;font-weight:800;color:{color};">{s["label"]}</span> '
+                f'<span style="font-size:20px;font-weight:700;">{items_html}</span></div>'
+            )
+        else:
+            tags = "".join(
+                f'<span style="display:inline-block;background:{color}16;color:{color};font-weight:700;font-size:19px;'
+                f'padding:9px 16px;border-radius:999px;margin:0 8px 8px 0;">{it}</span>'
+                for it in s["items"]
+            )
+            blocks.append(f'<div style="margin-top:18px;"><div style="font-size:14px;font-weight:800;color:{color};margin-bottom:10px;">{s["label"]}</div><div>{tags}</div></div>')
+    html = [_chrome_open(brand, bg, text_color)]
+    html.append(_masthead(brand, accent, text_color, page.page_number, total_pages))
+    html.append('<div style="flex:1;display:flex;flex-direction:column;margin-top:24px;min-height:0;">')
+    html.append(_pill(tag, accent))
+    html.append(_highlighted_headline(page.headline, accent))
+    html.append(f'<div style="flex:1;display:flex;flex-direction:column;justify-content:center;">{"".join(blocks)}</div>')
+    html.append("</div>")
+    html.append(_footer(brand, accent, accent2, text_color))
+    html.append("</div>")
+    return "".join(html)
+
+
+def _compose_process_flow_page(page: CarouselPage, brand: BrandConfig, accent: str, accent2: str, text_color: str, bg: str, total_pages: int, steps: list, trailing: str, button_text: str) -> str:
+    """Process-flow composer: each step grows in indent and type scale as
+    it progresses, so the eye naturally travels a diagonal path toward
+    the CTA button at the end -- the PROCESS defines the geometry, not
+    four equal rows inside a dark rectangle."""
+    colors = [accent, accent2]
+    n = max(len(steps), 1)
+    rows = []
+    for i, step in enumerate(steps):
+        indent = int(i * (56 / max(n - 1, 1))) if n > 1 else 0
+        scale = 23 + i * 3
+        badge = 38 + i * 2
+        rows.append(
+            f'<div style="display:flex;align-items:center;gap:16px;margin:12px 0 12px {indent}px;">'
+            f'<div style="width:{badge}px;height:{badge}px;border-radius:50%;background:{colors[i % 2]};color:#fff;'
+            f'display:flex;align-items:center;justify-content:center;font-weight:900;font-size:{17 + i}px;flex-shrink:0;">{i + 1}</div>'
+            f'<div style="font-size:{scale}px;font-weight:800;line-height:1.3;">{step}</div></div>'
+        )
+    trailing_html = f'<div style="font-size:19px;font-weight:600;opacity:0.65;margin-bottom:14px;">{trailing}</div>' if trailing else ""
+    html = [_chrome_open(brand, bg, text_color)]
+    html.append(_masthead(brand, accent, text_color, page.page_number, total_pages))
+    html.append('<div style="flex:1;display:flex;flex-direction:column;margin-top:24px;min-height:0;">')
+    html.append(_pill("가장 안전한 다음 단계", accent))
+    html.append(_highlighted_headline(page.headline, accent))
+    html.append(f'<div style="flex:1;display:flex;flex-direction:column;justify-content:center;">{"".join(rows)}</div>')
+    html.append(
+        f'<div style="flex-shrink:0;">{trailing_html}'
+        f'<div style="background:linear-gradient(90deg,{accent},{accent2});color:#fff;font-weight:800;font-size:26px;'
+        f'padding:22px 40px;border-radius:16px;text-align:center;">{button_text} →</div></div>'
+    )
+    html.append("</div>")
+    html.append(_footer(brand, accent, accent2, text_color))
+    html.append("</div>")
+    return "".join(html)
+
+
 def render_page_html(page: CarouselPage, total_pages: int, brand: BrandConfig, family: str) -> str:
     """Render one carousel page in the given editorial layout `family`
     (chosen upstream by _select_layout_family from the page's own meaning,
@@ -917,6 +1128,27 @@ def render_page_html(page: CarouselPage, total_pages: int, brand: BrandConfig, f
     vd = page.visual_data or {}
     tag = _pill_label_for_role(page.role)
     is_cta = family == "cta"
+
+    # VISUAL ENGINE V4 -- macro-composition dispatch. Keyed to the page's
+    # own DATA SHAPE (never to role/topic), so any future topic whose
+    # content naturally has these shapes gets the same non-template
+    # geometry. Falls through to the older shared-wrapper flow below only
+    # for shapes not yet covered here (photo families, plain lists, etc.)
+    # -- deliberately not touched this pass.
+    if is_cta:
+        steps, trailing = _extract_step_flow(page.body) if page.body else ([], "")
+        if steps:
+            return _compose_process_flow_page(page, brand, accent, accent2, text_color, bg, total_pages, steps, trailing, vd.get("button_text", "확인하기"))
+    elif vd.get("metrics"):
+        return _compose_change_axis_page(page, brand, accent, accent2, text_color, bg, total_pages, vd, tag)
+    elif vd.get("groups"):
+        return _compose_relationship_page(page, brand, accent, accent2, text_color, bg, total_pages, vd, tag)
+    elif vd.get("sections"):
+        return _compose_magazine_page(page, brand, accent, accent2, text_color, bg, total_pages, vd, tag)
+    elif vd.get("who") or vd.get("when_after"):
+        return _compose_who_when_why_page(page, brand, accent, accent2, text_color, bg, total_pages, vd, tag)
+    elif page.page_number == 1 and (vd.get("big_text") or vd.get("highlight")):
+        return _compose_cover_page(page, brand, accent, accent2, text_color, bg, total_pages, vd, tag)
 
     if vd.get("type") == "bar_chart":
         # _select_layout_family routes this into "comparison" (2 values) or
