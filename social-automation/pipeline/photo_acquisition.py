@@ -96,7 +96,7 @@ _KEYWORD_CONCEPTS = [
     # generic results for the same underlying concept.
     (("근로자", "직장인", "노동자", "근무자", "사업장"), "office worker", "person using laptop office"),
     (("야근", "초과근무", "연장근무", "시간외", "야간근무"), "office worker", "person working late office desk"),
-    (("병원", "진료", "치료", "시술", "검사", "의사", "환자"), "consultation", "doctor patient consultation room"),
+    (("병원", "진료", "치료", "시술", "검사", "의사", "환자"), "doctor patient", "doctor patient consultation room"),
     (("환급", "환불", "돌려받"), "receipt payment", "receipt payment consumer"),
     (("카드", "결제"), "credit card payment", "credit card payment"),
     (("보험료", "보험금", "보험"), "insurance documents", "insurance documents paperwork"),
