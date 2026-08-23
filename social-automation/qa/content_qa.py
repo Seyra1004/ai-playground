@@ -72,6 +72,47 @@ def run_content_qa(
     return QAResult(status=status, checks_passed=passed, checks_failed=failed, notes=notes)
 
 
+# Common Korean particles (josa)/verb-ending fragments that attach directly
+# to a word with no space -- stripped (longest match first, generic across
+# any word/topic) so relevance matching compares word STEMS instead of exact
+# surface forms. Without this, "가족에게" (visual) vs "가족과"/"가족은" (page
+# text) share the same root "가족" but never literally contain each other,
+# producing a false "unrelated" verdict despite being the same word.
+_KOREAN_PARTICLE_SUFFIXES = sorted(
+    [
+        "으로부터", "에게서", "에서는", "으로써", "이라도", "이라서", "이랑은",
+        "라도", "라서", "에게", "께서", "에는", "으로", "에서", "부터", "까지",
+        "마저", "조차", "마다", "같이", "처럼", "이나", "나마", "이란", "이랑",
+        "보다", "와는", "과는", "은", "는", "이", "가", "을", "를", "의", "에",
+        "로", "와", "과", "도", "만", "나", "란", "랑", "라",
+    ],
+    key=len,
+    reverse=True,
+)
+
+
+def _korean_stem(word: str) -> str:
+    for suffix in _KOREAN_PARTICLE_SUFFIXES:
+        if word.endswith(suffix) and len(word) > len(suffix):
+            return word[: -len(suffix)]
+    return word
+
+
+def _korean_root_overlap(a: str, b: str) -> bool:
+    """Fallback for verb/adjective conjugation variance that particle-
+    stripping alone doesn't cover (e.g. "공유하기" vs "공유해" -- different
+    endings on the same "공유" root). Two stems overlap if one contains the
+    other, or -- only when BOTH are at least 3 chars, to avoid loosely
+    matching short/common syllables -- if they share the same 2-char leading
+    root (each Hangul syllable block is a full phonetic unit, so a shared
+    2-char prefix on longer words is a meaningfully specific match)."""
+    if a in b or b in a:
+        return True
+    if len(a) < 3 or len(b) < 3:
+        return False
+    return a[:2] == b[:2]
+
+
 def check_visual_quality(canonical: CanonicalContent) -> QAResult:
     """Deterministic visual-relevance QA: a page with no visual_data at all
     -> FAIL, the exact same visual_data reused verbatim on 2+ pages -> FAIL
@@ -117,6 +158,15 @@ def check_visual_quality(canonical: CanonicalContent) -> QAResult:
         page_text = f"{page.headline} {page.body}"
         page_words = {w for w in page_text.replace(",", " ").split() if len(w) >= 2}
         has_overlap = any(w in page_text for w in visual_words) or any(w in " ".join(visual_strings) for w in page_words)
+        if not has_overlap:
+            # Raw substring containment misses matches that differ only by a
+            # Korean particle ("가족에게" vs "가족과") or a verb/adjective
+            # ending ("공유하기" vs "공유해") on the same word -- compare
+            # stemmed roots as a fallback before concluding the visual is
+            # actually unrelated to the page.
+            visual_stems = {_korean_stem(w) for w in visual_words}
+            page_stems = {_korean_stem(w) for w in page_words}
+            has_overlap = any(_korean_root_overlap(vs, ps) for vs in visual_stems for ps in page_stems)
         if visual_words and page_words and not has_overlap:
             notes.append(f"visual_relevance_uncertain:page_{page.page_number}")
 
