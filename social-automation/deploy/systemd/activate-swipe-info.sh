@@ -17,6 +17,7 @@ git -C "${REPO_DIR}" reset --hard origin/main
 
 sudo install -m 0644 "${UNIT_DIR}/social-automation-swipe-info.service" /etc/systemd/system/
 sudo install -m 0644 "${UNIT_DIR}/social-automation-swipe-info.timer" /etc/systemd/system/
+sudo install -m 0644 "${UNIT_DIR}/social-automation-swipe-info-failure@.service" /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now social-automation-swipe-info.timer
 sudo systemctl status social-automation-swipe-info.timer --no-pager

@@ -1,0 +1,11 @@
+[Unit]
+Description=Notify Kakao when SWIPE_INFO daily pipeline fails (%i)
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/opt/ai-playground-src-v2/social-automation
+ExecStart=/opt/ai-playground-src-v2/super-news/.venv/bin/python3 /opt/ai-playground-src-v2/social-automation/scripts/send_kakao_failure.py --reason %i
+TimeoutStartSec=2min
+StandardOutput=journal
+StandardError=journal

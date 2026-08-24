@@ -30,21 +30,6 @@ def _run(cmd, cwd):
     return subprocess.run(cmd, cwd=cwd, check=False)
 
 
-def _notify_failure(run_date: str, topic: str, reason: str) -> None:
-    """Best-effort Kakao alert. A notification failure stays in systemd logs."""
-    latest_url = f"{PAGES_BASE_URL}/latest/"
-    alert = _run(
-        [
-            SUPER_NEWS_VENV_PY, os.path.join(REPO_ROOT, "scripts", "send_kakao_review.py"),
-            "--topic", (topic or reason)[:160], "--status", "확인 필요",
-            "--dated-url", latest_url, "--latest-url", latest_url,
-            "--title", "SWIPE_INFO 제작 확인 필요",
-        ],
-        cwd=REPO_ROOT,
-    )
-    print(f"KAKAO_FAILURE_ALERT_SENT={alert.returncode == 0}")
-
-
 def main() -> int:
     import argparse
 
@@ -67,7 +52,6 @@ def main() -> int:
     summary_path = os.path.join(out_dir, "run_summary.json")
     if not os.path.isfile(summary_path):
         print("FINAL_STATUS=FAILED (no run_summary.json -- run_daily did not complete a package)")
-        _notify_failure(run_date, "", "제작 결과 파일이 생성되지 않았습니다")
         return 1
 
     with open(summary_path, "r", encoding="utf-8") as f:
@@ -78,8 +62,7 @@ def main() -> int:
 
     if status != "COMPLETE":
         print("Not COMPLETE -- stale-content guard: skipping review-page publish and Kakao delivery.")
-        _notify_failure(run_date, topic, f"제작 상태: {status}")
-        return 0
+        return 1
 
     # 3. review page (dated + latest, regenerated from this run's own output/)
     _run([py, "scripts/build_review_page.py", "--account", args.account, "--date", run_date], cwd=REPO_ROOT)
