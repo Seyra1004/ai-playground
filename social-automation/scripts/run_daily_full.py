@@ -72,7 +72,10 @@ def main() -> int:
     kakao_marker = os.path.join(out_dir, "kakao_sent.json")
 
     # 4. publish to the existing GitHub Pages tree (commit only if changed)
-    _run(["git", "add", dated_rel, latest_rel], cwd=AI_PLAYGROUND_ROOT)
+    staged = _run(["git", "add", dated_rel, latest_rel], cwd=AI_PLAYGROUND_ROOT)
+    if staged.returncode != 0:
+        print("PUBLISH_FAILED (git add failed; Kakao delivery blocked to avoid a broken review link)")
+        return 1
     commit = _run(
         ["git", "commit", "-m", f"SWIPE_INFO daily review page {run_date}", "-q"],
         cwd=AI_PLAYGROUND_ROOT,
@@ -80,8 +83,27 @@ def main() -> int:
     if commit.returncode == 0:
         push = _run(["git", "push", "origin", "main"], cwd=AI_PLAYGROUND_ROOT)
         print(f"PUSHED={push.returncode == 0}")
+        if push.returncode != 0:
+            print("PUBLISH_FAILED (git push failed; Kakao delivery blocked to avoid a broken review link)")
+            return 1
+    elif commit.returncode == 1:
+        # Git uses exit 1 when there is nothing to commit. It is safe to send
+        # only when the two review-page paths are actually clean; any pending
+        # change means a failed commit or unpublished package.
+        pending = subprocess.run(
+            ["git", "status", "--porcelain", "--", dated_rel, latest_rel],
+            cwd=AI_PLAYGROUND_ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if pending.returncode != 0 or pending.stdout.strip():
+            print("PUBLISH_FAILED (review page still has uncommitted changes; Kakao delivery blocked)")
+            return 1
+        print("PUBLISH_ALREADY_CURRENT=true")
     else:
-        print("No new review-page changes to commit (already published for this date).")
+        print("PUBLISH_FAILED (git commit failed; Kakao delivery blocked to avoid a broken review link)")
+        return 1
 
     # 5. Kakao -- once per date; failure never invalidates the COMPLETE package
     if os.path.isfile(kakao_marker):

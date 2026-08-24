@@ -12,6 +12,7 @@ import json
 import os
 import shutil
 import sys
+import zipfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -44,7 +45,6 @@ def build(account: str, date: str) -> dict:
 
     run_summary = _read_json(os.path.join(out_dir, "run_summary.json"), {})
     qa_report = _read_json(os.path.join(out_dir, "qa_report.json"), {})
-    sources = _read_json(os.path.join(out_dir, "sources.json"), [])
     caption = _read(os.path.join(out_dir, "instagram_caption.txt"))
     threads_text = _read(os.path.join(out_dir, "threads.txt"))
     fact_sheet = _read_json(os.path.join(out_dir, "fact_sheet.json"), {})
@@ -61,6 +61,11 @@ def build(account: str, date: str) -> dict:
         os.makedirs(assets_dir, exist_ok=True)
         for name in png_names:
             shutil.copyfile(os.path.join(ig_dir, name), os.path.join(assets_dir, name))
+        zip_name = f"SWIPE_INFO_{date}_업로드용_PNG.zip"
+        zip_path = os.path.join(assets_dir, zip_name)
+        with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            for name in png_names:
+                archive.write(os.path.join(ig_dir, name), arcname=name)
         contact_sheet_src = os.path.join(out_dir, "preview", "contact_sheet.png")
         has_contact_sheet = os.path.isfile(contact_sheet_src)
         if has_contact_sheet:
@@ -70,11 +75,6 @@ def build(account: str, date: str) -> dict:
             f'<div class="page-card"><img src="assets/{name}" loading="lazy" alt="page {i+1}">'
             f'<a class="dl" href="assets/{name}" download>page_{i+1:02d}.png 다운로드</a></div>'
             for i, name in enumerate(png_names)
-        )
-        sources_html = "".join(
-            f'<li><a href="{_esc(s.get("url",""))}" target="_blank" rel="noopener">{_esc(s.get("publisher",""))}</a>'
-            f' <span class="muted">({_esc(s.get("published_at") or "")})</span></li>'
-            for s in sources
         )
         qa_status = qa_report.get("content_qa_status") or "-"
         render_qa_status = qa_report.get("render_qa_status") or "-"
@@ -112,10 +112,10 @@ def build(account: str, date: str) -> dict:
   <section><h2>토픽</h2><p>{_esc(topic)}</p><p class="muted">검증 시각: {_esc(verified_at)}</p></section>
   {'<section><h2>컨택트 시트</h2><img class="contact-sheet" src="assets/contact_sheet.png" alt="contact sheet"></section>' if has_contact_sheet else ''}
   <section><h2>페이지 ({len(png_names)}장)</h2><div class="page-grid">{pages_html}</div></section>
+  <section><h2>업로드용 파일</h2><a class="dl" href="assets/{zip_name}" download>PNG 전체 ZIP 다운로드</a></section>
   <section><h2>Instagram 캡션</h2><textarea readonly onclick="this.select()">{_esc(caption)}</textarea></section>
   <section><h2>Threads</h2><textarea readonly onclick="this.select()">{_esc(threads_text)}</textarea></section>
   <section><h2>QA</h2><p>content: <b>{_esc(qa_status)}</b> · render: <b>{_esc(render_qa_status)}</b></p></section>
-  <section><h2>공식 출처</h2><ul>{sources_html}</ul></section>
 </main>
 </body></html>"""
         with open(os.path.join(dest_dir, "index.html"), "w", encoding="utf-8") as f:
