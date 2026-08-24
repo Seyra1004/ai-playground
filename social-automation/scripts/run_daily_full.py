@@ -17,6 +17,9 @@ import json
 import os
 import subprocess
 import sys
+import time
+import urllib.error
+import urllib.request
 from datetime import date
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -28,6 +31,21 @@ PAGES_BASE_URL = "https://seyra1004.github.io/ai-playground/v2/reports/swipe-inf
 def _run(cmd, cwd):
     print("+", " ".join(cmd))
     return subprocess.run(cmd, cwd=cwd, check=False)
+
+
+def _review_page_is_live(url: str, run_date: str) -> bool:
+    """Do not send a review link until GitHub Pages serves today's page."""
+    for attempt in range(9):
+        try:
+            with urllib.request.urlopen(url, timeout=10) as response:  # noqa: S310 -- fixed HTTPS URL
+                body = response.read().decode("utf-8", errors="replace")
+                if response.status == 200 and f"SWIPE_INFO {run_date} 리뷰" in body:
+                    return True
+        except (urllib.error.URLError, TimeoutError):
+            pass
+        if attempt < 8:
+            time.sleep(10)
+    return False
 
 
 def main() -> int:
@@ -65,11 +83,22 @@ def main() -> int:
         return 1
 
     # 3. review page (dated + latest, regenerated from this run's own output/)
-    _run([py, "scripts/build_review_page.py", "--account", args.account, "--date", run_date], cwd=REPO_ROOT)
+    review_build = _run(
+        [py, "scripts/build_review_page.py", "--account", args.account, "--date", run_date], cwd=REPO_ROOT
+    )
+    if review_build.returncode != 0:
+        print("PUBLISH_FAILED (review page generation failed; Kakao delivery blocked)")
+        return 1
 
     dated_rel = f"docs/v2/reports/swipe-info/{run_date}"
     latest_rel = "docs/v2/reports/swipe-info/latest"
     kakao_marker = os.path.join(out_dir, "kakao_sent.json")
+    if not all(
+        os.path.isfile(os.path.join(AI_PLAYGROUND_ROOT, rel, "index.html"))
+        for rel in (dated_rel, latest_rel)
+    ):
+        print("PUBLISH_FAILED (review page output missing; Kakao delivery blocked)")
+        return 1
 
     # 4. publish to the existing GitHub Pages tree (commit only if changed)
     staged = _run(["git", "add", dated_rel, latest_rel], cwd=AI_PLAYGROUND_ROOT)
@@ -112,6 +141,9 @@ def main() -> int:
 
     dated_url = f"{PAGES_BASE_URL}/{run_date}/"
     latest_url = f"{PAGES_BASE_URL}/latest/"
+    if not _review_page_is_live(dated_url, run_date):
+        print("PUBLISH_FAILED (today's review page is not live; Kakao delivery blocked)")
+        return 1
     try:
         kakao = _run(
             [
@@ -124,9 +156,11 @@ def main() -> int:
             with open(kakao_marker, "w", encoding="utf-8") as f:
                 json.dump({"sent": True, "dated_url": dated_url}, f)
         else:
-            print("KAKAO_DELIVERY_FAILED (content package remains COMPLETE; not retried automatically)")
+            print("KAKAO_DELIVERY_FAILED")
+            return 1
     except Exception as exc:  # noqa: BLE001 -- delivery failure must never look like a content failure
         print(f"KAKAO_DELIVERY_FAILED: {exc}")
+        return 1
 
     return 0
 
