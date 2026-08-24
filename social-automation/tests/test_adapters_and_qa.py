@@ -74,6 +74,14 @@ class TestQAGate(unittest.TestCase):
         self.assertNotEqual(result.status.value, "PASS")
         self.assertIn("final_page_missing_cta", result.checks_failed)
 
+    def test_qa_blocks_public_source_disclosure(self):
+        account = load_account_config("swipe_info")
+        brand = load_brand_config(account.brand_config_path)
+        canonical = build_canonical()
+        ig = build_instagram_content(canonical, brand, caption="출처: https://example.gov.kr")
+        result = run_content_qa(canonical, ig, account.content.pages_min, account.content.pages_max)
+        self.assertIn("public_source_disclosure_detected", result.checks_failed)
+
     def test_brand_yaml_drives_canvas_settings(self):
         account = load_account_config("swipe_info")
         brand = load_brand_config(account.brand_config_path)

@@ -25,7 +25,7 @@ DEFAULT_CLI_PATH = "/home/ubuntu/.local/bin/claude"
 # never authored by the semantic layer.
 _VISUAL_TYPES = [
     "stat_hero", "highlight_box", "checklist", "exclusion_list", "steps",
-    "comparison", "process_flow", "evidence_card", "bar_chart", "cta_panel",
+    "comparison", "process_flow", "bar_chart", "cta_panel",
 ]
 
 SCHEMA = {
@@ -63,7 +63,9 @@ SYSTEM_PROMPT = (
     "Rules: preserve every verified fact EXACTLY as given in fact_sheet -- never invent numbers, "
     "deadlines, eligibility, exclusions, or procedures beyond what's in the evidence. Page 1 must "
     "be a concrete benefit/loss hook, not the formal policy name. Simple, clear Korean, "
-    "mobile-readable, no exaggeration/clickbait. Threads copy must NOT be a copy of the Instagram "
+    "mobile-readable, no exaggeration/clickbait. Never put URLs, publisher credits, source labels, "
+    "or the words '출처'/'공식 출처' in carousel pages, visual_data, Instagram caption, or Threads copy. "
+    "Threads copy must NOT be a copy of the Instagram "
     "caption -- different structure/opening, same underlying facts. Output ONLY the requested JSON "
     "matching the schema: one page object per role in page_plan, in the exact same order, each "
     "with a headline, a body, and a short visual_ref label.\n\n"
@@ -77,8 +79,6 @@ SYSTEM_PROMPT = (
     '{"type":"steps","items":[str,...]} ordered procedure; '
     '{"type":"comparison","left":{"icon":emoji,"title":str,"desc":str},"right":{...}} two-option compare; '
     '{"type":"process_flow","steps":[str,...]} vertical stage flow; '
-    '{"type":"evidence_card","publisher":str,"source_label":str,"published_at":str,"url":str} official-source citation, '
-    "values must come from fact_sheet's own source fields; "
     '{"type":"bar_chart","items":[[label,value],...],"unit":str} numeric comparison; '
     '{"type":"cta_panel","button_text":str,"region":str (optional)} final call-to-action. '
     "Every items/big_text/highlight/etc. value must be derived only from fact_sheet -- never invented."

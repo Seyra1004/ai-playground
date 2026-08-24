@@ -279,7 +279,13 @@ def run_pipeline(
 
     # --- stage: qa ---
     def _do_qa():
-        qa_content = run_content_qa(canonical, instagram_content, account.content.pages_min, account.content.pages_max)
+        qa_content = run_content_qa(
+            canonical,
+            instagram_content,
+            account.content.pages_min,
+            account.content.pages_max,
+            threads_text=threads_text_override or (threads_content.text if threads_content else ""),
+        )
         qa_render = (
             run_render_qa(renderer_input, brand)
             if renderer_input is not None

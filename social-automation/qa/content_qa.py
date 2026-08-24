@@ -2,12 +2,23 @@ from __future__ import annotations
 
 import json
 import os
+import re
 
 from core.factcheck import validate_fact_sheet_claims
 from core.models import CanonicalContent, InstagramContent, QAResult, QAStatus
 
 # Configurable per-page body density guardrail for readable mobile carousel text.
 MAX_BODY_CHARS = 220
+_PUBLIC_SOURCE_LEAK = re.compile(r"https?://|www\.|\b출처\s*:|공식\s*출처|\bsource\s*:", re.IGNORECASE)
+
+
+def _public_text_values(canonical: CanonicalContent, caption: str, threads_text: str) -> list[str]:
+    values = [caption or "", threads_text or ""]
+    for page in canonical.pages:
+        values.extend([page.headline or "", page.body or ""])
+        if page.visual_data:
+            values.append(json.dumps(page.visual_data, ensure_ascii=False))
+    return values
 
 
 def run_content_qa(
@@ -15,6 +26,7 @@ def run_content_qa(
     instagram_content: InstagramContent,
     pages_min: int,
     pages_max: int,
+    threads_text: str = "",
 ) -> QAResult:
     passed = []
     failed = []
@@ -61,6 +73,12 @@ def run_content_qa(
             passed.append("instagram_page_count_matches_canonical")
         else:
             failed.append("instagram_page_count_mismatch")
+
+        public_values = _public_text_values(canonical, instagram_content.caption, threads_text)
+        if any(_PUBLIC_SOURCE_LEAK.search(value) for value in public_values):
+            failed.append("public_source_disclosure_detected")
+        else:
+            passed.append("public_source_disclosure_blocked")
 
     if failed:
         status = QAStatus.FAIL
