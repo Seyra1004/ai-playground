@@ -21,6 +21,7 @@ def main() -> int:
     parser.add_argument("--status", required=True)
     parser.add_argument("--dated-url", required=True)
     parser.add_argument("--latest-url", required=True)
+    parser.add_argument("--title", default="SWIPE_INFO 오늘 콘텐츠")
     args = parser.parse_args()
 
     from kakao.client import KakaoSendError, KakaoValidationError, send_feed_memo  # noqa: E402
@@ -28,7 +29,7 @@ def main() -> int:
     description = f"[{args.status}] {args.topic}"[:200]
     try:
         resp = send_feed_memo(
-            title="SWIPE_INFO 오늘 콘텐츠",
+            title=args.title[:50],
             description=description,
             link_url=args.dated_url,
             buttons=[("오늘 리뷰 보기", args.dated_url), ("최신 콘텐츠", args.latest_url)],
