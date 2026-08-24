@@ -1332,7 +1332,7 @@ def render_page_html(page: CarouselPage, total_pages: int, brand: BrandConfig, f
         if steps:
             html.append(_cta_designed(steps, trailing, vd.get("button_text", "확인하기"), accent, accent2))
         else:
-            html.append(_cta_full(page.body or page.headline, vd.get("button_text", "확인하기"), vd.get("region", ""), accent, accent2, flex="0 1 auto"))
+            html.append(_cta_full(page.body or page.headline, vd.get("button_text", "확인하기"), vd.get("region", ""), accent, accent2, flex="1 1 auto"))
 
     if show_closing_strip:
         html.append(_closing_strip(closing_sentence, accent, text_color))
