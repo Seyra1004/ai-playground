@@ -7,11 +7,12 @@ OnFailure=social-automation-swipe-info-failure@%n.service
 [Service]
 Type=oneshot
 User=ubuntu
+RuntimeDirectory=swipe-info
 WorkingDirectory=/opt/ai-playground-src-v2/social-automation
 Environment=SOCIAL_AUTOMATION_NO_PAYG=1
 ExecStartPre=/usr/bin/git -C /opt/ai-playground-src-v2 fetch origin main
 ExecStartPre=/usr/bin/git -C /opt/ai-playground-src-v2 reset --hard origin/main
-ExecStart=/opt/ai-playground-src-v2/social-automation/.venv/bin/python3 /opt/ai-playground-src-v2/social-automation/scripts/run_daily_full.py --account swipe_info
+ExecStart=/usr/bin/flock -n -E 0 /run/swipe-info/daily.lock /opt/ai-playground-src-v2/social-automation/.venv/bin/python3 /opt/ai-playground-src-v2/social-automation/scripts/run_daily_full.py --account swipe_info
 TimeoutStartSec=20min
 StandardOutput=journal
 StandardError=journal
